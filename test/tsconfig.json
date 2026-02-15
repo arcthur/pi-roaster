@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "noEmit": true,
+    "composite": false,
+    "types": ["node", "bun-types"]
+  },
+  "references": [
+    { "path": "../packages/roaster-runtime" },
+    { "path": "../packages/roaster-tools" },
+    { "path": "../packages/roaster-extensions" },
+    { "path": "../packages/roaster-cli" }
+  ],
+  "include": ["./**/*.ts", "./**/*.d.ts"]
+}

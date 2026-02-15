@@ -1,0 +1,16 @@
+node_modules
+bun.lockb
+*.tsbuildinfo
+dist
+.pi
+.orchestrator
+distribution/pi-roaster-*/bin/pi-roaster
+distribution/pi-roaster-*/bin/pi-roaster.exe
+distribution/pi-roaster-*/bin/package.json
+distribution/pi-roaster-*/bin/README.md
+distribution/pi-roaster-*/bin/CHANGELOG.md
+distribution/pi-roaster-*/bin/photon_rs_bg.wasm
+distribution/pi-roaster-*/bin/docs
+distribution/pi-roaster-*/bin/examples
+distribution/pi-roaster-*/bin/theme
+distribution/pi-roaster-*/bin/export-html

@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/roaster-runtime" },
+    { "path": "./packages/roaster-tools" },
+    { "path": "./packages/roaster-extensions" },
+    { "path": "./packages/roaster-cli" },
+    { "path": "./script" }
+  ]
+}

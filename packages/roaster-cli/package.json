@@ -1,0 +1,25 @@
+{
+  "name": "@pi-roaster/roaster-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "pi-roaster": "./dist/index.js",
+    "roaster": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@pi-roaster/roaster-runtime": "workspace:*",
+    "@pi-roaster/roaster-tools": "workspace:*",
+    "@pi-roaster/roaster-extensions": "workspace:*",
+    "@mariozechner/pi-coding-agent": "^0.52.12"
+  }
+}

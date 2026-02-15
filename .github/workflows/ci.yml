@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Typecheck and Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck Workspace
+        run: bun run typecheck
+
+      - name: Typecheck Test Project
+        run: bun run typecheck:test
+
+      - name: Run Unit and Integration Tests
+        run: bun test
+
+      - name: Run Docs Quality Checks
+        run: bun run test:docs
+
+      - name: Run Dist Smoke Checks
+        run: bun run test:dist
+
+  binaries:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Cross-Platform Binaries
+        run: bun run build:binaries
+
+      - name: Linux Binary Smoke Test
+        run: ./distribution/pi-roaster-linux-x64/bin/pi-roaster --help | head -n 1

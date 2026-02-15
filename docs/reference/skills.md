@@ -1,0 +1,37 @@
+# Reference: Skills
+
+Skill parsing, merge, and selection logic:
+
+- `packages/roaster-runtime/src/skills/contract.ts`
+- `packages/roaster-runtime/src/skills/registry.ts`
+- `packages/roaster-runtime/src/skills/selector.ts`
+
+## Base Skills
+
+- `cartography`
+- `compose`
+- `debugging`
+- `exploration`
+- `git`
+- `patching`
+- `planning`
+- `review`
+- `verification`
+
+## Pack Skills
+
+- `browser`
+- `bun`
+- `frontend-ui-ux`
+- `react`
+- `typescript`
+
+## Project Skills
+
+- `roaster-project`
+
+## Storage Convention
+
+- `skills/base/<skill>/SKILL.md`
+- `skills/packs/<pack>/SKILL.md`
+- `skills/project/<skill>/SKILL.md`

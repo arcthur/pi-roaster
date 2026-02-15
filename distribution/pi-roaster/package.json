@@ -1,0 +1,33 @@
+{
+  "name": "@pi-roaster/pi-roaster",
+  "version": "0.1.0",
+  "description": "Platform-aware binary launcher for the pi-roaster CLI",
+  "license": "MIT",
+  "type": "module",
+  "piConfig": {
+    "name": "pi-roaster",
+    "configDir": ".pi"
+  },
+  "bin": {
+    "pi-roaster": "./bin/pi-roaster.js"
+  },
+  "files": [
+    "bin",
+    "postinstall.mjs"
+  ],
+  "scripts": {
+    "postinstall": "node postinstall.mjs"
+  },
+  "dependencies": {
+    "detect-libc": "^2.0.4"
+  },
+  "optionalDependencies": {
+    "@pi-roaster/pi-roaster-darwin-arm64": "0.1.0",
+    "@pi-roaster/pi-roaster-darwin-x64": "0.1.0",
+    "@pi-roaster/pi-roaster-linux-arm64": "0.1.0",
+    "@pi-roaster/pi-roaster-linux-arm64-musl": "0.1.0",
+    "@pi-roaster/pi-roaster-linux-x64": "0.1.0",
+    "@pi-roaster/pi-roaster-linux-x64-musl": "0.1.0",
+    "@pi-roaster/pi-roaster-windows-x64": "0.1.0"
+  }
+}

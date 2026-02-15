@@ -1,0 +1,1525 @@
+import { resolve } from "node:path";
+import type {
+  ContextBudgetUsage,
+  EvidenceQuery,
+  ParallelAcquireResult,
+  RollbackResult,
+  RoasterEventCategory,
+  RoasterEventQuery,
+  RoasterEventRecord,
+  RoasterReplaySession,
+  RoasterConfig,
+  RoasterStructuredEvent,
+  RuntimeSessionRestoreResult,
+  RuntimeSessionSnapshot,
+  SkillDocument,
+  SkillOutputRecord,
+  SkillSelection,
+  SessionCostSummary,
+  VerificationLevel,
+  VerificationReport,
+  WorkerMergeReport,
+  WorkerResult,
+} from "./types.js";
+import { loadRoasterConfig } from "./config/loader.js";
+import { SkillRegistry } from "./skills/registry.js";
+import { selectTopKSkills } from "./skills/selector.js";
+import { EvidenceLedger } from "./ledger/evidence-ledger.js";
+import { buildLedgerDigest } from "./ledger/digest.js";
+import { formatLedgerRows } from "./ledger/query.js";
+import { classifyEvidence, isMutationTool } from "./verification/classifier.js";
+import { VerificationGate } from "./verification/gate.js";
+import { ParallelBudgetManager } from "./parallel/budget.js";
+import { ParallelResultStore } from "./parallel/results.js";
+import { sanitizeContextText } from "./security/sanitize.js";
+import { checkToolAccess } from "./security/tool-policy.js";
+import { runShellCommand } from "./utils/exec.js";
+import { ContextBudgetManager } from "./context/budget.js";
+import { ContextInjectionCollector, type ContextInjectionPriority } from "./context/injection.js";
+import { RoasterEventStore } from "./events/store.js";
+import { SessionSnapshotStore } from "./state/snapshot-store.js";
+import { FileChangeTracker } from "./state/file-change-tracker.js";
+import { SessionCostTracker } from "./cost/tracker.js";
+import { sha256 } from "./utils/hash.js";
+import { estimateTokenCount, truncateTextToTokenBudget } from "./utils/token.js";
+
+const ALWAYS_ALLOWED_TOOLS = ["skill_complete", "skill_load", "ledger_query", "cost_view", "rollback_last_patch"];
+const ALWAYS_ALLOWED_TOOL_SET = new Set(ALWAYS_ALLOWED_TOOLS);
+
+function normalizeToolName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+export interface RoasterRuntimeOptions {
+  cwd?: string;
+  configPath?: string;
+  config?: RoasterConfig;
+}
+
+export interface VerifyCompletionOptions {
+  executeCommands?: boolean;
+  timeoutMs?: number;
+}
+
+function inferEventCategory(type: string): RoasterEventCategory {
+  if (type.startsWith("session_") || type === "session_start" || type === "session_shutdown") return "session";
+  if (type.startsWith("turn_")) return "turn";
+  if (type.includes("tool") || type.startsWith("patch_") || type === "rollback") return "tool";
+  if (type.startsWith("context_")) return "context";
+  if (type.startsWith("cost_") || type.startsWith("budget_")) return "cost";
+  if (type.startsWith("verification_")) return "verification";
+  if (type.includes("snapshot") || type.includes("resumed") || type.includes("interrupted")) return "state";
+  return "other";
+}
+
+function buildSkillCandidateBlock(selected: SkillSelection[]): string {
+  const skillLines =
+    selected.length > 0
+      ? selected.map((entry) => `- ${entry.name} (score=${entry.score}, reason=${entry.reason})`)
+      : ["- (none)"];
+  return ["[Roaster Context]", "Top-K Skill Candidates:", ...skillLines].join("\n");
+}
+
+function buildContextSourceTokenLimits(maxInjectionTokens: number): Record<string, number> {
+  const budget = Math.max(64, Math.floor(maxInjectionTokens));
+  const fromRatio = (ratio: number, minimum: number, maximum = budget): number => {
+    const scaled = Math.floor(budget * ratio);
+    return Math.max(minimum, Math.min(maximum, scaled));
+  };
+
+  return {
+    "roaster.skill-candidates": fromRatio(0.28, 64, 320),
+    "roaster.resume-hint": fromRatio(0.4, 96, 480),
+    "roaster.compaction-summary": fromRatio(0.45, 120, 600),
+    "roaster.ledger-digest": budget,
+  };
+}
+
+export class RoasterRuntime {
+  readonly cwd: string;
+  readonly config: RoasterConfig;
+  readonly skills: SkillRegistry;
+  readonly ledger: EvidenceLedger;
+  readonly verification: VerificationGate;
+  readonly parallel: ParallelBudgetManager;
+  readonly parallelResults: ParallelResultStore;
+  readonly events: RoasterEventStore;
+  readonly contextBudget: ContextBudgetManager;
+  readonly contextInjection: ContextInjectionCollector;
+  readonly snapshots: SessionSnapshotStore;
+  readonly fileChanges: FileChangeTracker;
+  readonly costTracker: SessionCostTracker;
+
+  private activeSkillsBySession = new Map<string, string>();
+  private turnsBySession = new Map<string, number>();
+  private toolCallsBySession = new Map<string, number>();
+  private resumeHintsBySession = new Map<string, string>();
+  private latestCompactionSummaryBySession = new Map<string, { entryId?: string; summary: string }>();
+  private lastInjectedContextFingerprintBySession = new Map<string, string>();
+  private reservedContextInjectionTokensByScope = new Map<string, number>();
+  private lastLedgerCompactionTurnBySession = new Map<string, number>();
+  private toolContractWarningsBySession = new Map<string, Set<string>>();
+  private skillBudgetWarningsBySession = new Map<string, Set<string>>();
+  private skillParallelWarningsBySession = new Map<string, Set<string>>();
+  private skillOutputsBySession = new Map<string, Map<string, SkillOutputRecord>>();
+  private eventListeners = new Set<(event: RoasterStructuredEvent) => void>();
+
+  constructor(options: RoasterRuntimeOptions = {}) {
+    this.cwd = resolve(options.cwd ?? process.cwd());
+    this.config = options.config ?? loadRoasterConfig({ cwd: this.cwd, configPath: options.configPath });
+
+    this.skills = new SkillRegistry({
+      rootDir: this.cwd,
+      config: this.config,
+    });
+    this.skills.load();
+    this.skills.writeIndex();
+
+    const ledgerPath = resolve(this.cwd, this.config.ledger.path);
+    this.ledger = new EvidenceLedger(ledgerPath);
+    this.verification = new VerificationGate(this.config);
+    this.parallel = new ParallelBudgetManager(this.config.parallel);
+    this.parallelResults = new ParallelResultStore();
+    this.events = new RoasterEventStore(this.config.infrastructure.events, this.cwd);
+    this.contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
+    this.contextInjection = new ContextInjectionCollector({
+      sourceTokenLimits: this.isContextBudgetEnabled()
+        ? buildContextSourceTokenLimits(this.config.infrastructure.contextBudget.maxInjectionTokens)
+        : {},
+      truncationStrategy: this.config.infrastructure.contextBudget.truncationStrategy,
+    });
+    this.snapshots = new SessionSnapshotStore(this.config.infrastructure.interruptRecovery, this.cwd);
+    this.fileChanges = new FileChangeTracker(this.cwd);
+    this.costTracker = new SessionCostTracker(this.config.infrastructure.costTracking);
+  }
+
+  refreshSkills(): void {
+    this.skills.load();
+    this.skills.writeIndex();
+  }
+
+  listSkills(): SkillDocument[] {
+    return this.skills.list();
+  }
+
+  getSkill(name: string): SkillDocument | undefined {
+    return this.skills.get(name);
+  }
+
+  selectSkills(message: string): SkillSelection[] {
+    const input = this.config.security.sanitizeContext ? sanitizeContextText(message) : message;
+    return selectTopKSkills(input, this.skills.buildIndex(), this.config.skills.selector.k);
+  }
+
+  onTurnStart(sessionId: string, turnIndex: number): void {
+    const current = this.turnsBySession.get(sessionId) ?? 0;
+    const effectiveTurn = Math.max(current, turnIndex);
+    this.turnsBySession.set(sessionId, effectiveTurn);
+    this.contextBudget.beginTurn(sessionId, effectiveTurn);
+    this.contextInjection.clearPending(sessionId);
+    this.clearReservedInjectionTokensForSession(sessionId);
+  }
+
+  observeContextUsage(sessionId: string, usage: ContextBudgetUsage | undefined): void {
+    this.contextBudget.observeUsage(sessionId, usage);
+    if (!usage) return;
+    this.recordEvent({
+      sessionId,
+      type: "context_usage",
+      payload: {
+        tokens: usage.tokens,
+        contextWindow: usage.contextWindow,
+        percent: usage.percent,
+      },
+    });
+  }
+
+  buildContextInjection(
+    sessionId: string,
+    prompt: string,
+    usage?: ContextBudgetUsage,
+    injectionScopeId?: string,
+  ): { text: string; accepted: boolean; originalTokens: number; finalTokens: number; truncated: boolean } {
+    const promptText = this.sanitizeInput(prompt);
+    const selected = this.selectSkills(promptText);
+    const digest = this.getLedgerDigest(sessionId);
+    const resumeHint = this.getResumeHint(sessionId);
+    this.registerContextInjection(sessionId, {
+      source: "roaster.skill-candidates",
+      id: "top-k-skills",
+      priority: "high",
+      content: buildSkillCandidateBlock(selected),
+    });
+    this.registerContextInjection(sessionId, {
+      source: "roaster.ledger-digest",
+      id: "ledger-digest",
+      priority: "normal",
+      content: digest,
+    });
+
+    if (resumeHint) {
+      this.registerContextInjection(sessionId, {
+        source: "roaster.resume-hint",
+        id: "resume-hint",
+        priority: "critical",
+        content: `[ResumeHint]\n${resumeHint}`,
+      });
+    }
+
+    const latestCompaction = this.latestCompactionSummaryBySession.get(sessionId);
+    if (latestCompaction?.summary) {
+      this.registerContextInjection(sessionId, {
+        source: "roaster.compaction-summary",
+        id: latestCompaction.entryId ?? "latest",
+        priority: "high",
+        oncePerSession: true,
+        content: `[CompactionSummary]\n${latestCompaction.summary}`,
+      });
+    }
+
+    const merged = this.contextInjection.plan(
+      sessionId,
+      this.isContextBudgetEnabled() ? this.config.infrastructure.contextBudget.maxInjectionTokens : Number.MAX_SAFE_INTEGER,
+    );
+    const raw = merged.text;
+    const decision = this.contextBudget.planInjection(sessionId, raw, usage);
+    const wasTruncated = decision.truncated || merged.truncated;
+    if (decision.accepted) {
+      const fingerprint = sha256(decision.finalText);
+      const scopeKey = this.buildInjectionScopeKey(sessionId, injectionScopeId);
+      const previous = this.lastInjectedContextFingerprintBySession.get(scopeKey);
+      if (previous === fingerprint) {
+        this.reservedContextInjectionTokensByScope.set(scopeKey, 0);
+        this.contextInjection.commit(sessionId, merged.consumedKeys);
+        if (resumeHint) {
+          this.clearResumeHint(sessionId);
+        }
+        this.recordEvent({
+          sessionId,
+          type: "context_injection_dropped",
+          payload: {
+            reason: "duplicate_content",
+            originalTokens: decision.originalTokens,
+          },
+        });
+        return {
+          text: "",
+          accepted: false,
+          originalTokens: decision.originalTokens,
+          finalTokens: 0,
+          truncated: false,
+        };
+      }
+
+      this.contextInjection.commit(sessionId, merged.consumedKeys);
+      if (resumeHint) {
+        this.clearResumeHint(sessionId);
+      }
+      this.reservedContextInjectionTokensByScope.set(scopeKey, this.isContextBudgetEnabled() ? decision.finalTokens : 0);
+      this.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint);
+      this.recordEvent({
+        sessionId,
+        type: "context_injected",
+        payload: {
+          originalTokens: decision.originalTokens,
+          finalTokens: decision.finalTokens,
+          truncated: wasTruncated,
+          usagePercent: usage?.percent ?? null,
+          sourceCount: merged.entries.length,
+          sourceTokens: merged.estimatedTokens,
+        },
+      });
+      return {
+        text: decision.finalText,
+        accepted: true,
+        originalTokens: decision.originalTokens,
+        finalTokens: decision.finalTokens,
+        truncated: wasTruncated,
+      };
+    }
+
+    const rejectedScopeKey = this.buildInjectionScopeKey(sessionId, injectionScopeId);
+    this.reservedContextInjectionTokensByScope.set(rejectedScopeKey, 0);
+    this.recordEvent({
+      sessionId,
+      type: "context_injection_dropped",
+      payload: {
+        reason: decision.droppedReason ?? "unknown",
+        originalTokens: decision.originalTokens,
+      },
+    });
+    return {
+      text: "",
+      accepted: false,
+      originalTokens: decision.originalTokens,
+      finalTokens: 0,
+      truncated: false,
+    };
+  }
+
+  planSupplementalContextInjection(
+    sessionId: string,
+    inputText: string,
+    usage?: ContextBudgetUsage,
+    injectionScopeId?: string,
+  ): {
+    accepted: boolean;
+    text: string;
+    originalTokens: number;
+    finalTokens: number;
+    truncated: boolean;
+    droppedReason?: "hard_limit" | "budget_exhausted";
+  } {
+    const decision = this.contextBudget.planInjection(sessionId, inputText, usage);
+    if (!decision.accepted) {
+      return {
+        accepted: false,
+        text: "",
+        originalTokens: decision.originalTokens,
+        finalTokens: 0,
+        truncated: false,
+        droppedReason: decision.droppedReason,
+      };
+    }
+
+    if (!this.isContextBudgetEnabled()) {
+      return {
+        accepted: true,
+        text: decision.finalText,
+        originalTokens: decision.originalTokens,
+        finalTokens: decision.finalTokens,
+        truncated: decision.truncated,
+      };
+    }
+
+    const scopeKey = this.buildInjectionScopeKey(sessionId, injectionScopeId);
+    const usedTokens = this.reservedContextInjectionTokensByScope.get(scopeKey) ?? 0;
+    const maxTokens = Math.max(0, Math.floor(this.config.infrastructure.contextBudget.maxInjectionTokens));
+    const remainingTokens = Math.max(0, maxTokens - usedTokens);
+    if (remainingTokens <= 0) {
+      return {
+        accepted: false,
+        text: "",
+        originalTokens: decision.originalTokens,
+        finalTokens: 0,
+        truncated: false,
+        droppedReason: "budget_exhausted",
+      };
+    }
+
+    let finalText = decision.finalText;
+    let finalTokens = decision.finalTokens;
+    let truncated = decision.truncated;
+    if (finalTokens > remainingTokens) {
+      finalText = truncateTextToTokenBudget(finalText, remainingTokens);
+      finalTokens = estimateTokenCount(finalText);
+      truncated = true;
+    }
+
+    if (finalText.length === 0 || finalTokens <= 0) {
+      return {
+        accepted: false,
+        text: "",
+        originalTokens: decision.originalTokens,
+        finalTokens: 0,
+        truncated: false,
+        droppedReason: "budget_exhausted",
+      };
+    }
+
+    return {
+      accepted: true,
+      text: finalText,
+      originalTokens: decision.originalTokens,
+      finalTokens,
+      truncated,
+    };
+  }
+
+  commitSupplementalContextInjection(sessionId: string, finalTokens: number, injectionScopeId?: string): void {
+    if (!this.isContextBudgetEnabled()) {
+      return;
+    }
+
+    const normalizedTokens = Math.max(0, Math.floor(finalTokens));
+    if (normalizedTokens <= 0) return;
+
+    const scopeKey = this.buildInjectionScopeKey(sessionId, injectionScopeId);
+    const usedTokens = this.reservedContextInjectionTokensByScope.get(scopeKey) ?? 0;
+    const maxTokens = Math.max(0, Math.floor(this.config.infrastructure.contextBudget.maxInjectionTokens));
+    this.reservedContextInjectionTokensByScope.set(scopeKey, Math.min(maxTokens, usedTokens + normalizedTokens));
+  }
+
+  shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean {
+    const decision = this.contextBudget.shouldRequestCompaction(sessionId, usage);
+    if (!decision.shouldCompact) return false;
+    this.recordEvent({
+      sessionId,
+      type: "context_compaction_requested",
+      payload: {
+        reason: decision.reason ?? "usage_threshold",
+        usagePercent: decision.usage?.percent ?? null,
+        tokens: decision.usage?.tokens ?? null,
+      },
+    });
+    return true;
+  }
+
+  markContextCompacted(
+    sessionId: string,
+    input: { fromTokens?: number | null; toTokens?: number | null; summary?: string; entryId?: string },
+  ): void {
+    this.contextBudget.markCompacted(sessionId);
+    this.contextInjection.resetOncePerSession(sessionId);
+    this.clearInjectionFingerprintsForSession(sessionId);
+    this.clearReservedInjectionTokensForSession(sessionId);
+    const turn = this.getCurrentTurn(sessionId);
+    const summary = input.summary?.trim();
+    const entryId = input.entryId?.trim();
+    if (summary) {
+      this.latestCompactionSummaryBySession.set(sessionId, { entryId, summary });
+    } else {
+      this.latestCompactionSummaryBySession.delete(sessionId);
+    }
+
+    this.recordEvent({
+      sessionId,
+      type: "context_compacted",
+      turn,
+      payload: {
+        fromTokens: input.fromTokens ?? null,
+        toTokens: input.toTokens ?? null,
+        entryId: entryId ?? null,
+        summaryChars: summary?.length ?? null,
+      },
+    });
+    this.ledger.append({
+      sessionId,
+      turn,
+      skill: this.getActiveSkill(sessionId)?.name,
+      tool: "roaster_context_compaction",
+      argsSummary: "context_compaction",
+      outputSummary: `from=${input.fromTokens ?? "unknown"} to=${input.toTokens ?? "unknown"}`,
+      fullOutput: JSON.stringify({
+        fromTokens: input.fromTokens ?? null,
+        toTokens: input.toTokens ?? null,
+      }),
+      verdict: "inconclusive",
+      metadata: {
+        source: "context_budget",
+        fromTokens: input.fromTokens ?? null,
+        toTokens: input.toTokens ?? null,
+        entryId: entryId ?? null,
+        summaryChars: summary?.length ?? null,
+      },
+    });
+  }
+
+  private registerContextInjection(
+    sessionId: string,
+    input: {
+      source: string;
+      id: string;
+      content: string;
+      priority?: ContextInjectionPriority;
+      estimatedTokens?: number;
+      oncePerSession?: boolean;
+    },
+  ): void {
+    this.contextInjection.register(sessionId, input);
+  }
+
+  activateSkill(sessionId: string, name: string): { ok: boolean; reason?: string; skill?: SkillDocument } {
+    const skill = this.skills.get(name);
+    if (!skill) {
+      return { ok: false, reason: `Skill '${name}' not found.` };
+    }
+
+    const activeName = this.activeSkillsBySession.get(sessionId);
+    if (activeName && activeName !== name) {
+      const activeSkill = this.skills.get(activeName);
+      const activeAllows = activeSkill?.contract.composableWith?.includes(name) ?? false;
+      const nextAllows = skill.contract.composableWith?.includes(activeName) ?? false;
+      if (!activeAllows && !nextAllows) {
+        return {
+          ok: false,
+          reason: `Active skill '${activeName}' must be completed before activating '${name}'.`,
+        };
+      }
+    }
+
+    this.activeSkillsBySession.set(sessionId, name);
+    this.toolCallsBySession.set(sessionId, 0);
+    return { ok: true, skill };
+  }
+
+  getActiveSkill(sessionId: string): SkillDocument | undefined {
+    const active = this.activeSkillsBySession.get(sessionId);
+    if (!active) return undefined;
+    return this.skills.get(active);
+  }
+
+  validateSkillOutputs(sessionId: string, outputs: Record<string, unknown>): { ok: boolean; missing: string[] } {
+    const skill = this.getActiveSkill(sessionId);
+    if (!skill) {
+      return { ok: true, missing: [] };
+    }
+
+    const isSatisfied = (value: unknown): boolean => {
+      if (value === undefined || value === null) return false;
+      if (typeof value === "string") return value.trim().length > 0;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "number") return Number.isFinite(value);
+      if (typeof value === "boolean") return true;
+      if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+      return true;
+    };
+
+    const expected = skill.contract.outputs ?? [];
+    const missing = expected.filter((name) => !isSatisfied(outputs[name]));
+    if (missing.length === 0) {
+      return { ok: true, missing: [] };
+    }
+    return { ok: false, missing };
+  }
+
+  validateComposePlan(plan: {
+    steps: Array<{ skill: string; consumes?: string[]; produces?: string[] }>;
+  }): { valid: boolean; errors: string[]; warnings: string[] } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const availableOutputs = new Set<string>();
+
+    for (const [i, step] of plan.steps.entries()) {
+      const skill = this.skills.get(step.skill);
+      if (!skill) {
+        errors.push(`Step ${i + 1}: skill '${step.skill}' not found in registry.`);
+        continue;
+      }
+
+      for (const consumed of step.consumes ?? []) {
+        if (!availableOutputs.has(consumed)) {
+          warnings.push(
+            `Step ${i + 1} (${step.skill}): consumes '${consumed}' but no prior step produces it.`,
+          );
+        }
+      }
+
+      for (const produced of step.produces ?? []) {
+        availableOutputs.add(produced);
+      }
+    }
+
+    return { valid: errors.length === 0, errors, warnings };
+  }
+
+  completeSkill(sessionId: string, outputs: Record<string, unknown>): { ok: boolean; missing: string[] } {
+    const validation = this.validateSkillOutputs(sessionId, outputs);
+    if (!validation.ok) {
+      return validation;
+    }
+
+    const activeSkillName = this.activeSkillsBySession.get(sessionId);
+    if (activeSkillName) {
+      let sessionOutputs = this.skillOutputsBySession.get(sessionId);
+      if (!sessionOutputs) {
+        sessionOutputs = new Map();
+        this.skillOutputsBySession.set(sessionId, sessionOutputs);
+      }
+      sessionOutputs.set(activeSkillName, {
+        skillName: activeSkillName,
+        completedAt: Date.now(),
+        outputs,
+      });
+
+      this.activeSkillsBySession.delete(sessionId);
+      this.toolCallsBySession.delete(sessionId);
+    }
+    return validation;
+  }
+
+  getSkillOutputs(sessionId: string, skillName: string): Record<string, unknown> | undefined {
+    return this.skillOutputsBySession.get(sessionId)?.get(skillName)?.outputs;
+  }
+
+  getAvailableConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown> {
+    const targetSkill = this.skills.get(targetSkillName);
+    if (!targetSkill) return {};
+    const consumes = targetSkill.contract.consumes ?? [];
+    if (consumes.length === 0) return {};
+
+    const consumeSet = new Set(consumes);
+    const result: Record<string, unknown> = {};
+    const sessionOutputs = this.skillOutputsBySession.get(sessionId);
+    if (!sessionOutputs) return {};
+
+    for (const record of sessionOutputs.values()) {
+      for (const [key, value] of Object.entries(record.outputs)) {
+        if (consumeSet.has(key)) {
+          result[key] = value;
+        }
+      }
+    }
+    return result;
+  }
+
+  checkToolAccess(sessionId: string, toolName: string): { allowed: boolean; reason?: string } {
+    const skill = this.getActiveSkill(sessionId);
+    const normalizedToolName = normalizeToolName(toolName);
+    const access = checkToolAccess(skill?.contract, toolName, {
+      enforceDeniedTools: this.config.security.enforceDeniedTools,
+      allowedToolsMode: this.config.security.allowedToolsMode,
+      alwaysAllowedTools: ALWAYS_ALLOWED_TOOLS,
+    });
+
+    if (access.warning && skill) {
+      const key = `${skill.name}:${normalizedToolName}`;
+      const seen = this.toolContractWarningsBySession.get(sessionId) ?? new Set<string>();
+      if (!seen.has(key)) {
+        seen.add(key);
+        this.toolContractWarningsBySession.set(sessionId, seen);
+        this.recordEvent({
+          sessionId,
+          type: "tool_contract_warning",
+          turn: this.getCurrentTurn(sessionId),
+          payload: {
+            skill: skill.name,
+            toolName: normalizedToolName,
+            mode: this.config.security.allowedToolsMode,
+            reason: access.warning,
+          },
+        });
+      }
+    }
+
+    if (!access.allowed) {
+      this.recordEvent({
+        sessionId,
+        type: "tool_call_blocked",
+        turn: this.getCurrentTurn(sessionId),
+        payload: {
+          toolName: normalizedToolName,
+          skill: skill?.name ?? null,
+          reason: access.reason ?? "Tool call blocked.",
+        },
+      });
+      return { allowed: false, reason: access.reason };
+    }
+
+    const budget = this.costTracker.getBudgetStatus(sessionId);
+    if (budget.blocked) {
+      this.recordEvent({
+        sessionId,
+        type: "tool_call_blocked",
+        turn: this.getCurrentTurn(sessionId),
+        payload: {
+          toolName: normalizedToolName,
+          skill: skill?.name ?? null,
+          reason: budget.reason ?? "Session budget exceeded.",
+        },
+      });
+      return {
+        allowed: false,
+        reason: budget.reason ?? "Session budget exceeded.",
+      };
+    }
+
+    if (!skill) {
+      return access;
+    }
+
+    if (this.config.security.skillMaxTokensMode !== "off" && !ALWAYS_ALLOWED_TOOL_SET.has(normalizedToolName)) {
+      const maxTokens = skill.contract.budget.maxTokens;
+      const usedTokens = this.costTracker.getSkillTotalTokens(sessionId, skill.name);
+      if (usedTokens >= maxTokens) {
+        const reason = `Skill '${skill.name}' exceeded maxTokens=${maxTokens} (used=${usedTokens}).`;
+        if (this.config.security.skillMaxTokensMode === "warn") {
+          const key = `maxTokens:${skill.name}`;
+          const seen = this.skillBudgetWarningsBySession.get(sessionId) ?? new Set<string>();
+          if (!seen.has(key)) {
+            seen.add(key);
+            this.skillBudgetWarningsBySession.set(sessionId, seen);
+            this.recordEvent({
+              sessionId,
+              type: "skill_budget_warning",
+              turn: this.getCurrentTurn(sessionId),
+              payload: {
+                skill: skill.name,
+                usedTokens,
+                maxTokens,
+                mode: this.config.security.skillMaxTokensMode,
+              },
+            });
+          }
+        } else if (this.config.security.skillMaxTokensMode === "enforce") {
+          this.recordEvent({
+            sessionId,
+            type: "tool_call_blocked",
+            turn: this.getCurrentTurn(sessionId),
+            payload: {
+              toolName: normalizedToolName,
+              skill: skill.name,
+              reason,
+            },
+          });
+          return { allowed: false, reason };
+        }
+      }
+    }
+
+    const usedCalls = this.toolCallsBySession.get(sessionId) ?? 0;
+    if (usedCalls >= skill.contract.budget.maxToolCalls) {
+      this.recordEvent({
+        sessionId,
+        type: "tool_call_blocked",
+        turn: this.getCurrentTurn(sessionId),
+        payload: {
+          toolName: normalizedToolName,
+          skill: skill.name,
+          reason: `Skill '${skill.name}' exceeded maxToolCalls=${skill.contract.budget.maxToolCalls}.`,
+        },
+      });
+      return {
+        allowed: false,
+        reason: `Skill '${skill.name}' exceeded maxToolCalls=${skill.contract.budget.maxToolCalls}.`,
+      };
+    }
+
+    return access;
+  }
+
+  acquireParallelSlot(sessionId: string, runId: string): ParallelAcquireResult {
+    const skill = this.getActiveSkill(sessionId);
+    const maxParallel = skill?.contract.maxParallel;
+
+    if (
+      skill &&
+      typeof maxParallel === "number" &&
+      maxParallel > 0 &&
+      this.config.security.skillMaxParallelMode !== "off"
+    ) {
+      const activeRuns = this.parallel.snapshotSession(sessionId)?.activeRunIds.length ?? 0;
+      if (activeRuns >= maxParallel) {
+        const mode = this.config.security.skillMaxParallelMode;
+        if (mode === "warn") {
+          const key = `maxParallel:${skill.name}`;
+          const seen = this.skillParallelWarningsBySession.get(sessionId) ?? new Set<string>();
+          if (!seen.has(key)) {
+            seen.add(key);
+            this.skillParallelWarningsBySession.set(sessionId, seen);
+            this.recordEvent({
+              sessionId,
+              type: "skill_parallel_warning",
+              turn: this.getCurrentTurn(sessionId),
+              payload: {
+                skill: skill.name,
+                activeRuns,
+                maxParallel,
+                mode,
+              },
+            });
+          }
+        } else if (mode === "enforce") {
+          this.recordEvent({
+            sessionId,
+            type: "parallel_slot_rejected",
+            turn: this.getCurrentTurn(sessionId),
+            payload: {
+              runId,
+              skill: skill.name,
+              reason: "skill_max_parallel",
+              activeRuns,
+              maxParallel,
+            },
+          });
+          return { accepted: false, reason: "skill_max_parallel" };
+        }
+      }
+    }
+
+    const acquired = this.parallel.acquire(sessionId, runId);
+    if (!acquired.accepted) {
+      this.recordEvent({
+        sessionId,
+        type: "parallel_slot_rejected",
+        turn: this.getCurrentTurn(sessionId),
+        payload: {
+          runId,
+          skill: skill?.name ?? null,
+          reason: acquired.reason ?? "unknown",
+        },
+      });
+    }
+    return acquired;
+  }
+
+  releaseParallelSlot(sessionId: string, runId: string): void {
+    this.parallel.release(sessionId, runId);
+  }
+
+  markToolCall(sessionId: string, toolName: string): void {
+    const current = this.toolCallsBySession.get(sessionId) ?? 0;
+    const next = current + 1;
+    this.toolCallsBySession.set(sessionId, next);
+    this.costTracker.recordToolCall(sessionId, {
+      toolName,
+      turn: this.getCurrentTurn(sessionId),
+    });
+    if (isMutationTool(toolName)) {
+      this.verification.stateStore.markWrite(sessionId);
+    }
+    this.recordEvent({
+      sessionId,
+      type: "tool_call_marked",
+      turn: this.turnsBySession.get(sessionId),
+      payload: {
+        toolName,
+        toolCalls: next,
+      },
+    });
+  }
+
+  trackToolCallStart(input: {
+    sessionId: string;
+    toolCallId: string;
+    toolName: string;
+    args?: Record<string, unknown>;
+  }): void {
+    const capture = this.fileChanges.captureBeforeToolCall({
+      sessionId: input.sessionId,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      args: input.args,
+    });
+    if (capture.trackedFiles.length === 0) {
+      return;
+    }
+    this.recordEvent({
+      sessionId: input.sessionId,
+      type: "file_snapshot_captured",
+      turn: this.getCurrentTurn(input.sessionId),
+      payload: {
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        files: capture.trackedFiles,
+      },
+    });
+  }
+
+  trackToolCallEnd(input: {
+    sessionId: string;
+    toolCallId: string;
+    toolName: string;
+    success: boolean;
+  }): void {
+    const patchSet = this.fileChanges.completeToolCall({
+      sessionId: input.sessionId,
+      toolCallId: input.toolCallId,
+      success: input.success,
+    });
+    if (!patchSet) return;
+    this.recordEvent({
+      sessionId: input.sessionId,
+      type: "patch_recorded",
+      turn: this.getCurrentTurn(input.sessionId),
+      payload: {
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        patchSetId: patchSet.id,
+        changes: patchSet.changes.map((change) => ({
+          path: change.path,
+          action: change.action,
+        })),
+      },
+    });
+  }
+
+  rollbackLastPatchSet(sessionId: string): RollbackResult {
+    const rollback = this.fileChanges.rollbackLast(sessionId);
+    const turn = this.getCurrentTurn(sessionId);
+    this.recordEvent({
+      sessionId,
+      type: "rollback",
+      turn,
+      payload: {
+        ok: rollback.ok,
+        patchSetId: rollback.patchSetId ?? null,
+        restoredPaths: rollback.restoredPaths,
+        failedPaths: rollback.failedPaths,
+        reason: rollback.reason ?? null,
+      },
+    });
+
+    if (!rollback.ok) {
+      return rollback;
+    }
+
+    this.verification.stateStore.clear(sessionId);
+    this.recordEvent({
+      sessionId,
+      type: "verification_state_reset",
+      turn,
+      payload: {
+        reason: "rollback",
+      },
+    });
+    this.ledger.append({
+      sessionId,
+      turn,
+      skill: this.getActiveSkill(sessionId)?.name,
+      tool: "roaster_rollback",
+      argsSummary: `patchSet=${rollback.patchSetId ?? "unknown"}`,
+      outputSummary: `restored=${rollback.restoredPaths.length} failed=${rollback.failedPaths.length}`,
+      fullOutput: JSON.stringify(rollback),
+      verdict: rollback.failedPaths.length === 0 ? "pass" : "fail",
+      metadata: {
+        source: "rollback_tool",
+        patchSetId: rollback.patchSetId ?? null,
+        restoredPaths: rollback.restoredPaths,
+        failedPaths: rollback.failedPaths,
+      },
+    });
+    return rollback;
+  }
+
+  resolveUndoSessionId(preferredSessionId?: string): string | undefined {
+    if (preferredSessionId && this.fileChanges.hasHistory(preferredSessionId)) {
+      return preferredSessionId;
+    }
+    return this.fileChanges.latestSessionWithHistory();
+  }
+
+  recordToolResult(input: {
+    sessionId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    outputText: string;
+    success: boolean;
+    verdict?: "pass" | "fail" | "inconclusive";
+    metadata?: Record<string, unknown>;
+  }): void {
+    const turn = this.getCurrentTurn(input.sessionId);
+    const activeSkill = this.getActiveSkill(input.sessionId);
+    const verdict = input.verdict ?? (input.success ? "pass" : "fail");
+
+    const ledgerRow = this.ledger.append({
+      sessionId: input.sessionId,
+      turn,
+      skill: activeSkill?.name,
+      tool: input.toolName,
+      argsSummary: JSON.stringify(input.args).slice(0, 400),
+      outputSummary: input.outputText.slice(0, 500),
+      fullOutput: input.outputText,
+      verdict,
+      metadata: input.metadata,
+    });
+
+    const evidence = classifyEvidence({
+      now: Date.now(),
+      toolName: input.toolName,
+      args: input.args,
+      outputText: input.outputText,
+      success: input.success,
+    });
+
+    this.verification.stateStore.appendEvidence(input.sessionId, evidence);
+    this.recordEvent({
+      sessionId: input.sessionId,
+      type: "tool_result_recorded",
+      turn,
+      payload: {
+        toolName: input.toolName,
+        verdict,
+        success: input.success,
+        ledgerId: ledgerRow.id,
+      },
+    });
+    this.maybeCompactLedger(input.sessionId, turn);
+  }
+
+  getLedgerDigest(sessionId: string): string {
+    const rows = this.ledger.list(sessionId);
+    const digest = buildLedgerDigest(
+      sessionId,
+      rows,
+      this.config.ledger.digestWindow,
+      this.config.skills.selector.maxDigestTokens,
+    );
+
+    const lines: string[] = [
+      `[EvidenceDigest session=${sessionId}]`,
+      `count=${digest.summary.total} pass=${digest.summary.pass} fail=${digest.summary.fail} inconclusive=${digest.summary.inconclusive}`,
+    ];
+    for (const row of digest.records) {
+      lines.push(`- ${row.tool}(${row.verdict}) ${row.argsSummary}`);
+    }
+    return lines.join("\n");
+  }
+
+  queryLedger(sessionId: string, query: EvidenceQuery): string {
+    const rows = this.ledger.query(sessionId, query);
+    return formatLedgerRows(rows);
+  }
+
+  recordEvent(input: {
+    sessionId: string;
+    type: string;
+    turn?: number;
+    payload?: Record<string, unknown>;
+    timestamp?: number;
+  }): RoasterEventRecord | undefined {
+    const row = this.events.append({
+      sessionId: input.sessionId,
+      type: input.type,
+      turn: input.turn,
+      payload: input.payload,
+      timestamp: input.timestamp,
+    });
+    if (!row) return undefined;
+
+    const structured = this.toStructuredEvent(row);
+    for (const listener of this.eventListeners.values()) {
+      listener(structured);
+    }
+    return row;
+  }
+
+  queryEvents(sessionId: string, query: RoasterEventQuery = {}): RoasterEventRecord[] {
+    return this.events.list(sessionId, query);
+  }
+
+  queryStructuredEvents(sessionId: string, query: RoasterEventQuery = {}): RoasterStructuredEvent[] {
+    return this.events.list(sessionId, query).map((event) => this.toStructuredEvent(event));
+  }
+
+  listReplaySessions(limit = 20): RoasterReplaySession[] {
+    const sessionIds = this.events.listSessionIds();
+    const rows: RoasterReplaySession[] = [];
+
+    for (const sessionId of sessionIds) {
+      const events = this.events.list(sessionId);
+      if (events.length === 0) continue;
+      const lastEventAt = events[events.length - 1]?.timestamp ?? 0;
+      rows.push({
+        sessionId,
+        eventCount: events.length,
+        lastEventAt,
+      });
+      if (rows.length >= limit) break;
+    }
+    return rows;
+  }
+
+  subscribeEvents(listener: (event: RoasterStructuredEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  }
+
+  toStructuredEvent(event: RoasterEventRecord): RoasterStructuredEvent {
+    return {
+      schema: "roaster.event.v1",
+      id: event.id,
+      sessionId: event.sessionId,
+      type: event.type,
+      category: inferEventCategory(event.type),
+      timestamp: event.timestamp,
+      isoTime: new Date(event.timestamp).toISOString(),
+      turn: event.turn,
+      payload: event.payload,
+    };
+  }
+
+  recordAssistantUsage(input: {
+    sessionId: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+    costUsd: number;
+    stopReason?: string;
+  }): SessionCostSummary {
+    const turn = this.getCurrentTurn(input.sessionId);
+    const skillName = this.getActiveSkill(input.sessionId)?.name;
+    const usageResult = this.costTracker.recordUsage(
+      input.sessionId,
+      {
+        model: input.model,
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+        cacheReadTokens: input.cacheReadTokens,
+        cacheWriteTokens: input.cacheWriteTokens,
+        totalTokens: input.totalTokens,
+        costUsd: input.costUsd,
+      },
+      {
+        turn,
+        skill: skillName,
+      },
+    );
+    const summary = usageResult.summary;
+
+    this.recordEvent({
+      sessionId: input.sessionId,
+      type: "cost_update",
+      turn,
+      payload: {
+        model: input.model,
+        skill: skillName ?? null,
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+        cacheReadTokens: input.cacheReadTokens,
+        cacheWriteTokens: input.cacheWriteTokens,
+        totalTokens: input.totalTokens,
+        costUsd: input.costUsd,
+        sessionCostUsd: summary.totalCostUsd,
+        sessionTokens: summary.totalTokens,
+        budget: summary.budget,
+        stopReason: input.stopReason ?? null,
+      },
+    });
+
+    for (const alert of usageResult.newAlerts) {
+      this.recordEvent({
+        sessionId: input.sessionId,
+        type: "budget_alert",
+        turn,
+        payload: {
+          kind: alert.kind,
+          scope: alert.scope,
+          scopeId: alert.scopeId ?? null,
+          costUsd: alert.costUsd,
+          thresholdUsd: alert.thresholdUsd,
+          action: summary.budget.action,
+        },
+      });
+    }
+
+    this.ledger.append({
+      sessionId: input.sessionId,
+      turn,
+      skill: skillName,
+      tool: "roaster_cost",
+      argsSummary: `model=${input.model}`,
+      outputSummary: `tokens=${input.totalTokens} cost=${input.costUsd.toFixed(6)} usd`,
+      fullOutput: JSON.stringify({
+        model: input.model,
+        usage: {
+          input: input.inputTokens,
+          output: input.outputTokens,
+          cacheRead: input.cacheReadTokens,
+          cacheWrite: input.cacheWriteTokens,
+          total: input.totalTokens,
+        },
+        allocation: {
+          skill: skillName ?? "(none)",
+          turn,
+          tools: summary.tools,
+        },
+        costUsd: input.costUsd,
+        sessionCostUsd: summary.totalCostUsd,
+      }),
+      verdict: "inconclusive",
+      metadata: {
+        source: "llm_usage",
+        model: input.model,
+        usage: {
+          input: input.inputTokens,
+          output: input.outputTokens,
+          cacheRead: input.cacheReadTokens,
+          cacheWrite: input.cacheWriteTokens,
+          total: input.totalTokens,
+        },
+        skill: skillName ?? null,
+        turn,
+        costUsd: input.costUsd,
+        sessionCostUsd: summary.totalCostUsd,
+      },
+    });
+
+    return summary;
+  }
+  getCostSummary(sessionId: string): SessionCostSummary {
+    return this.costTracker.getSummary(sessionId);
+  }
+
+  evaluateCompletion(sessionId: string, level?: VerificationLevel): VerificationReport {
+    return this.verification.evaluate(sessionId, level);
+  }
+
+  recordWorkerResult(sessionId: string, result: WorkerResult): void {
+    this.parallelResults.record(sessionId, result);
+    this.parallel.release(sessionId, result.workerId);
+  }
+
+  listWorkerResults(sessionId: string): WorkerResult[] {
+    return this.parallelResults.list(sessionId);
+  }
+
+  mergeWorkerResults(sessionId: string): WorkerMergeReport {
+    return this.parallelResults.merge(sessionId);
+  }
+
+  clearWorkerResults(sessionId: string): void {
+    this.parallelResults.clear(sessionId);
+  }
+
+  restoreSessionSnapshot(sessionId: string): RuntimeSessionRestoreResult {
+    const snapshot = this.snapshots.load(sessionId);
+    if (!snapshot) {
+      return { restored: false };
+    }
+    return this.applySnapshotToSession({
+      targetSessionId: sessionId,
+      snapshot,
+      sourceSessionId: sessionId,
+    });
+  }
+
+  restoreStartupSession(sessionId: string): RuntimeSessionRestoreResult {
+    const direct = this.snapshots.load(sessionId);
+    if (direct) {
+      return this.applySnapshotToSession({
+        targetSessionId: sessionId,
+        snapshot: direct,
+        sourceSessionId: sessionId,
+      });
+    }
+
+    const latestInterrupted = this.snapshots.latestInterrupted();
+    if (!latestInterrupted) {
+      return { restored: false };
+    }
+
+    const restored = this.applySnapshotToSession({
+      targetSessionId: sessionId,
+      snapshot: latestInterrupted,
+      sourceSessionId: latestInterrupted.sessionId,
+      imported: latestInterrupted.sessionId !== sessionId,
+    });
+    if (restored.restored && latestInterrupted.sessionId !== sessionId) {
+      this.persistSessionSnapshot(sessionId, {
+        reason: "manual",
+        interrupted: false,
+      });
+      this.snapshots.remove(latestInterrupted.sessionId);
+    }
+    return restored;
+  }
+
+  private applySnapshotToSession(input: {
+    targetSessionId: string;
+    snapshot: RuntimeSessionSnapshot;
+    sourceSessionId: string;
+    imported?: boolean;
+  }): RuntimeSessionRestoreResult {
+    const { targetSessionId, snapshot } = input;
+    if (snapshot.activeSkill) {
+      this.activeSkillsBySession.set(targetSessionId, snapshot.activeSkill);
+    } else {
+      this.activeSkillsBySession.delete(targetSessionId);
+    }
+    this.turnsBySession.set(targetSessionId, snapshot.turnCounter);
+    this.toolCallsBySession.set(targetSessionId, snapshot.toolCalls);
+    this.verification.stateStore.restore(targetSessionId, snapshot.verification);
+    const droppedActiveRuns = this.parallel.restoreSession(targetSessionId, snapshot.parallel);
+    this.contextBudget.restoreSession(targetSessionId, snapshot.contextBudget);
+    this.costTracker.restore(targetSessionId, snapshot.cost);
+    const importedPatchSets = input.imported
+      ? this.fileChanges.importSessionHistory(input.sourceSessionId, targetSessionId).importedPatchSets
+      : 0;
+
+    if (snapshot.interrupted && this.shouldInjectResumeHint()) {
+      const hint = [
+        `Session recovered from interruption at ${new Date(snapshot.createdAt).toISOString()}.`,
+        `Last active skill: ${snapshot.activeSkill ?? "(none)"}.`,
+        `Tool calls used: ${snapshot.toolCalls}.`,
+        `Turn counter: ${snapshot.turnCounter}.`,
+        input.imported ? `Recovered from previous session ${input.sourceSessionId}.` : "",
+      ].join(" ");
+      this.resumeHintsBySession.set(targetSessionId, hint);
+    }
+
+    this.recordEvent({
+      sessionId: targetSessionId,
+      type: "session_resumed",
+      payload: {
+        snapshotAt: snapshot.createdAt,
+        reason: snapshot.reason,
+        interrupted: snapshot.interrupted,
+        activeSkill: snapshot.activeSkill ?? null,
+        droppedActiveRuns,
+        snapshotSessionId: input.sourceSessionId,
+        imported: input.imported ?? false,
+        importedPatchSets,
+      },
+    });
+
+    return { restored: true, snapshot };
+  }
+
+  persistSessionSnapshot(
+    sessionId: string,
+    options: { reason: "signal" | "shutdown" | "manual"; interrupted?: boolean } = { reason: "manual" },
+  ): void {
+    const lastEvent = this.events.latest(sessionId);
+    const snapshot = {
+      version: 1 as const,
+      sessionId,
+      createdAt: Date.now(),
+      reason: options.reason,
+      interrupted: options.interrupted ?? false,
+      activeSkill: this.activeSkillsBySession.get(sessionId),
+      toolCalls: this.toolCallsBySession.get(sessionId) ?? 0,
+      turnCounter: this.turnsBySession.get(sessionId) ?? 0,
+      verification: this.verification.stateStore.snapshot(sessionId),
+      parallel: this.parallel.snapshotSession(sessionId),
+      contextBudget: this.contextBudget.snapshotSession(sessionId),
+      cost: this.costTracker.getSummary(sessionId),
+      lastEvent: lastEvent
+        ? {
+            id: lastEvent.id,
+            type: lastEvent.type,
+            timestamp: lastEvent.timestamp,
+          }
+        : undefined,
+    };
+    this.snapshots.save(snapshot);
+    this.recordEvent({
+      sessionId,
+      type: "session_snapshot_saved",
+      payload: {
+        reason: options.reason,
+        interrupted: options.interrupted ?? false,
+      },
+    });
+  }
+
+  clearSessionSnapshot(sessionId: string): void {
+    this.snapshots.remove(sessionId);
+    this.fileChanges.clearSession(sessionId);
+    this.lastLedgerCompactionTurnBySession.delete(sessionId);
+    this.contextInjection.clearSession(sessionId);
+    this.latestCompactionSummaryBySession.delete(sessionId);
+    this.clearInjectionFingerprintsForSession(sessionId);
+    this.clearReservedInjectionTokensForSession(sessionId);
+  }
+
+  async verifyCompletion(
+    sessionId: string,
+    level?: VerificationLevel,
+    options: VerifyCompletionOptions = {},
+  ): Promise<VerificationReport> {
+    const effectiveLevel = level ?? this.config.verification.defaultLevel;
+    const executeCommands = options.executeCommands !== false;
+
+    if (executeCommands && effectiveLevel !== "quick") {
+      await this.runVerificationCommands(sessionId, effectiveLevel, {
+        timeoutMs: options.timeoutMs ?? 10 * 60 * 1000,
+      });
+    }
+
+    return this.verification.evaluate(sessionId, effectiveLevel, { requireCommands: executeCommands });
+  }
+
+  sanitizeInput(text: string): string {
+    if (!this.config.security.sanitizeContext) {
+      return text;
+    }
+    return sanitizeContextText(text);
+  }
+
+  private getCurrentTurn(sessionId: string): number {
+    return this.turnsBySession.get(sessionId) ?? 0;
+  }
+
+  private async runVerificationCommands(
+    sessionId: string,
+    level: VerificationLevel,
+    options: { timeoutMs: number },
+  ): Promise<void> {
+    const state = this.verification.stateStore.get(sessionId);
+    if (!state.lastWriteAt) return;
+
+    const checks = this.config.verification.checks[level] ?? [];
+    for (const checkName of checks) {
+      const command = this.config.verification.commands[checkName];
+      if (!command) continue;
+      if (checkName === "diff-review") continue;
+
+      const existing = state.checkRuns[checkName];
+      const isFresh = existing && existing.ok && existing.timestamp >= state.lastWriteAt;
+      if (isFresh) continue;
+
+      const result = await runShellCommand(command, {
+        cwd: this.cwd,
+        timeoutMs: options.timeoutMs,
+        maxOutputChars: 200_000,
+      });
+
+      const ok = result.exitCode === 0 && !result.timedOut;
+      const outputText = `${result.stdout}\n${result.stderr}`.trim();
+      const outputSummary = outputText.length > 0 ? outputText.slice(0, 2000) : ok ? "(no output)" : "(no output)";
+
+      this.verification.stateStore.setCheckRun(sessionId, checkName, {
+        timestamp: Date.now(),
+        ok,
+        command,
+        exitCode: result.exitCode,
+        durationMs: result.durationMs,
+        outputSummary,
+      });
+
+      this.recordToolResult({
+        sessionId,
+        toolName: "roaster_verify",
+        args: { check: checkName, command },
+        outputText: outputSummary,
+        success: ok,
+        verdict: ok ? "pass" : "fail",
+        metadata: {
+          source: "verification_gate",
+          check: checkName,
+          command,
+          exitCode: result.exitCode,
+          durationMs: result.durationMs,
+          timedOut: result.timedOut,
+        },
+      });
+    }
+  }
+
+  private maybeCompactLedger(sessionId: string, turn: number): void {
+    const every = Math.max(0, Math.trunc(this.config.ledger.checkpointEveryTurns));
+    if (every <= 0) return;
+    if (turn <= 0) return;
+    if (turn % every !== 0) return;
+    if (this.lastLedgerCompactionTurnBySession.get(sessionId) === turn) {
+      return;
+    }
+
+    const keepLast = Math.max(2, Math.min(this.config.ledger.digestWindow, every - 1));
+    const result = this.ledger.compactSession(sessionId, {
+      keepLast,
+      reason: `turn-${turn}`,
+    });
+    if (!result) return;
+    this.lastLedgerCompactionTurnBySession.set(sessionId, turn);
+    this.recordEvent({
+      sessionId,
+      type: "ledger_compacted",
+      turn,
+      payload: {
+        compacted: result.compacted,
+        kept: result.kept,
+        checkpointId: result.checkpointId,
+      },
+    });
+  }
+
+  private getResumeHint(sessionId: string): string | undefined {
+    return this.resumeHintsBySession.get(sessionId);
+  }
+
+  private clearResumeHint(sessionId: string): void {
+    this.resumeHintsBySession.delete(sessionId);
+  }
+
+  private shouldInjectResumeHint(): boolean {
+    const setting = this.config.infrastructure.interruptRecovery.resumeHintInjectionEnabled;
+    if (typeof setting === "boolean") return setting;
+    const legacy = this.config.infrastructure.interruptRecovery.resumeHintInSystemPrompt;
+    return typeof legacy === "boolean" ? legacy : true;
+  }
+
+  private isContextBudgetEnabled(): boolean {
+    return this.config.infrastructure.contextBudget.enabled;
+  }
+
+  private buildInjectionScopeKey(sessionId: string, scopeId?: string): string {
+    const normalizedScope = scopeId?.trim();
+    if (!normalizedScope) return `${sessionId}::root`;
+    return `${sessionId}::${normalizedScope}`;
+  }
+
+  private clearInjectionFingerprintsForSession(sessionId: string): void {
+    const prefix = `${sessionId}::`;
+    for (const key of this.lastInjectedContextFingerprintBySession.keys()) {
+      if (key.startsWith(prefix)) {
+        this.lastInjectedContextFingerprintBySession.delete(key);
+      }
+    }
+  }
+
+  private clearReservedInjectionTokensForSession(sessionId: string): void {
+    const prefix = `${sessionId}::`;
+    for (const key of this.reservedContextInjectionTokensByScope.keys()) {
+      if (key.startsWith(prefix)) {
+        this.reservedContextInjectionTokensByScope.delete(key);
+      }
+    }
+  }
+}

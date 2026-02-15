@@ -1,0 +1,12 @@
+{
+  "name": "@pi-roaster/pi-roaster-darwin-x64",
+  "version": "0.1.0",
+  "description": "Platform binary for pi-roaster (darwin-x64)",
+  "license": "MIT",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["bin"],
+  "bin": {
+    "pi-roaster": "./bin/pi-roaster"
+  }
+}
