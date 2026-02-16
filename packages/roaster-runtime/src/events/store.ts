@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { JsonValue } from "../utils/json.js";
+import { normalizeJsonRecord } from "../utils/json.js";
 import type { RoasterConfig, RoasterEventQuery, RoasterEventRecord } from "../types.js";
 import { ensureDir } from "../utils/fs.js";
 
@@ -37,32 +37,6 @@ function parseLines(path: string): RoasterEventRecord[] {
   return records;
 }
 
-function toJsonValue(value: unknown): JsonValue {
-  if (value === null) return null;
-  if (typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  if (Array.isArray(value)) return value.map((item) => toJsonValue(item));
-  if (typeof value === "object") {
-    const out: Record<string, JsonValue> = {};
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      if (item === undefined) continue;
-      out[key] = toJsonValue(item);
-    }
-    return out;
-  }
-  return String(value);
-}
-
-function normalizePayload(payload: Record<string, unknown> | undefined): Record<string, JsonValue> | undefined {
-  if (!payload) return undefined;
-  const out: Record<string, JsonValue> = {};
-  for (const [key, value] of Object.entries(payload)) {
-    if (value === undefined) continue;
-    out[key] = toJsonValue(value);
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
 export class RoasterEventStore {
   private readonly enabled: boolean;
   private readonly dir: string;
@@ -87,7 +61,7 @@ export class RoasterEventStore {
       type: input.type,
       timestamp,
       turn: input.turn,
-      payload: normalizePayload(input.payload as Record<string, unknown> | undefined),
+      payload: normalizeJsonRecord(input.payload),
     };
 
     const filePath = this.filePathForSession(row.sessionId);

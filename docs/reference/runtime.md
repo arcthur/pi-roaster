@@ -31,6 +31,12 @@ Primary class: `packages/roaster-runtime/src/runtime.ts`.
 - `recordToolResult`
 - `getLedgerDigest`
 - `queryLedger`
+- `setTaskSpec`
+- `getTaskState`
+- `addTaskItem`
+- `updateTaskItem`
+- `recordTaskBlocker`
+- `resolveTaskBlocker`
 - `recordEvent`
 - `queryEvents`
 - `queryStructuredEvents`

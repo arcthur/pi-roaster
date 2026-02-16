@@ -72,6 +72,96 @@ export interface CreateRoasterSessionOptions {
   enableExtensions?: boolean;
 }
 
+export type TaskSpecSchema = "roaster.task.v1";
+
+export interface TaskSpec {
+  schema: TaskSpecSchema;
+  goal: string;
+  targets?: {
+    files?: string[];
+    symbols?: string[];
+  };
+  expectedBehavior?: string;
+  constraints?: string[];
+  verification?: {
+    level?: VerificationLevel;
+    commands?: string[];
+  };
+}
+
+export type TaskItemStatus = "todo" | "doing" | "done" | "blocked";
+
+export interface TaskItem {
+  id: string;
+  text: string;
+  status: TaskItemStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TaskBlocker {
+  id: string;
+  message: string;
+  createdAt: number;
+  source?: string;
+}
+
+export interface TaskState {
+  spec?: TaskSpec;
+  items: TaskItem[];
+  blockers: TaskBlocker[];
+  updatedAt: number | null;
+}
+
+export type TaskLedgerEventPayload =
+  | {
+      schema: "roaster.task.ledger.v1";
+      kind: "spec_set";
+      spec: TaskSpec;
+    }
+  | {
+      schema: "roaster.task.ledger.v1";
+      kind: "checkpoint_set";
+      state: TaskState;
+    }
+  | {
+      schema: "roaster.task.ledger.v1";
+      kind: "item_added";
+      item: {
+        id: string;
+        text: string;
+        status?: TaskItemStatus;
+      };
+    }
+  | {
+      schema: "roaster.task.ledger.v1";
+      kind: "item_updated";
+      item: {
+        id: string;
+        text?: string;
+        status?: TaskItemStatus;
+      };
+    }
+  | {
+      schema: "roaster.task.ledger.v1";
+      kind: "blocker_recorded";
+      blocker: {
+        id: string;
+        message: string;
+        source?: string;
+      };
+    }
+  | {
+      schema: "roaster.task.ledger.v1";
+      kind: "blocker_resolved";
+      blockerId: string;
+    };
+
+export interface TaskSessionSnapshot {
+  schema: "roaster.task.snapshot.v1";
+  state: TaskState;
+}
+
 export interface RoasterConfig {
   skills: {
     packs: string[];
@@ -249,6 +339,7 @@ export interface VerificationCheckRun {
   command: string;
   exitCode: number | null;
   durationMs: number;
+  ledgerId?: string;
   outputSummary?: string;
 }
 
@@ -413,6 +504,7 @@ export interface RuntimeSessionSnapshot {
   parallel?: ParallelSessionSnapshot;
   contextBudget?: ContextBudgetSessionState;
   cost?: SessionCostSummary;
+  task?: TaskSessionSnapshot;
   lastEvent?: Pick<RoasterEventRecord, "id" | "type" | "timestamp">;
 }
 

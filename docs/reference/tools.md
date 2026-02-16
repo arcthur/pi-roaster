@@ -28,6 +28,12 @@ Defined in `packages/roaster-tools/src/ast-grep.ts`.
 - `rollback_last_patch`
 - `skill_load`
 - `skill_complete`
+- `task_set_spec`
+- `task_add_item`
+- `task_update_item`
+- `task_record_blocker`
+- `task_resolve_blocker`
+- `task_view_state`
 
 Definitions:
 
@@ -37,3 +43,4 @@ Definitions:
 - `packages/roaster-tools/src/rollback-last-patch.ts`
 - `packages/roaster-tools/src/skill-load.ts`
 - `packages/roaster-tools/src/skill-complete.ts`
+- `packages/roaster-tools/src/task-ledger.ts`

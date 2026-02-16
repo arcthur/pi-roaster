@@ -15,6 +15,8 @@ CLI implementation: `packages/roaster-cli/src/index.ts`.
 - `--cwd`
 - `--config`
 - `--model`
+- `--task`
+- `--task-file`
 - `--no-extensions`
 - `--print`
 - `--interactive`
@@ -32,6 +34,7 @@ CLI implementation: `packages/roaster-cli/src/index.ts`.
 bun run start
 bun run start -- --print "Refactor runtime cost tracker"
 bun run start -- --mode json "Summarize recent changes"
+bun run start -- --print --task-file ./task.json
 bun run start -- --undo --session <session-id>
 bun run start -- --replay --mode json --session <session-id>
 ```

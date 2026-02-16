@@ -7,6 +7,7 @@ import { createLspTools } from "./lsp.js";
 import { createRollbackLastPatchTool } from "./rollback-last-patch.js";
 import { createSkillCompleteTool } from "./skill-complete.js";
 import { createSkillLoadTool } from "./skill-load.js";
+import { createTaskLedgerTools } from "./task-ledger.js";
 import type { RoasterToolRuntime } from "./types.js";
 
 export interface BuildRoasterToolsOptions {
@@ -23,6 +24,7 @@ export function buildRoasterTools(options: BuildRoasterToolsOptions): ToolDefini
     createRollbackLastPatchTool({ runtime: options.runtime }),
     createSkillLoadTool({ runtime: options.runtime }),
     createSkillCompleteTool({ runtime: options.runtime }),
+    ...createTaskLedgerTools({ runtime: options.runtime }),
   ];
 }
 
@@ -34,3 +36,4 @@ export { createLedgerQueryTool } from "./ledger-query.js";
 export { createRollbackLastPatchTool } from "./rollback-last-patch.js";
 export { createSkillLoadTool } from "./skill-load.js";
 export { createSkillCompleteTool } from "./skill-complete.js";
+export { createTaskLedgerTools } from "./task-ledger.js";

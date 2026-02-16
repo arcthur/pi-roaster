@@ -21,3 +21,5 @@ export * from "./events/store.js";
 export * from "./state/snapshot-store.js";
 export * from "./state/file-change-tracker.js";
 export * from "./cost/tracker.js";
+export * from "./task/spec.js";
+export * from "./task/ledger.js";

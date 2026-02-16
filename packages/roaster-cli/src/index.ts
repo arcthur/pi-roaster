@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import process from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InteractiveMode, runPrintMode } from "@mariozechner/pi-coding-agent";
-import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import { RoasterRuntime, parseTaskSpec, type TaskSpec } from "@pi-roaster/roaster-runtime";
 import { createRoasterSession } from "./session.js";
 
 function printHelp(): void {
@@ -21,6 +22,8 @@ Options:
   --cwd <path>          Working directory
   --config <path>       Roaster config path (default: .pi/roaster.json)
   --model <provider/id> Model override
+  --task <json>         TaskSpec JSON (schema: roaster.task.v1)
+  --task-file <path>    TaskSpec JSON file
   --no-extensions       Disable extensions, register tools directly
   --print, -p           Run one-shot mode
   --interactive, -i     Force interactive TUI mode
@@ -37,6 +40,7 @@ Examples:
   pi-roaster "Fix failing tests in runtime"
   pi-roaster --print "Refactor this function"
   pi-roaster --mode json "Summarize recent changes"
+  pi-roaster --task-file ./task.json
   pi-roaster --undo --session <session-id>
   pi-roaster --replay --mode json --session <session-id>`);
 }
@@ -47,6 +51,8 @@ interface CliArgs {
   cwd?: string;
   configPath?: string;
   model?: string;
+  taskJson?: string;
+  taskFile?: string;
   enableExtensions: boolean;
   undo: boolean;
   replay: boolean;
@@ -72,6 +78,8 @@ function parseArgs(argv: string[]): CliArgs | null {
   let cwd: string | undefined;
   let configPath: string | undefined;
   let model: string | undefined;
+  let taskJson: string | undefined;
+  let taskFile: string | undefined;
   let enableExtensions = true;
   let undo = false;
   let replay = false;
@@ -111,6 +119,22 @@ function parseArgs(argv: string[]): CliArgs | null {
       const value = parseOptionValue(argv, i, "--model");
       if (!value) return null;
       model = value;
+      i += 1;
+      continue;
+    }
+
+    if (arg === "--task") {
+      const value = parseOptionValue(argv, i, "--task");
+      if (!value) return null;
+      taskJson = value;
+      i += 1;
+      continue;
+    }
+
+    if (arg === "--task-file") {
+      const value = parseOptionValue(argv, i, "--task-file");
+      if (!value) return null;
+      taskFile = value;
       i += 1;
       continue;
     }
@@ -192,6 +216,8 @@ function parseArgs(argv: string[]): CliArgs | null {
     cwd,
     configPath,
     model,
+    taskJson,
+    taskFile,
     enableExtensions,
     undo,
     replay,
@@ -201,6 +227,44 @@ function parseArgs(argv: string[]): CliArgs | null {
     verbose,
     prompt,
   };
+}
+
+function loadTaskSpec(parsed: CliArgs): { spec?: TaskSpec; error?: string } {
+  if (!parsed.taskJson && !parsed.taskFile) {
+    return {};
+  }
+  if (parsed.taskJson && parsed.taskFile) {
+    return { error: "Error: use only one of --task or --task-file." };
+  }
+
+  let raw = "";
+  if (parsed.taskJson) {
+    raw = parsed.taskJson;
+  } else if (parsed.taskFile) {
+    const absolute = resolve(parsed.taskFile);
+    try {
+      raw = readFileSync(absolute, "utf8");
+    } catch (error) {
+      return {
+        error: `Error: failed to read TaskSpec file (${absolute}): ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error) {
+    return {
+      error: `Error: failed to parse TaskSpec JSON (${error instanceof Error ? error.message : String(error)}).`,
+    };
+  }
+
+  const result = parseTaskSpec(value);
+  if (!result.ok) {
+    return { error: `Error: invalid TaskSpec: ${result.error}` };
+  }
+  return { spec: result.spec };
 }
 
 async function readPipedStdin(): Promise<string | undefined> {
@@ -276,7 +340,20 @@ async function run(): Promise<void> {
   if (!parsed) return;
 
   const pipedInput = await readPipedStdin();
-  const initialMessage = parsed.prompt ?? pipedInput;
+  const taskResolved = loadTaskSpec(parsed);
+  if (taskResolved.error) {
+    console.error(taskResolved.error);
+    return;
+  }
+
+  let taskSpec = taskResolved.spec;
+  let initialMessage = parsed.prompt ?? pipedInput;
+  if (taskSpec && parsed.prompt) {
+    taskSpec = { ...taskSpec, goal: parsed.prompt.trim() };
+  }
+  if (taskSpec && !initialMessage) {
+    initialMessage = taskSpec.goal;
+  }
   const mode = resolveEffectiveMode(parsed);
   if (!mode) return;
 
@@ -336,6 +413,9 @@ async function run(): Promise<void> {
   });
 
   const sessionId = session.sessionManager.getSessionId();
+  if (taskSpec) {
+    runtime.setTaskSpec(sessionId, taskSpec);
+  }
   const gracefulTimeoutMs = runtime.config.infrastructure.interruptRecovery.gracefulTimeoutMs;
   let terminatedBySignal = false;
   let finalized = false;

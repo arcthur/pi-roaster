@@ -295,6 +295,31 @@ export class FileChangeTracker {
     return (this.historyBySession.get(sessionId)?.length ?? 0) > 0;
   }
 
+  recentFiles(sessionId: string, limit = 3): string[] {
+    const max = Math.max(0, Math.floor(limit));
+    if (max <= 0) return [];
+
+    this.ensureHistoryLoaded(sessionId);
+    const history = this.historyBySession.get(sessionId) ?? [];
+    if (history.length === 0) return [];
+
+    const selected: string[] = [];
+    const seen = new Set<string>();
+
+    for (const entry of [...history].reverse()) {
+      for (const change of entry.patchSet.changes) {
+        const path = change.path;
+        if (!path) continue;
+        if (seen.has(path)) continue;
+        seen.add(path);
+        selected.push(path);
+        if (selected.length >= max) return selected;
+      }
+    }
+
+    return selected;
+  }
+
   latestSessionWithHistory(): string | undefined {
     const candidates: Array<{ sessionId: string; updatedAt: number }> = [];
     if (!existsSync(this.snapshotsDir)) return undefined;

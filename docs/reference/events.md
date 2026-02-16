@@ -39,4 +39,5 @@ Defined in `packages/roaster-runtime/src/types.ts`.
 - `cost_update`
 - `budget_alert`
 - `session_snapshot_saved`
+- `task_ledger_compacted`
 - `session_resumed`

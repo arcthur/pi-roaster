@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
-import type {
-  ContextBudgetUsage,
-  EvidenceQuery,
-  ParallelAcquireResult,
-  RollbackResult,
+	import type {
+	  ContextBudgetUsage,
+	  EvidenceQuery,
+	  ParallelAcquireResult,
+	  RollbackResult,
   RoasterEventCategory,
   RoasterEventQuery,
   RoasterEventRecord,
@@ -14,13 +14,17 @@ import type {
   RuntimeSessionSnapshot,
   SkillDocument,
   SkillOutputRecord,
-  SkillSelection,
-  SessionCostSummary,
-  VerificationLevel,
-  VerificationReport,
-  WorkerMergeReport,
-  WorkerResult,
-} from "./types.js";
+	  SkillSelection,
+	  SessionCostSummary,
+	  TaskSpec,
+		  TaskState,
+		  VerificationLevel,
+		  VerificationReport,
+		  VerificationCheckRun,
+		  WorkerMergeReport,
+		  WorkerResult,
+		} from "./types.js";
+import type { TaskItemStatus } from "./types.js";
 import { loadRoasterConfig } from "./config/loader.js";
 import { SkillRegistry } from "./skills/registry.js";
 import { selectTopKSkills } from "./skills/selector.js";
@@ -33,21 +37,70 @@ import { ParallelBudgetManager } from "./parallel/budget.js";
 import { ParallelResultStore } from "./parallel/results.js";
 import { sanitizeContextText } from "./security/sanitize.js";
 import { checkToolAccess } from "./security/tool-policy.js";
-import { runShellCommand } from "./utils/exec.js";
-import { ContextBudgetManager } from "./context/budget.js";
-import { ContextInjectionCollector, type ContextInjectionPriority } from "./context/injection.js";
-import { RoasterEventStore } from "./events/store.js";
+	import { runShellCommand } from "./utils/exec.js";
+	import { ContextBudgetManager } from "./context/budget.js";
+	import { ContextInjectionCollector, type ContextInjectionPriority } from "./context/injection.js";
+	import { buildViewportContext } from "./context/viewport.js";
+	import { buildTruthLedgerBlock } from "./context/truth.js";
+	import { RoasterEventStore } from "./events/store.js";
 import { SessionSnapshotStore } from "./state/snapshot-store.js";
 import { FileChangeTracker } from "./state/file-change-tracker.js";
-import { SessionCostTracker } from "./cost/tracker.js";
-import { sha256 } from "./utils/hash.js";
-import { estimateTokenCount, truncateTextToTokenBudget } from "./utils/token.js";
+import { createTaskLedgerSnapshotStore, type TaskLedgerSnapshotStore } from "./state/task-ledger-snapshot-store.js";
+	import { SessionCostTracker } from "./cost/tracker.js";
+	import { sha256 } from "./utils/hash.js";
+	import { estimateTokenCount, truncateTextToTokenBudget } from "./utils/token.js";
+	import {
+	  TASK_EVENT_TYPE,
+	  buildBlockerRecordedEvent,
+	  buildBlockerResolvedEvent,
+	  buildItemAddedEvent,
+	  buildItemUpdatedEvent,
+	  coerceTaskLedgerPayload,
+	  createEmptyTaskState,
+	  foldTaskLedgerEvents,
+	  reduceTaskState,
+	} from "./task/ledger.js";
+	import { normalizeTaskSpec } from "./task/spec.js";
 
 const ALWAYS_ALLOWED_TOOLS = ["skill_complete", "skill_load", "ledger_query", "cost_view", "rollback_last_patch"];
 const ALWAYS_ALLOWED_TOOL_SET = new Set(ALWAYS_ALLOWED_TOOLS);
 
 function normalizeToolName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+const VERIFIER_BLOCKER_PREFIX = "verifier:" as const;
+
+function normalizeVerifierCheckForId(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return "unknown";
+  return normalized.replace(/[^a-z0-9._-]+/g, "-");
+}
+
+function buildVerifierBlockerMessage(input: {
+  checkName: string;
+  evidence?: string;
+  run?: VerificationCheckRun;
+}): string {
+  const lines: string[] = [`verification failed: ${input.checkName}`];
+  if (input.run) {
+    if (input.run.ledgerId) {
+      lines.push(`ledgerId: ${input.run.ledgerId}`);
+    }
+    lines.push(`command: ${input.run.command}`);
+    lines.push(`exitCode: ${input.run.exitCode ?? "null"}`);
+    const output = typeof input.run.outputSummary === "string" && input.run.outputSummary.length > 0 ? input.run.outputSummary : "(no output)";
+    const capped = output.length > 1800 ? `${output.slice(0, 1797)}...` : output;
+    lines.push("output:");
+    lines.push(capped);
+    return lines.join("\n");
+  }
+
+  if (input.evidence) {
+    lines.push("evidence:");
+    lines.push(input.evidence);
+  }
+  return lines.join("\n");
 }
 
 export interface RoasterRuntimeOptions {
@@ -80,6 +133,80 @@ function buildSkillCandidateBlock(selected: SkillSelection[]): string {
   return ["[Roaster Context]", "Top-K Skill Candidates:", ...skillLines].join("\n");
 }
 
+function buildTaskStateBlock(state: TaskState): string {
+  const hasAny =
+    Boolean(state.spec) || (state.items?.length ?? 0) > 0 || (state.blockers?.length ?? 0) > 0;
+  if (!hasAny) return "";
+
+  const spec = state.spec;
+  const lines: string[] = ["[TaskLedger]"];
+  if (spec) {
+    lines.push(`goal=${spec.goal}`);
+    if (spec.expectedBehavior) {
+      lines.push(`expectedBehavior=${spec.expectedBehavior}`);
+    }
+
+    const files = spec.targets?.files ?? [];
+    const symbols = spec.targets?.symbols ?? [];
+    if (files.length > 0) {
+      lines.push("targets.files:");
+      for (const file of files.slice(0, 8)) {
+        lines.push(`- ${file}`);
+      }
+    }
+    if (symbols.length > 0) {
+      lines.push("targets.symbols:");
+      for (const symbol of symbols.slice(0, 8)) {
+        lines.push(`- ${symbol}`);
+      }
+    }
+
+    const constraints = spec.constraints ?? [];
+    if (constraints.length > 0) {
+      lines.push("constraints:");
+      for (const constraint of constraints.slice(0, 8)) {
+        lines.push(`- ${constraint}`);
+      }
+    }
+  }
+
+  const blockers = state.blockers ?? [];
+  if (blockers.length > 0) {
+    lines.push("blockers:");
+    for (const blocker of blockers.slice(0, 4)) {
+      const source = blocker.source ? ` source=${blocker.source}` : "";
+      const messageLines = blocker.message.split("\n");
+      const firstLine = messageLines[0] ?? "";
+      lines.push(`- [${blocker.id}] ${firstLine}${source}`.trim());
+      for (const line of messageLines.slice(1)) {
+        lines.push(`  ${line}`);
+      }
+    }
+  }
+
+  const items = state.items ?? [];
+  const open = items.filter((item) => item.status !== "done").slice(0, 6);
+  if (open.length > 0) {
+    lines.push("openItems:");
+    for (const item of open) {
+      lines.push(`- [${item.status}] ${item.text}`);
+    }
+  }
+
+  const verification = spec?.verification;
+  if (verification?.level) {
+    lines.push(`verification.level=${verification.level}`);
+  }
+  if (verification?.commands && verification.commands.length > 0) {
+    lines.push("verification.commands:");
+    for (const command of verification.commands.slice(0, 4)) {
+      lines.push(`- ${command}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 function buildContextSourceTokenLimits(maxInjectionTokens: number): Record<string, number> {
   const budget = Math.max(64, Math.floor(maxInjectionTokens));
   const fromRatio = (ratio: number, minimum: number, maximum = budget): number => {
@@ -88,10 +215,13 @@ function buildContextSourceTokenLimits(maxInjectionTokens: number): Record<strin
   };
 
   return {
+    "roaster.truth": fromRatio(0.05, 48, 200),
+    "roaster.task-state": fromRatio(0.15, 96, 360),
+    "roaster.viewport": fromRatio(0.7, 240, budget),
     "roaster.skill-candidates": fromRatio(0.28, 64, 320),
     "roaster.resume-hint": fromRatio(0.4, 96, 480),
     "roaster.compaction-summary": fromRatio(0.45, 120, 600),
-    "roaster.ledger-digest": budget,
+    "roaster.ledger-digest": fromRatio(0.2, 96, 360),
   };
 }
 
@@ -107,6 +237,7 @@ export class RoasterRuntime {
   readonly contextBudget: ContextBudgetManager;
   readonly contextInjection: ContextInjectionCollector;
   readonly snapshots: SessionSnapshotStore;
+  readonly taskLedgerSnapshots: TaskLedgerSnapshotStore;
   readonly fileChanges: FileChangeTracker;
   readonly costTracker: SessionCostTracker;
 
@@ -118,11 +249,12 @@ export class RoasterRuntime {
   private lastInjectedContextFingerprintBySession = new Map<string, string>();
   private reservedContextInjectionTokensByScope = new Map<string, number>();
   private lastLedgerCompactionTurnBySession = new Map<string, number>();
-  private toolContractWarningsBySession = new Map<string, Set<string>>();
-  private skillBudgetWarningsBySession = new Map<string, Set<string>>();
-  private skillParallelWarningsBySession = new Map<string, Set<string>>();
-  private skillOutputsBySession = new Map<string, Map<string, SkillOutputRecord>>();
-  private eventListeners = new Set<(event: RoasterStructuredEvent) => void>();
+	  private toolContractWarningsBySession = new Map<string, Set<string>>();
+	  private skillBudgetWarningsBySession = new Map<string, Set<string>>();
+	  private skillParallelWarningsBySession = new Map<string, Set<string>>();
+	  private skillOutputsBySession = new Map<string, Map<string, SkillOutputRecord>>();
+	  private taskStateBySession = new Map<string, TaskState>();
+	  private eventListeners = new Set<(event: RoasterStructuredEvent) => void>();
 
   constructor(options: RoasterRuntimeOptions = {}) {
     this.cwd = resolve(options.cwd ?? process.cwd());
@@ -149,6 +281,7 @@ export class RoasterRuntime {
       truncationStrategy: this.config.infrastructure.contextBudget.truncationStrategy,
     });
     this.snapshots = new SessionSnapshotStore(this.config.infrastructure.interruptRecovery, this.cwd);
+    this.taskLedgerSnapshots = createTaskLedgerSnapshotStore(this.config, this.cwd);
     this.fileChanges = new FileChangeTracker(this.cwd);
     this.costTracker = new SessionCostTracker(this.config.infrastructure.costTracking);
   }
@@ -201,6 +334,16 @@ export class RoasterRuntime {
     injectionScopeId?: string,
   ): { text: string; accepted: boolean; originalTokens: number; finalTokens: number; truncated: boolean } {
     const promptText = this.sanitizeInput(prompt);
+    const truthBlock = buildTruthLedgerBlock({ cwd: this.cwd });
+    if (truthBlock) {
+      this.registerContextInjection(sessionId, {
+        source: "roaster.truth",
+        id: "truth-ledger",
+        priority: "critical",
+        oncePerSession: true,
+        content: truthBlock,
+      });
+    }
     const selected = this.selectSkills(promptText);
     const digest = this.getLedgerDigest(sessionId);
     const resumeHint = this.getResumeHint(sessionId);
@@ -226,21 +369,56 @@ export class RoasterRuntime {
       });
     }
 
-    const latestCompaction = this.latestCompactionSummaryBySession.get(sessionId);
-    if (latestCompaction?.summary) {
-      this.registerContextInjection(sessionId, {
-        source: "roaster.compaction-summary",
-        id: latestCompaction.entryId ?? "latest",
-        priority: "high",
-        oncePerSession: true,
-        content: `[CompactionSummary]\n${latestCompaction.summary}`,
-      });
-    }
+	    const latestCompaction = this.latestCompactionSummaryBySession.get(sessionId);
+	    if (latestCompaction?.summary) {
+	      this.registerContextInjection(sessionId, {
+	        source: "roaster.compaction-summary",
+	        id: latestCompaction.entryId ?? "latest",
+	        priority: "high",
+	        oncePerSession: true,
+	        content: `[CompactionSummary]\n${latestCompaction.summary}`,
+	      });
+		    }
 
-    const merged = this.contextInjection.plan(
-      sessionId,
-      this.isContextBudgetEnabled() ? this.config.infrastructure.contextBudget.maxInjectionTokens : Number.MAX_SAFE_INTEGER,
-    );
+		    const taskState = this.taskStateBySession.get(sessionId);
+		    if (taskState && (taskState.spec || taskState.items.length > 0 || taskState.blockers.length > 0)) {
+		      const taskBlock = buildTaskStateBlock(taskState);
+		      if (taskBlock) {
+		        this.registerContextInjection(sessionId, {
+		          source: "roaster.task-state",
+	          id: "task-state",
+	          priority: "critical",
+	          content: taskBlock,
+	        });
+	      }
+	    }
+
+	    const taskSpec = taskState?.spec;
+	    const explicitFiles = taskSpec?.targets?.files ?? [];
+	    const fallbackFiles = explicitFiles.length === 0 ? this.fileChanges.recentFiles(sessionId, 3) : [];
+	    const viewportFiles = explicitFiles.length > 0 ? explicitFiles : fallbackFiles;
+	    const viewportSymbols = taskSpec?.targets?.symbols ?? [];
+	    if (viewportFiles.length > 0) {
+	      const viewport = buildViewportContext({
+	        cwd: this.cwd,
+	        goal: taskSpec?.goal || promptText,
+	        targetFiles: viewportFiles,
+	        targetSymbols: viewportSymbols,
+	      });
+	      if (viewport) {
+	        this.registerContextInjection(sessionId, {
+	          source: "roaster.viewport",
+	          id: "viewport",
+	          priority: "high",
+	          content: viewport,
+	        });
+	      }
+	    }
+
+	    const merged = this.contextInjection.plan(
+	      sessionId,
+	      this.isContextBudgetEnabled() ? this.config.infrastructure.contextBudget.maxInjectionTokens : Number.MAX_SAFE_INTEGER,
+	    );
     const raw = merged.text;
     const decision = this.contextBudget.planInjection(sessionId, raw, usage);
     const wasTruncated = decision.truncated || merged.truncated;
@@ -957,7 +1135,7 @@ export class RoasterRuntime {
     success: boolean;
     verdict?: "pass" | "fail" | "inconclusive";
     metadata?: Record<string, unknown>;
-  }): void {
+  }): string {
     const turn = this.getCurrentTurn(input.sessionId);
     const activeSkill = this.getActiveSkill(input.sessionId);
     const verdict = input.verdict ?? (input.success ? "pass" : "fail");
@@ -995,6 +1173,7 @@ export class RoasterRuntime {
       },
     });
     this.maybeCompactLedger(input.sessionId, turn);
+    return ledgerRow.id;
   }
 
   getLedgerDigest(sessionId: string): string {
@@ -1021,6 +1200,139 @@ export class RoasterRuntime {
     return formatLedgerRows(rows);
   }
 
+  setTaskSpec(sessionId: string, spec: TaskSpec): void {
+    const normalized = normalizeTaskSpec(spec);
+    this.recordEvent({
+      sessionId,
+      type: TASK_EVENT_TYPE,
+      payload: {
+        schema: "roaster.task.ledger.v1",
+        kind: "spec_set",
+        spec: normalized,
+      },
+    });
+  }
+
+  addTaskItem(
+    sessionId: string,
+    input: { id?: string; text: string; status?: TaskItemStatus },
+  ): { ok: boolean; itemId?: string; error?: string } {
+    const text = input.text?.trim();
+    if (!text) {
+      return { ok: false, error: "missing_text" };
+    }
+
+    const payload = buildItemAddedEvent({
+      id: input.id?.trim() || undefined,
+      text,
+      status: input.status,
+    });
+    this.recordEvent({
+      sessionId,
+      type: TASK_EVENT_TYPE,
+      payload,
+    });
+    return { ok: true, itemId: payload.item.id };
+  }
+
+  updateTaskItem(
+    sessionId: string,
+    input: { id: string; text?: string; status?: TaskItemStatus },
+  ): { ok: boolean; error?: string } {
+    const id = input.id?.trim();
+    if (!id) return { ok: false, error: "missing_id" };
+
+    const text = input.text?.trim();
+    if (!text && !input.status) {
+      return { ok: false, error: "missing_patch" };
+    }
+
+    const payload = buildItemUpdatedEvent({
+      id,
+      text: text || undefined,
+      status: input.status,
+    });
+    this.recordEvent({
+      sessionId,
+      type: TASK_EVENT_TYPE,
+      payload,
+    });
+    return { ok: true };
+  }
+
+  recordTaskBlocker(
+    sessionId: string,
+    input: { id?: string; message: string; source?: string },
+  ): { ok: boolean; blockerId?: string; error?: string } {
+    const message = input.message?.trim();
+    if (!message) {
+      return { ok: false, error: "missing_message" };
+    }
+
+    const payload = buildBlockerRecordedEvent({
+      id: input.id?.trim() || undefined,
+      message,
+      source: input.source?.trim() || undefined,
+    });
+    this.recordEvent({
+      sessionId,
+      type: TASK_EVENT_TYPE,
+      payload,
+    });
+    return { ok: true, blockerId: payload.blocker.id };
+  }
+
+  resolveTaskBlocker(sessionId: string, blockerId: string): { ok: boolean; error?: string } {
+    const id = blockerId?.trim();
+    if (!id) return { ok: false, error: "missing_id" };
+
+    const payload = buildBlockerResolvedEvent(id);
+    this.recordEvent({
+      sessionId,
+      type: TASK_EVENT_TYPE,
+      payload,
+    });
+    return { ok: true };
+  }
+
+  getTaskState(sessionId: string): TaskState {
+    const cached = this.taskStateBySession.get(sessionId);
+    if (cached) {
+      return {
+        spec: cached.spec,
+        items: [...cached.items],
+        blockers: [...cached.blockers],
+        updatedAt: cached.updatedAt,
+      };
+    }
+
+    const hydrated = this.taskLedgerSnapshots.hydrate(sessionId);
+    if (hydrated) {
+      this.taskStateBySession.set(sessionId, hydrated);
+      return {
+        spec: hydrated.spec,
+        items: [...hydrated.items],
+        blockers: [...hydrated.blockers],
+        updatedAt: hydrated.updatedAt,
+      };
+    }
+
+    const events = this.queryEvents(sessionId, { type: TASK_EVENT_TYPE });
+    const state = foldTaskLedgerEvents(events);
+    this.taskStateBySession.set(sessionId, state);
+    try {
+      this.taskLedgerSnapshots.save(sessionId, state);
+    } catch {
+      // ignore snapshot IO failures
+    }
+    return {
+      spec: state.spec,
+      items: [...state.items],
+      blockers: [...state.blockers],
+      updatedAt: state.updatedAt,
+    };
+  }
+
   recordEvent(input: {
     sessionId: string;
     type: string;
@@ -1036,6 +1348,8 @@ export class RoasterRuntime {
       timestamp: input.timestamp,
     });
     if (!row) return undefined;
+
+    this.tryApplyTaskEvent(row);
 
     const structured = this.toStructuredEvent(row);
     for (const listener of this.eventListeners.values()) {
@@ -1284,13 +1598,23 @@ export class RoasterRuntime {
     }
     this.turnsBySession.set(targetSessionId, snapshot.turnCounter);
     this.toolCallsBySession.set(targetSessionId, snapshot.toolCalls);
-    this.verification.stateStore.restore(targetSessionId, snapshot.verification);
-    const droppedActiveRuns = this.parallel.restoreSession(targetSessionId, snapshot.parallel);
-    this.contextBudget.restoreSession(targetSessionId, snapshot.contextBudget);
-    this.costTracker.restore(targetSessionId, snapshot.cost);
-    const importedPatchSets = input.imported
-      ? this.fileChanges.importSessionHistory(input.sourceSessionId, targetSessionId).importedPatchSets
-      : 0;
+	    this.verification.stateStore.restore(targetSessionId, snapshot.verification);
+	    const droppedActiveRuns = this.parallel.restoreSession(targetSessionId, snapshot.parallel);
+	    this.contextBudget.restoreSession(targetSessionId, snapshot.contextBudget);
+	    this.costTracker.restore(targetSessionId, snapshot.cost);
+	    if (snapshot.task?.state) {
+	      this.taskStateBySession.set(targetSessionId, snapshot.task.state);
+	      try {
+	        this.taskLedgerSnapshots.save(targetSessionId, snapshot.task.state);
+	      } catch {
+	        // ignore snapshot IO failures
+	      }
+	    } else {
+	      this.taskStateBySession.delete(targetSessionId);
+	    }
+	    const importedPatchSets = input.imported
+	      ? this.fileChanges.importSessionHistory(input.sourceSessionId, targetSessionId).importedPatchSets
+	      : 0;
 
     if (snapshot.interrupted && this.shouldInjectResumeHint()) {
       const hint = [
@@ -1326,6 +1650,14 @@ export class RoasterRuntime {
     options: { reason: "signal" | "shutdown" | "manual"; interrupted?: boolean } = { reason: "manual" },
   ): void {
     const lastEvent = this.events.latest(sessionId);
+    const taskState = this.taskStateBySession.get(sessionId);
+    const taskSnapshot =
+      taskState && (taskState.spec || taskState.items.length > 0 || taskState.blockers.length > 0)
+        ? {
+            schema: "roaster.task.snapshot.v1" as const,
+            state: taskState,
+          }
+        : undefined;
     const snapshot = {
       version: 1 as const,
       sessionId,
@@ -1339,6 +1671,7 @@ export class RoasterRuntime {
       parallel: this.parallel.snapshotSession(sessionId),
       contextBudget: this.contextBudget.snapshotSession(sessionId),
       cost: this.costTracker.getSummary(sessionId),
+      task: taskSnapshot,
       lastEvent: lastEvent
         ? {
             id: lastEvent.id,
@@ -1348,6 +1681,29 @@ export class RoasterRuntime {
         : undefined,
     };
     this.snapshots.save(snapshot);
+    if (taskState && (taskState.spec || taskState.items.length > 0 || taskState.blockers.length > 0)) {
+      try {
+        const compaction = this.taskLedgerSnapshots.maybeCompact(sessionId, taskState);
+        if (compaction) {
+          this.recordEvent({
+            sessionId,
+            type: "task_ledger_compacted",
+            turn: this.getCurrentTurn(sessionId),
+            payload: {
+              compacted: compaction.compacted,
+              kept: compaction.kept,
+              bytesBefore: compaction.bytesBefore,
+              bytesAfter: compaction.bytesAfter,
+              durationMs: compaction.durationMs,
+              checkpointEventId: compaction.checkpointEventId,
+              trigger: options.reason,
+            },
+          });
+        }
+      } catch {
+        // ignore task ledger compaction failures
+      }
+    }
     this.recordEvent({
       sessionId,
       type: "session_snapshot_saved",
@@ -1358,15 +1714,17 @@ export class RoasterRuntime {
     });
   }
 
-  clearSessionSnapshot(sessionId: string): void {
-    this.snapshots.remove(sessionId);
-    this.fileChanges.clearSession(sessionId);
-    this.lastLedgerCompactionTurnBySession.delete(sessionId);
-    this.contextInjection.clearSession(sessionId);
-    this.latestCompactionSummaryBySession.delete(sessionId);
-    this.clearInjectionFingerprintsForSession(sessionId);
-    this.clearReservedInjectionTokensForSession(sessionId);
-  }
+	  clearSessionSnapshot(sessionId: string): void {
+	    this.snapshots.remove(sessionId);
+	    this.taskLedgerSnapshots.remove(sessionId);
+	    this.fileChanges.clearSession(sessionId);
+	    this.lastLedgerCompactionTurnBySession.delete(sessionId);
+	    this.contextInjection.clearSession(sessionId);
+	    this.latestCompactionSummaryBySession.delete(sessionId);
+	    this.clearInjectionFingerprintsForSession(sessionId);
+	    this.clearReservedInjectionTokensForSession(sessionId);
+	    this.taskStateBySession.delete(sessionId);
+	  }
 
   async verifyCompletion(
     sessionId: string,
@@ -1376,20 +1734,60 @@ export class RoasterRuntime {
     const effectiveLevel = level ?? this.config.verification.defaultLevel;
     const executeCommands = options.executeCommands !== false;
 
-    if (executeCommands && effectiveLevel !== "quick") {
-      await this.runVerificationCommands(sessionId, effectiveLevel, {
-        timeoutMs: options.timeoutMs ?? 10 * 60 * 1000,
-      });
-    }
+	    if (executeCommands && effectiveLevel !== "quick") {
+	      await this.runVerificationCommands(sessionId, effectiveLevel, {
+	        timeoutMs: options.timeoutMs ?? 10 * 60 * 1000,
+	      });
+	    }
 
-    return this.verification.evaluate(sessionId, effectiveLevel, { requireCommands: executeCommands });
-  }
+	    const report = this.verification.evaluate(sessionId, effectiveLevel, { requireCommands: executeCommands });
+	    this.syncVerificationBlockers(sessionId, report);
+	    return report;
+	  }
 
-  sanitizeInput(text: string): string {
-    if (!this.config.security.sanitizeContext) {
-      return text;
-    }
-    return sanitizeContextText(text);
+	  private syncVerificationBlockers(sessionId: string, report: VerificationReport): void {
+	    const verificationState = this.verification.stateStore.get(sessionId);
+	    if (!verificationState.lastWriteAt) return;
+
+	    const lastWriteAt = verificationState.lastWriteAt ?? 0;
+	    const current = this.getTaskState(sessionId);
+	    const existingById = new Map(current.blockers.map((blocker) => [blocker.id, blocker]));
+	    const failingIds = new Set<string>();
+
+	    for (const check of report.checks) {
+	      if (check.status !== "fail") continue;
+
+	      const blockerId = `${VERIFIER_BLOCKER_PREFIX}${normalizeVerifierCheckForId(check.name)}`;
+	      failingIds.add(blockerId);
+
+	      const run = verificationState.checkRuns[check.name];
+	      const freshRun = run && run.timestamp >= lastWriteAt ? run : undefined;
+	      const message = buildVerifierBlockerMessage({ checkName: check.name, evidence: check.evidence, run: freshRun });
+	      const source = "verification_gate";
+
+	      const existing = existingById.get(blockerId);
+	      if (existing && existing.message === message && (existing.source ?? "") === source) {
+	        continue;
+	      }
+	      this.recordTaskBlocker(sessionId, {
+	        id: blockerId,
+	        message,
+	        source,
+	      });
+	    }
+
+	    for (const blocker of current.blockers) {
+	      if (!blocker.id.startsWith(VERIFIER_BLOCKER_PREFIX)) continue;
+	      if (failingIds.has(blocker.id)) continue;
+	      this.resolveTaskBlocker(sessionId, blocker.id);
+	    }
+	  }
+
+	  sanitizeInput(text: string): string {
+	    if (!this.config.security.sanitizeContext) {
+	      return text;
+	    }
+	    return sanitizeContextText(text);
   }
 
   private getCurrentTurn(sessionId: string): number {
@@ -1420,37 +1818,39 @@ export class RoasterRuntime {
         maxOutputChars: 200_000,
       });
 
-      const ok = result.exitCode === 0 && !result.timedOut;
-      const outputText = `${result.stdout}\n${result.stderr}`.trim();
-      const outputSummary = outputText.length > 0 ? outputText.slice(0, 2000) : ok ? "(no output)" : "(no output)";
+	      const ok = result.exitCode === 0 && !result.timedOut;
+	      const outputText = `${result.stdout}\n${result.stderr}`.trim();
+	      const outputSummary = outputText.length > 0 ? outputText.slice(0, 2000) : ok ? "(no output)" : "(no output)";
 
-      this.verification.stateStore.setCheckRun(sessionId, checkName, {
-        timestamp: Date.now(),
-        ok,
-        command,
-        exitCode: result.exitCode,
-        durationMs: result.durationMs,
-        outputSummary,
-      });
+	      const timestamp = Date.now();
+	      const ledgerId = this.recordToolResult({
+	        sessionId,
+	        toolName: "roaster_verify",
+	        args: { check: checkName, command },
+	        outputText: outputSummary,
+	        success: ok,
+	        verdict: ok ? "pass" : "fail",
+	        metadata: {
+	          source: "verification_gate",
+	          check: checkName,
+	          command,
+	          exitCode: result.exitCode,
+	          durationMs: result.durationMs,
+	          timedOut: result.timedOut,
+	        },
+	      });
 
-      this.recordToolResult({
-        sessionId,
-        toolName: "roaster_verify",
-        args: { check: checkName, command },
-        outputText: outputSummary,
-        success: ok,
-        verdict: ok ? "pass" : "fail",
-        metadata: {
-          source: "verification_gate",
-          check: checkName,
-          command,
-          exitCode: result.exitCode,
-          durationMs: result.durationMs,
-          timedOut: result.timedOut,
-        },
-      });
-    }
-  }
+	      this.verification.stateStore.setCheckRun(sessionId, checkName, {
+	        timestamp,
+	        ok,
+	        command,
+	        exitCode: result.exitCode,
+	        durationMs: result.durationMs,
+	        ledgerId,
+	        outputSummary,
+	      });
+	    }
+	  }
 
   private maybeCompactLedger(sessionId: string, turn: number): void {
     const every = Math.max(0, Math.trunc(this.config.ledger.checkpointEveryTurns));
@@ -1482,6 +1882,26 @@ export class RoasterRuntime {
 
   private getResumeHint(sessionId: string): string | undefined {
     return this.resumeHintsBySession.get(sessionId);
+  }
+
+  private tryApplyTaskEvent(event: RoasterEventRecord): void {
+    if (event.type !== TASK_EVENT_TYPE) {
+      return;
+    }
+
+    const payload = coerceTaskLedgerPayload(event.payload);
+    if (!payload) {
+      return;
+    }
+
+    const current = this.taskStateBySession.get(event.sessionId) ?? createEmptyTaskState();
+    const next = reduceTaskState(current, payload, event.timestamp);
+    this.taskStateBySession.set(event.sessionId, next);
+    try {
+      this.taskLedgerSnapshots.save(event.sessionId, next);
+    } catch {
+      // ignore snapshot IO failures
+    }
   }
 
   private clearResumeHint(sessionId: string): void {

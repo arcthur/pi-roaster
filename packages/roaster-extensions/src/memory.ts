@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
   type ContextBudgetUsage,
+  type EvidenceLedgerRow,
   type RoasterRuntime,
 } from "@pi-roaster/roaster-runtime";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
@@ -18,9 +19,17 @@ import {
   buildNextHierarchy,
   capBlocksByTotalChars,
 } from "./memory/hierarchy.js";
+import { collectFilePaths } from "./memory/relevance.js";
 import { stripLeadingHeader, truncateText } from "./memory/text.js";
 
 const MEMORY_INJECTION_MESSAGE_TYPE = "roaster-memory-injection";
+const APPROX_CHARS_PER_TOKEN = 3.5;
+
+function truncateTextToApproxTokenBudget(input: string, maxTokens: number): string {
+  const budget = Math.max(1, Math.floor(maxTokens));
+  const maxChars = Math.max(1, Math.floor(budget * APPROX_CHARS_PER_TOKEN));
+  return truncateText(input, maxChars);
+}
 
 interface SessionMemory {
   sessionId: string;
@@ -159,6 +168,104 @@ function normalizeErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) return error.message.trim();
   if (typeof error === "string" && error.trim().length > 0) return error.trim();
   return "unknown_error";
+}
+
+function pickMostRecentVerifierFailure(
+  runtime: RoasterRuntime,
+  sessionId: string,
+): { check: string; command: string; exitCode: number | null; outputSummary: string; ledgerId?: string; timestamp: number } | null {
+  const stateStore = runtime.verification?.stateStore;
+  if (!stateStore || typeof stateStore.get !== "function") return null;
+  const state = stateStore.get(sessionId);
+  const checkRuns = state?.checkRuns;
+  if (!checkRuns) return null;
+
+  const lastWriteAt = typeof state?.lastWriteAt === "number" ? state.lastWriteAt : 0;
+  const failures = Object.entries(checkRuns)
+    .filter(([, run]) => run && run.ok === false)
+    .filter(([, run]) => !lastWriteAt || run.timestamp >= lastWriteAt)
+    .sort((left, right) => (right[1]?.timestamp ?? 0) - (left[1]?.timestamp ?? 0));
+  const entry = failures[0];
+  if (!entry) return null;
+
+  const [check, run] = entry;
+  return {
+    check,
+    command: run.command,
+    exitCode: run.exitCode ?? null,
+    outputSummary: typeof run.outputSummary === "string" && run.outputSummary.length > 0 ? run.outputSummary : "(no output)",
+    ledgerId: typeof run.ledgerId === "string" && run.ledgerId.length > 0 ? run.ledgerId : undefined,
+    timestamp: run.timestamp,
+  };
+}
+
+function extractLastReferencedFiles(rows: EvidenceLedgerRow[], limit = 5): string[] {
+  const selected: string[] = [];
+  const seen = new Set<string>();
+
+  for (const row of [...rows].sort((a, b) => b.timestamp - a.timestamp)) {
+    const combined = `${row.tool}\n${row.argsSummary}\n${row.outputSummary}`;
+    const paths = collectFilePaths(combined);
+    for (const path of paths) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      selected.push(path);
+      if (selected.length >= limit) return selected;
+    }
+  }
+
+  return selected;
+}
+
+function buildHandoffHardMetricsBlock(input: {
+  runtime: RoasterRuntime;
+  sessionId: string;
+  goal?: string;
+  rows: EvidenceLedgerRow[];
+  maxChars: number;
+}): string {
+  const lines: string[] = ["[HandoffHardMetrics]"];
+
+  const taskGoal =
+    typeof input.runtime.getTaskState === "function"
+      ? input.runtime.getTaskState(input.sessionId).spec?.goal
+      : undefined;
+  if (typeof taskGoal === "string" && taskGoal.trim().length > 0) {
+    lines.push(`taskGoal=${taskGoal.trim()}`);
+  } else if (typeof input.goal === "string" && input.goal.trim().length > 0) {
+    lines.push(`taskGoal=${input.goal.trim()}`);
+  }
+
+  const failure = pickMostRecentVerifierFailure(input.runtime, input.sessionId);
+  if (failure) {
+    lines.push("verifierFailure:");
+    lines.push(`- check=${failure.check}`);
+    if (failure.ledgerId) {
+      lines.push(`- ledgerId=${failure.ledgerId}`);
+    }
+    lines.push(`- exitCode=${failure.exitCode ?? "null"}`);
+    lines.push(`- command=${failure.command}`);
+    lines.push(`- timestamp=${new Date(failure.timestamp).toISOString()}`);
+    lines.push("- output:");
+    for (const line of failure.outputSummary.split(/\r?\n/).slice(0, 20)) {
+      lines.push(`  ${line}`);
+    }
+  } else {
+    lines.push("verifierFailure:");
+    lines.push("- (none)");
+  }
+
+  const referenced = extractLastReferencedFiles(input.rows, 5);
+  lines.push("lastReferencedFiles:");
+  if (referenced.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const path of referenced) {
+      lines.push(`- ${path}`);
+    }
+  }
+
+  return truncateText(lines.join("\n"), input.maxChars);
 }
 
 function applyMemoryInjectionTotalBudget(blocks: string[], maxTotalChars: number): string[] {
@@ -369,9 +476,26 @@ export function registerMemory(pi: ExtensionAPI, runtime: RoasterRuntime): void 
     }
 
     const requestedContent = blocks.join("\n\n");
+    const hasViewportTargets =
+      typeof runtime.getTaskState === "function"
+        ? Boolean(runtime.getTaskState(sessionId).spec?.targets?.files?.length)
+        : false;
+
+    const hasRecentFiles =
+      typeof runtime.fileChanges?.recentFiles === "function"
+        ? runtime.fileChanges.recentFiles(sessionId, 1).length > 0
+        : false;
+    const viewportLikelyActive = hasViewportTargets || hasRecentFiles;
+    const maxInjectionTokens = runtime.config.infrastructure.contextBudget.maxInjectionTokens;
+    const shouldClampExperience =
+      runtime.config.infrastructure.contextBudget.enabled && viewportLikelyActive && maxInjectionTokens > 0;
+    const maxExperienceTokens = Math.max(64, Math.floor(maxInjectionTokens * 0.1));
+    const experienceClampedContent = shouldClampExperience
+      ? truncateTextToApproxTokenBudget(requestedContent, maxExperienceTokens)
+      : requestedContent;
     const planned = runtime.planSupplementalContextInjection(
       sessionId,
-      requestedContent,
+      experienceClampedContent,
       usage,
       injectionScopeId,
     );
@@ -408,6 +532,7 @@ export function registerMemory(pi: ExtensionAPI, runtime: RoasterRuntime): void 
     const sessionMemory = loadMemory(ctx.cwd, sessionId);
     const userMemory = loadUserMemory();
     const goal = latestGoalBySession.get(sessionId);
+    const rowsForProof = readRecentRows(runtime, sessionId);
 
     let digest = "";
     let digestFallbackUsed = false;
@@ -462,7 +587,7 @@ export function registerMemory(pi: ExtensionAPI, runtime: RoasterRuntime): void 
       });
     } else {
       try {
-        const rows = readRecentRows(runtime, sessionId);
+        const rows = rowsForProof;
         handoffText =
           rows.length > 0
             ? buildHandoffFromRows({
@@ -512,25 +637,78 @@ export function registerMemory(pi: ExtensionAPI, runtime: RoasterRuntime): void 
       }
     }
 
-    saveMemory(ctx.cwd, {
-      sessionId,
-      updatedAt: Date.now(),
-      lastDigest: digest,
-      lastHandoff: handoffText,
-    });
+    try {
+      const hardMetrics = buildHandoffHardMetricsBlock({
+        runtime,
+        sessionId,
+        goal,
+        rows: rowsForProof,
+        maxChars: Math.max(120, Math.floor(handoffConfig.maxSummaryChars * 0.45)),
+      });
+      const combined = [
+        "[SessionHandoff]",
+        stripLeadingHeader(hardMetrics, "[SessionHandoff]"),
+        stripLeadingHeader(handoffText, "[SessionHandoff]"),
+      ]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join("\n\n");
+      handoffText = truncateText(combined, handoffConfig.maxSummaryChars);
+    } catch (error) {
+      emitRuntimeEvent(runtime, {
+        sessionId,
+        turn: state.turnIndex,
+        type: "session_handoff_hard_metrics_failed",
+        payload: {
+          error: normalizeErrorMessage(error),
+        },
+      });
+      handoffText = truncateText(handoffText, handoffConfig.maxSummaryChars);
+    }
 
-    saveUserMemory({
-      updatedAt: Date.now(),
-      preferences: userMemory?.preferences,
-      lastDigest: digest,
-      lastHandoff: handoffText,
-      handoffHierarchy: handoffConfig.hierarchy.enabled
-        ? buildNextHierarchy({
-            current: userMemory?.handoffHierarchy,
-            handoffText,
-            config: handoffConfig.hierarchy,
-          })
-        : userMemory?.handoffHierarchy,
-    });
+    try {
+      saveMemory(ctx.cwd, {
+        sessionId,
+        updatedAt: Date.now(),
+        lastDigest: digest,
+        lastHandoff: handoffText,
+      });
+    } catch (error) {
+      emitRuntimeEvent(runtime, {
+        sessionId,
+        turn: state.turnIndex,
+        type: "session_handoff_save_failed",
+        payload: {
+          scope: "session",
+          error: normalizeErrorMessage(error),
+        },
+      });
+    }
+
+    try {
+      saveUserMemory({
+        updatedAt: Date.now(),
+        preferences: userMemory?.preferences,
+        lastDigest: digest,
+        lastHandoff: handoffText,
+        handoffHierarchy: handoffConfig.hierarchy.enabled
+          ? buildNextHierarchy({
+              current: userMemory?.handoffHierarchy,
+              handoffText,
+              config: handoffConfig.hierarchy,
+            })
+          : userMemory?.handoffHierarchy,
+      });
+    } catch (error) {
+      emitRuntimeEvent(runtime, {
+        sessionId,
+        turn: state.turnIndex,
+        type: "session_handoff_save_failed",
+        payload: {
+          scope: "user",
+          error: normalizeErrorMessage(error),
+        },
+      });
+    }
   });
 }

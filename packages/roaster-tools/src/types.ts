@@ -3,6 +3,9 @@ import type {
   RollbackResult,
   SessionCostSummary,
   SkillDocument,
+  TaskItemStatus,
+  TaskSpec,
+  TaskState,
   VerificationLevel,
   VerificationReport,
 } from "@pi-roaster/roaster-runtime";
@@ -20,6 +23,22 @@ export interface RoasterToolRuntime {
   queryLedger(sessionId: string, query: EvidenceQuery): string;
   getCostSummary(sessionId: string): SessionCostSummary;
   getAvailableConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown>;
+
+  setTaskSpec(sessionId: string, spec: TaskSpec): void;
+  getTaskState(sessionId: string): TaskState;
+  addTaskItem(
+    sessionId: string,
+    input: { id?: string; text: string; status?: TaskItemStatus },
+  ): { ok: boolean; itemId?: string; error?: string };
+  updateTaskItem(
+    sessionId: string,
+    input: { id: string; text?: string; status?: TaskItemStatus },
+  ): { ok: boolean; error?: string };
+  recordTaskBlocker(
+    sessionId: string,
+    input: { id?: string; message: string; source?: string },
+  ): { ok: boolean; blockerId?: string; error?: string };
+  resolveTaskBlocker(sessionId: string, blockerId: string): { ok: boolean; error?: string };
 }
 
 export interface RoasterToolOptions {
