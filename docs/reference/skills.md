@@ -35,3 +35,6 @@ Skill parsing, merge, and selection logic:
 - `skills/base/<skill>/SKILL.md`
 - `skills/packs/<pack>/SKILL.md`
 - `skills/project/<skill>/SKILL.md`
+
+Runtime discovery also accepts roots provided via `skills.roots` and executable
+sidecar assets. See `docs/reference/configuration.md` (Skill Discovery).

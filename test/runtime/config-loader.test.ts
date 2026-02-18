@@ -136,4 +136,27 @@ describe("Roaster config loader normalization", () => {
     const loaded = loadRoasterConfig({ cwd: workspace, configPath: ".pi/roaster.json" });
     expect(loaded.infrastructure.interruptRecovery.resumeHintInjectionEnabled).toBe(false);
   });
+
+  test("normalizes skills roots arrays and selector values", () => {
+    const workspace = createWorkspace("skills-normalize");
+    const rawConfig = {
+      skills: {
+        roots: ["  ./skills-extra  ", "", 123, null],
+        packs: ["  typescript  ", "", null],
+        disabled: ["  review  ", "", null],
+        selector: {
+          k: 0,
+          maxDigestTokens: -1,
+        },
+      },
+    };
+    writeFileSync(join(workspace, ".pi/roaster.json"), JSON.stringify(rawConfig, null, 2), "utf8");
+
+    const loaded = loadRoasterConfig({ cwd: workspace, configPath: ".pi/roaster.json" });
+    expect(loaded.skills.roots).toEqual(["./skills-extra"]);
+    expect(loaded.skills.packs).toEqual(["typescript"]);
+    expect(loaded.skills.disabled).toEqual(["review"]);
+    expect(loaded.skills.selector.k).toBe(DEFAULT_ROASTER_CONFIG.skills.selector.k);
+    expect(loaded.skills.selector.maxDigestTokens).toBe(DEFAULT_ROASTER_CONFIG.skills.selector.maxDigestTokens);
+  });
 });

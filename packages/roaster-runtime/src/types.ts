@@ -184,6 +184,7 @@ export interface TaskSessionSnapshot {
 
 export interface RoasterConfig {
   skills: {
+    roots?: string[];
     packs: string[];
     disabled: string[];
     overrides: Record<string, Partial<SkillContract>>;
