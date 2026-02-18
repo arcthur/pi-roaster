@@ -105,3 +105,17 @@ If you store the config file elsewhere (for example via `--config`), adjust the 
   - `off`: Do not apply the per-skill `maxParallel` contract; only the global `parallel.*` limits apply.
   - `warn`: When a skill reaches/exceeds `maxParallel` active runs, allow acquisitions but emit a `skill_parallel_warning` event once per (session, skill).
   - `enforce`: Reject `RoasterRuntime.acquireParallelSlot()` calls once `maxParallel` is reached, returning `reason=skill_max_parallel`.
+
+## Tool Scan Parallelism
+
+Runtime-aware multi-file read scans in tool implementations derive their
+concurrency from `parallel`:
+
+- `parallel.enabled=false`: force sequential scan reads (`batchSize=1`).
+- `parallel.enabled=true`: scan batch size is derived from
+  `min(parallel.maxConcurrent, parallel.maxTotal) * 4` and clamped to `[1, 64]`.
+- During scans, tools adapt per-batch reads to remaining match budget so
+  low-limit queries avoid eager over-read.
+
+These scans emit `tool_parallel_read` events with the effective mode, batch
+size, and per-run read telemetry. See `docs/reference/events.md`.

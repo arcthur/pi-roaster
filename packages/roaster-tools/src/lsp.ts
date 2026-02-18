@@ -12,7 +12,17 @@ import {
   parseTscDiagnostics,
   type TscDiagnostic,
 } from "@pi-roaster/roaster-runtime";
+import type { RoasterToolRuntime } from "./types.js";
 import { runCommand } from "./utils/exec.js";
+import {
+  type ParallelReadConfig,
+  getToolSessionId,
+  readTextBatch,
+  recordParallelReadTelemetry,
+  resolveAdaptiveBatchSize,
+  resolveParallelReadConfig,
+  summarizeReadBatch,
+} from "./utils/parallel-read.js";
 import { textResult } from "./utils/result.js";
 
 const CODE_EXTENSIONS = new Set([
@@ -36,6 +46,13 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
+interface LspParallelReadContext {
+  runtime?: RoasterToolRuntime;
+  sessionId?: string;
+  toolName: string;
+  config: ParallelReadConfig;
+}
+
 function isCodeFile(path: string): boolean {
   return CODE_EXTENSIONS.has(extname(path).toLowerCase());
 }
@@ -43,7 +60,12 @@ function isCodeFile(path: string): boolean {
 function walkCodeFiles(rootDir: string, maxFiles = 4000): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
-    const entries = readdirSync(dir, { withFileTypes: true });
+    let entries: Array<import("node:fs").Dirent>;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const entry of entries) {
       if (out.length >= maxFiles) return;
       if (entry.name.startsWith(".") && entry.name !== ".config") continue;
@@ -105,11 +127,14 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function findDefinition(
+async function findDefinition(
   rootDir: string,
   symbol: string,
+  scan: LspParallelReadContext,
   hintFile?: string,
-): string[] {
+  limit = 20,
+): Promise<string[]> {
+  const targetLimit = Math.max(1, Math.trunc(limit));
   const patterns = [
     new RegExp(`\\bfunction\\s+${escapeRegExp(symbol)}\\b`),
     new RegExp(`\\b(class|interface|type|enum)\\s+${escapeRegExp(symbol)}\\b`),
@@ -122,41 +147,140 @@ function findDefinition(
     ? [hintFile, ...files.filter((file) => file !== hintFile)]
     : files;
 
+  const startedAt = Date.now();
+  let scannedFiles = 0;
+  let loadedFiles = 0;
+  let failedFiles = 0;
+  let batches = 0;
   const matches: string[] = [];
-  for (const file of ordered) {
-    const content = readFileSync(file, "utf8");
-    const lines = content.split("\n");
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i] ?? "";
-      if (patterns.some((pattern) => pattern.test(line))) {
-        matches.push(`${file}:${i + 1}:0 -> ${line.trim()}`);
+
+  const emitTelemetry = () => {
+    recordParallelReadTelemetry(scan.runtime, scan.sessionId, {
+      toolName: scan.toolName,
+      operation: "find_definition",
+      batchSize: scan.config.batchSize,
+      mode: scan.config.mode,
+      reason: scan.config.reason,
+      scannedFiles,
+      loadedFiles,
+      failedFiles,
+      batches,
+      durationMs: Date.now() - startedAt,
+    });
+  };
+
+  const scanBatch = async (batch: string[]): Promise<boolean> => {
+    if (batch.length === 0) return false;
+    const loaded = await readTextBatch(batch);
+    const summary = summarizeReadBatch(loaded);
+    scannedFiles += summary.scannedFiles;
+    loadedFiles += summary.loadedFiles;
+    failedFiles += summary.failedFiles;
+    batches += 1;
+
+    for (const item of loaded) {
+      if (item.content === null) continue;
+      const lines = item.content.split("\n");
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i] ?? "";
+        if (patterns.some((pattern) => pattern.test(line))) {
+          matches.push(`${item.file}:${i + 1}:0 -> ${line.trim()}`);
+        }
+        if (matches.length >= targetLimit) return true;
       }
-      if (matches.length >= 20) return matches;
+    }
+    return false;
+  };
+
+  let cursor = 0;
+
+  // Warm up with the hinted file first to avoid eager multi-file reads on
+  // common goto-definition paths that resolve immediately.
+  if (hintFile && ordered.length > 0) {
+    if (await scanBatch([ordered[0]!])) {
+      emitTelemetry();
+      return matches;
+    }
+    cursor = 1;
+  }
+
+  while (cursor < ordered.length && matches.length < targetLimit) {
+    const remaining = targetLimit - matches.length;
+    const batchSize = resolveAdaptiveBatchSize(scan.config.batchSize, remaining);
+    const batch = ordered.slice(cursor, cursor + batchSize);
+    cursor += batch.length;
+    if (await scanBatch(batch)) {
+      emitTelemetry();
+      return matches;
     }
   }
+
+  emitTelemetry();
   return matches;
 }
 
-function findReferences(
+async function findReferences(
   rootDir: string,
   symbol: string,
+  scan: LspParallelReadContext,
   limit = 200,
-): string[] {
+): Promise<string[]> {
+  const targetLimit = Math.max(1, Math.trunc(limit));
   const pattern = new RegExp(`\\b${escapeRegExp(symbol)}\\b`);
   const files = walkCodeFiles(rootDir);
+  const startedAt = Date.now();
+  let scannedFiles = 0;
+  let loadedFiles = 0;
+  let failedFiles = 0;
+  let batches = 0;
   const matches: string[] = [];
 
-  for (const file of files) {
-    const lines = readFileSync(file, "utf8").split("\n");
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i] ?? "";
-      if (pattern.test(line)) {
-        matches.push(`${file}:${i + 1}:0 -> ${line.trim()}`);
+  const emitTelemetry = () => {
+    recordParallelReadTelemetry(scan.runtime, scan.sessionId, {
+      toolName: scan.toolName,
+      operation: "find_references",
+      batchSize: scan.config.batchSize,
+      mode: scan.config.mode,
+      reason: scan.config.reason,
+      scannedFiles,
+      loadedFiles,
+      failedFiles,
+      batches,
+      durationMs: Date.now() - startedAt,
+    });
+  };
+
+  let cursor = 0;
+  while (cursor < files.length && matches.length < targetLimit) {
+    const remaining = targetLimit - matches.length;
+    const batchSize = resolveAdaptiveBatchSize(scan.config.batchSize, remaining);
+    const batch = files.slice(cursor, cursor + batchSize);
+    cursor += batch.length;
+
+    const loaded = await readTextBatch(batch);
+    const summary = summarizeReadBatch(loaded);
+    scannedFiles += summary.scannedFiles;
+    loadedFiles += summary.loadedFiles;
+    failedFiles += summary.failedFiles;
+    batches += 1;
+
+    for (const item of loaded) {
+      if (item.content === null) continue;
+      const lines = item.content.split("\n");
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i] ?? "";
+        if (pattern.test(line)) {
+          matches.push(`${item.file}:${i + 1}:0 -> ${line.trim()}`);
+        }
+        if (matches.length >= targetLimit) {
+          emitTelemetry();
+          return matches;
+        }
       }
-      if (matches.length >= limit) return matches;
     }
   }
 
+  emitTelemetry();
   return matches;
 }
 
@@ -301,7 +425,9 @@ function applyRename(
   return { filesChanged, replacements };
 }
 
-export function createLspTools(): ToolDefinition<any>[] {
+export function createLspTools(
+  options?: { runtime?: RoasterToolRuntime },
+): ToolDefinition<any>[] {
   const lspGotoDefinition: ToolDefinition<any> = {
     name: "lsp_goto_definition",
     label: "LSP Go To Definition",
@@ -319,7 +445,19 @@ export function createLspTools(): ToolDefinition<any>[] {
       const symbol = wordAt(params.filePath, params.line, params.character);
       if (!symbol) return textResult("No symbol found at cursor.");
 
-      const matches = findDefinition(ctx.cwd, symbol, params.filePath);
+      const scan: LspParallelReadContext = {
+        runtime: options?.runtime,
+        sessionId: getToolSessionId(ctx),
+        toolName: "lsp_goto_definition",
+        config: resolveParallelReadConfig(options?.runtime),
+      };
+      const matches = await findDefinition(
+        ctx.cwd,
+        symbol,
+        scan,
+        params.filePath,
+        1,
+      );
       if (matches.length === 0)
         return textResult(`No definition found for '${symbol}'.`);
 
@@ -348,9 +486,17 @@ export function createLspTools(): ToolDefinition<any>[] {
       const symbol = wordAt(params.filePath, params.line, params.character);
       if (!symbol) return textResult("No symbol found at cursor.");
 
-      let refs = findReferences(ctx.cwd, symbol, 500);
+      const scan: LspParallelReadContext = {
+        runtime: options?.runtime,
+        sessionId: getToolSessionId(ctx),
+        toolName: "lsp_find_references",
+        config: resolveParallelReadConfig(options?.runtime),
+      };
+      let refs = await findReferences(ctx.cwd, symbol, scan, 500);
       if (params.includeDeclaration === false) {
-        const defs = new Set(findDefinition(ctx.cwd, symbol, params.filePath));
+        const defs = new Set(
+          await findDefinition(ctx.cwd, symbol, scan, params.filePath),
+        );
         refs = refs.filter((line) => !defs.has(line));
       }
 
@@ -395,7 +541,13 @@ export function createLspTools(): ToolDefinition<any>[] {
         return textResult("Error: query is required for workspace scope.");
       }
 
-      const refs = findReferences(ctx.cwd, params.query, limit);
+      const scan: LspParallelReadContext = {
+        runtime: options?.runtime,
+        sessionId: getToolSessionId(ctx),
+        toolName: "lsp_symbols",
+        config: resolveParallelReadConfig(options?.runtime),
+      };
+      const refs = await findReferences(ctx.cwd, params.query, scan, limit);
       return textResult(refs.length > 0 ? refs.join("\n") : "No symbols found");
     },
   };
@@ -460,12 +612,24 @@ export function createLspTools(): ToolDefinition<any>[] {
       if (!symbol)
         return textResult("Rename not available: cursor is not on a symbol.");
 
-      const refs = findReferences(
+      const scan: LspParallelReadContext = {
+        runtime: options?.runtime,
+        sessionId: getToolSessionId(ctx),
+        toolName: "lsp_prepare_rename",
+        config: resolveParallelReadConfig(options?.runtime),
+      };
+      const refs = await findReferences(
         dirname(resolve(params.filePath)),
         symbol,
+        scan,
         1000,
       );
-      const definitions = findDefinition(ctx.cwd, symbol, params.filePath);
+      const definitions = await findDefinition(
+        ctx.cwd,
+        symbol,
+        scan,
+        params.filePath,
+      );
       return textResult(
         `Rename available for '${symbol}'. Estimated references: ${refs.length}.`,
         {

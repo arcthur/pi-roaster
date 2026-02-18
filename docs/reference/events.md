@@ -26,6 +26,7 @@ fields as forward-compatible.
 - `turn_end`
 - `tool_call`
 - `tool_result`
+- `tool_parallel_read`
 - `truth_event`
 - `context_usage`
 - `context_injected`
@@ -122,3 +123,31 @@ Emitted when the runtime fails to persist a task ledger snapshot.
 Payload fields:
 
 - `error`: Error message string.
+
+## Tool Parallel Read Event
+
+### `tool_parallel_read`
+
+Emitted by runtime-aware tool implementations when they perform multi-file read
+scans (for example, workspace-level `lsp_*` scans or `ast_grep_*` fallback
+scans).
+
+Payload fields:
+
+- `toolName`: Tool that emitted the event (`lsp_symbols`, `lsp_find_references`,
+  `ast_grep_search`, etc.).
+- `operation`: Internal scan phase (`find_references`, `find_definition`,
+  `naive_search`, `naive_replace`).
+- `batchSize`: Effective concurrent read batch size used for this scan.
+- `mode`: `parallel | sequential`.
+- `reason`: Why the mode/batch was selected:
+  - `runtime_parallel_budget`: derived from runtime `parallel` config
+    (`min(maxConcurrent, maxTotal) * 4`, clamped to `[1, 64]`).
+  - `parallel_disabled`: runtime `parallel.enabled=false` forced sequential mode.
+  - `runtime_unavailable`: tool ran without runtime config context.
+- `scannedFiles`: Number of file read attempts made by the scan.
+- `loadedFiles`: Number of files successfully read.
+- `failedFiles`: Number of files that failed to read.
+  (`scannedFiles = loadedFiles + failedFiles`)
+- `batches`: Number of read batches executed.
+- `durationMs`: End-to-end scan duration in milliseconds.

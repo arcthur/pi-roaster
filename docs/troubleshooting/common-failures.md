@@ -23,3 +23,17 @@
 - Cause: no tracked mutation exists in the target session.
 - Check: `packages/roaster-runtime/src/state/file-change-tracker.ts`
 - Action: ensure edits occur through tracked tool paths and retry.
+
+## Workspace Scan Is Slow Or Incomplete
+
+- Cause: parallel read scans are forced to sequential mode, scan includes too many files, or files are intermittently unreadable.
+- Check:
+  - `packages/roaster-tools/src/utils/parallel-read.ts`
+  - `packages/roaster-tools/src/lsp.ts`
+  - `packages/roaster-tools/src/ast-grep.ts`
+  - `docs/reference/events.md` (`tool_parallel_read`)
+- Action:
+  - Inspect session events and locate `tool_parallel_read` payloads.
+  - If `mode=sequential` with `reason=parallel_disabled`, enable runtime `parallel.enabled`.
+  - If `failedFiles` is consistently high, verify file permissions and path stability.
+  - If `durationMs` and `batches` are high for large scans, tune `parallel.maxConcurrent` and `parallel.maxTotal`.

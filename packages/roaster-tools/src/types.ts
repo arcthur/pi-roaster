@@ -1,5 +1,6 @@
 import type {
   EvidenceQuery,
+  RoasterConfig,
   RollbackResult,
   SessionCostSummary,
   SkillDocument,
@@ -11,6 +12,7 @@ import type {
 } from "@pi-roaster/roaster-runtime";
 
 export interface RoasterToolRuntime {
+  readonly config?: Pick<RoasterConfig, "parallel">;
   activateSkill(sessionId: string, name: string): { ok: boolean; reason?: string; skill?: SkillDocument };
   validateSkillOutputs(sessionId: string, outputs: Record<string, unknown>): { ok: boolean; missing: string[] };
   completeSkill(sessionId: string, outputs: Record<string, unknown>): { ok: boolean; missing: string[] };
@@ -39,6 +41,13 @@ export interface RoasterToolRuntime {
     input: { id?: string; message: string; source?: string; truthFactId?: string },
   ): { ok: boolean; blockerId?: string; error?: string };
   resolveTaskBlocker(sessionId: string, blockerId: string): { ok: boolean; error?: string };
+  recordEvent?(input: {
+    sessionId: string;
+    type: string;
+    turn?: number;
+    payload?: Record<string, unknown>;
+    timestamp?: number;
+  }): unknown;
 }
 
 export interface RoasterToolOptions {

@@ -16,8 +16,8 @@ export interface BuildRoasterToolsOptions {
 
 export function buildRoasterTools(options: BuildRoasterToolsOptions): ToolDefinition<any>[] {
   return [
-    ...createLspTools(),
-    ...createAstGrepTools(),
+    ...createLspTools({ runtime: options.runtime }),
+    ...createAstGrepTools({ runtime: options.runtime }),
     createLookAtTool(),
     createCostViewTool({ runtime: options.runtime }),
     createLedgerQueryTool({ runtime: options.runtime }),

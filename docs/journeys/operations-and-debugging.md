@@ -22,12 +22,14 @@ flowchart TD
 
 1. Replay recent session events
 2. Inspect tool-level ledger evidence
-3. Patch missing verification evidence
-4. Roll back latest tracked mutation when needed
-5. Re-run and confirm gate status
+3. Inspect `tool_parallel_read` telemetry for scan quality/performance regressions
+4. Patch missing verification evidence
+5. Roll back latest tracked mutation when needed
+6. Re-run and confirm gate status
 
 ## Code Pointers
 
 - Replay and undo flow: `packages/roaster-cli/src/index.ts`
 - Ledger query tool: `packages/roaster-tools/src/ledger-query.ts`
 - Rollback tool: `packages/roaster-tools/src/rollback-last-patch.ts`
+- Tool scan telemetry helper: `packages/roaster-tools/src/utils/parallel-read.ts`
