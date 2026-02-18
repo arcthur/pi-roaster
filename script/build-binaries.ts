@@ -81,6 +81,7 @@ function copyRuntimeAssets(outDir: string): void {
   copyDirectory(join(PI_CODING_AGENT_DIR, "examples"), join(outDir, "examples"));
   copyDirectory(join(PI_CODING_AGENT_DIR, "dist", "modes", "interactive", "theme"), join(outDir, "theme"));
   copyDirectory(join(PI_CODING_AGENT_DIR, "dist", "core", "export-html"), join(outDir, "export-html"));
+  copyDirectory(join(process.cwd(), "skills"), join(outDir, "skills"));
 }
 
 async function buildPlatform(platform: PlatformTarget): Promise<boolean> {

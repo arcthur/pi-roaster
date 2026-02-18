@@ -532,6 +532,12 @@
                 "type": "string"
               }
             },
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "selector": {
               "type": "object",
               "additionalProperties": false,

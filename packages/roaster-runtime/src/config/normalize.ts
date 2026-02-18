@@ -35,6 +35,14 @@ function normalizeNonEmptyString(value: unknown, fallback: string): string {
   return trimmed.length > 0 ? value : fallback;
 }
 
+function normalizeStringArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return [...fallback];
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 export function normalizeRoasterConfig(config: RoasterConfig, defaults: RoasterConfig): RoasterConfig {
   const defaultContextBudget = defaults.infrastructure.contextBudget;
   const contextBudget = config.infrastructure.contextBudget;
@@ -60,6 +68,20 @@ export function normalizeRoasterConfig(config: RoasterConfig, defaults: RoasterC
 
   return {
     ...config,
+    skills: {
+      ...config.skills,
+      roots: normalizeStringArray(config.skills.roots, defaults.skills.roots ?? []),
+      packs: normalizeStringArray(config.skills.packs, defaults.skills.packs),
+      disabled: normalizeStringArray(config.skills.disabled, defaults.skills.disabled),
+      selector: {
+        ...config.skills.selector,
+        k: normalizePositiveInteger(config.skills.selector.k, defaults.skills.selector.k),
+        maxDigestTokens: normalizePositiveInteger(
+          config.skills.selector.maxDigestTokens,
+          defaults.skills.selector.maxDigestTokens,
+        ),
+      },
+    },
     ledger: {
       ...config.ledger,
       path: normalizeNonEmptyString(config.ledger.path, defaults.ledger.path),

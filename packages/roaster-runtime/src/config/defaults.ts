@@ -2,6 +2,7 @@ import type { RoasterConfig } from "../types.js";
 
 export const DEFAULT_ROASTER_CONFIG: RoasterConfig = {
   skills: {
+    roots: [],
     packs: ["typescript", "react", "bun"],
     disabled: [],
     overrides: {},

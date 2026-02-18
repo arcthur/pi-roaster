@@ -19,6 +19,7 @@ Configuration contract sources:
 
 ## Key Defaults
 
+- `skills.roots`: `[]` (optional additional skill root directories; relative paths are resolved from `cwd`)
 - `skills.packs`: `typescript`, `react`, `bun`
 - `verification.defaultLevel`: `standard`
 - `ledger.path`: `.orchestrator/ledger/evidence.jsonl`
@@ -60,6 +61,27 @@ Configuration contract sources:
 
 `infrastructure.interruptRecovery.resumeHintInSystemPrompt` remains supported as a backward-compatible alias.  
 If both keys are set, `resumeHintInjectionEnabled` takes precedence; if only the legacy key is set, its value is mapped automatically.
+
+## Skill Discovery
+
+Skill loading is root-aware and merges from multiple sources (lowest to highest
+precedence):
+
+1. runtime module ancestors (install/bundle location)
+2. executable ancestors (compiled binary sidecar assets)
+3. `cwd` ancestors (workspace tree)
+4. explicit `skills.roots` entries
+
+For each discovered root, runtime accepts either:
+
+- `<root>/skills/{base,packs,project}`
+- `<root>/{base,packs,project}`
+
+Pack loading behavior:
+
+- module/executable roots: load only packs listed in `skills.packs`
+- workspace/config roots: load all discovered packs (to include local custom
+  packs without extra config churn)
 
 ## Context Budget Behavior
 
@@ -113,7 +135,7 @@ concurrency from `parallel`:
 
 - `parallel.enabled=false`: force sequential scan reads (`batchSize=1`).
 - `parallel.enabled=true`: scan batch size is derived from
-  `min(parallel.maxConcurrent, parallel.maxTotal) * 4` and clamped to `[1, 64]`.
+  `parallel.maxConcurrent * 4` and clamped to `[1, 64]`.
 - During scans, tools adapt per-batch reads to remaining match budget so
   low-limit queries avoid eager over-read.
 

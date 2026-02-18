@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RoasterConfig, SkillDocument, SkillTier, SkillsIndexEntry } from "../types.js";
 import { parseSkillDocument, tightenContract } from "./contract.js";
 
@@ -9,12 +10,153 @@ const TIER_PRIORITY: Record<SkillTier, number> = {
   project: 3,
 };
 
+export type SkillRootSource =
+  | "module_ancestor"
+  | "exec_ancestor"
+  | "cwd_ancestor"
+  | "config_root";
+
+export interface SkillRegistryRoot {
+  rootDir: string;
+  skillDir: string;
+  source: SkillRootSource;
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function hasTierDirectories(skillDir: string): boolean {
+  return isDirectory(join(skillDir, "base"))
+    || isDirectory(join(skillDir, "packs"))
+    || isDirectory(join(skillDir, "project"));
+}
+
+function resolveSkillDirectory(rootDir: string): string | undefined {
+  const normalizedRoot = resolve(rootDir);
+  const direct = normalizedRoot;
+  const nested = join(normalizedRoot, "skills");
+  if (hasTierDirectories(direct)) return direct;
+  if (hasTierDirectories(nested)) return nested;
+  return undefined;
+}
+
+function collectAncestors(startDir: string): string[] {
+  const out: string[] = [];
+  let current = resolve(startDir);
+  while (true) {
+    out.push(current);
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return out;
+}
+
+function sourcePriority(source: SkillRootSource): number {
+  if (source === "config_root") return 4;
+  if (source === "cwd_ancestor") return 3;
+  if (source === "exec_ancestor") return 2;
+  return 1;
+}
+
+function appendDiscoveredRoot(
+  roots: SkillRegistryRoot[],
+  rootIndexBySkillDir: Map<string, number>,
+  rootDir: string,
+  source: SkillRootSource,
+): void {
+  const skillDir = resolveSkillDirectory(rootDir);
+  if (!skillDir) return;
+  const skillDirKey = resolve(skillDir);
+  const existingIndex = rootIndexBySkillDir.get(skillDirKey);
+  if (existingIndex !== undefined) {
+    const existing = roots[existingIndex];
+    if (!existing) return;
+    if (sourcePriority(source) > sourcePriority(existing.source)) {
+      roots[existingIndex] = {
+        rootDir: resolve(rootDir),
+        skillDir: existing.skillDir,
+        source,
+      };
+    }
+    return;
+  }
+
+  rootIndexBySkillDir.set(skillDirKey, roots.length);
+  roots.push({
+    rootDir: resolve(rootDir),
+    skillDir: skillDirKey,
+    source,
+  });
+}
+
+export function discoverSkillRegistryRoots(input: {
+  cwd: string;
+  configuredRoots?: string[];
+  moduleUrl?: string;
+  execPath?: string;
+}): SkillRegistryRoot[] {
+  const roots: SkillRegistryRoot[] = [];
+  const rootIndexBySkillDir = new Map<string, number>();
+
+  const moduleUrl = input.moduleUrl ?? import.meta.url;
+  let modulePath: string | undefined;
+  try {
+    modulePath = fileURLToPath(moduleUrl);
+  } catch {
+    modulePath = undefined;
+  }
+  if (modulePath) {
+    const moduleAncestors = collectAncestors(dirname(modulePath)).reverse();
+    for (const ancestor of moduleAncestors) {
+      appendDiscoveredRoot(roots, rootIndexBySkillDir, ancestor, "module_ancestor");
+    }
+  }
+
+  const execPath = input.execPath ?? process.execPath;
+  if (typeof execPath === "string" && execPath.trim().length > 0) {
+    const execAncestors = collectAncestors(dirname(resolve(execPath))).reverse();
+    for (const ancestor of execAncestors) {
+      appendDiscoveredRoot(roots, rootIndexBySkillDir, ancestor, "exec_ancestor");
+    }
+  }
+
+  const cwdAncestors = collectAncestors(input.cwd).reverse();
+  for (const ancestor of cwdAncestors) {
+    appendDiscoveredRoot(roots, rootIndexBySkillDir, ancestor, "cwd_ancestor");
+  }
+
+  for (const configured of input.configuredRoots ?? []) {
+    if (typeof configured !== "string") continue;
+    const trimmed = configured.trim();
+    if (!trimmed) continue;
+    appendDiscoveredRoot(
+      roots,
+      rootIndexBySkillDir,
+      resolve(input.cwd, trimmed),
+      "config_root",
+    );
+  }
+
+  return roots;
+}
+
 function listSkillFiles(rootDir: string): string[] {
-  if (!existsSync(rootDir)) return [];
+  if (!isDirectory(rootDir)) return [];
   const out: string[] = [];
 
   const walk = (dir: string, allowRootMarkdown: boolean): void => {
-    const entries = readdirSync(dir, { withFileTypes: true });
+    let entries: Array<import("node:fs").Dirent>;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const entry of entries) {
       if (entry.name.startsWith(".")) continue;
       const full = join(dir, entry.name);
@@ -50,35 +192,35 @@ function listSkillFiles(rootDir: string): string[] {
 export interface SkillRegistryOptions {
   rootDir: string;
   config: RoasterConfig;
+  roots?: SkillRegistryRoot[];
 }
 
 export class SkillRegistry {
   private readonly rootDir: string;
   private readonly config: RoasterConfig;
+  private readonly rootsOverride?: SkillRegistryRoot[];
+  private loadedRoots: SkillRegistryRoot[] = [];
   private skills = new Map<string, SkillDocument>();
 
   constructor(options: SkillRegistryOptions) {
     this.rootDir = options.rootDir;
     this.config = options.config;
+    this.rootsOverride = options.roots;
   }
 
   load(): void {
     this.skills.clear();
 
-    this.loadTier("base", join(this.rootDir, "skills/base"));
+    const discoveredRoots = this.rootsOverride ?? discoverSkillRegistryRoots({
+      cwd: this.rootDir,
+      configuredRoots: this.config.skills.roots ?? [],
+    });
+    this.loadedRoots = discoveredRoots.map((entry) => ({ ...entry }));
 
     const activePacks = new Set(this.config.skills.packs);
-    const packsDir = join(this.rootDir, "skills/packs");
-    if (existsSync(packsDir)) {
-      const entries = readdirSync(packsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (!activePacks.has(entry.name)) continue;
-        this.loadTier("pack", join(packsDir, entry.name));
-      }
+    for (const root of discoveredRoots) {
+      this.loadRoot(root.skillDir, root.source, activePacks);
     }
-
-    this.loadTier("project", join(this.rootDir, "skills/project"));
 
     for (const disabled of this.config.skills.disabled) {
       this.skills.delete(disabled);
@@ -97,6 +239,10 @@ export class SkillRegistry {
 
   get(name: string): SkillDocument | undefined {
     return this.skills.get(name);
+  }
+
+  getLoadedRoots(): SkillRegistryRoot[] {
+    return this.loadedRoots.map((entry) => ({ ...entry }));
   }
 
   buildIndex(): SkillsIndexEntry[] {
@@ -121,10 +267,38 @@ export class SkillRegistry {
     }
     const payload = {
       generatedAt: new Date().toISOString(),
+      roots: this.getLoadedRoots(),
       skills: this.buildIndex(),
     };
     writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
     return filePath;
+  }
+
+  private loadRoot(
+    skillDir: string,
+    source: SkillRootSource,
+    activePacks: Set<string>,
+  ): void {
+    this.loadTier("base", join(skillDir, "base"));
+
+    const packsDir = join(skillDir, "packs");
+    if (isDirectory(packsDir)) {
+      let entries: Array<import("node:fs").Dirent>;
+      try {
+        entries = readdirSync(packsDir, { withFileTypes: true });
+      } catch {
+        entries = [];
+      }
+      const includeAllPacks =
+        source === "cwd_ancestor" || source === "config_root";
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (!includeAllPacks && !activePacks.has(entry.name)) continue;
+        this.loadTier("pack", join(packsDir, entry.name));
+      }
+    }
+
+    this.loadTier("project", join(skillDir, "project"));
   }
 
   private loadTier(tier: SkillTier, dir: string): void {
