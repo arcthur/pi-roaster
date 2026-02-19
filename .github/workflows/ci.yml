@@ -65,4 +65,4 @@ jobs:
         run: bun run build:binaries
 
       - name: Linux Binary Smoke Test
-        run: ./distribution/pi-roaster-linux-x64/bin/pi-roaster --help | head -n 1
+        run: ./distribution/brewva-linux-x64/bin/brewva --help | head -n 1

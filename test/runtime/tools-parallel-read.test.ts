@@ -2,13 +2,13 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_ROASTER_CONFIG, RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime } from "@brewva/brewva-runtime";
 import {
-  buildRoasterTools,
+  buildBrewvaTools,
   createAstGrepTools,
   createLspTools,
-} from "@pi-roaster/roaster-tools";
-import { resolveParallelReadConfig } from "../../packages/roaster-tools/src/utils/parallel-read.js";
+} from "@brewva/brewva-tools";
+import { resolveParallelReadConfig } from "../../packages/brewva-tools/src/utils/parallel-read.js";
 
 function extractTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
   const textPart = result.content.find((item) => item.type === "text" && typeof item.text === "string");
@@ -35,7 +35,7 @@ function workspaceWithSampleFiles(prefix: string): string {
   return workspace;
 }
 
-function getParallelReadPayloads(runtime: RoasterRuntime, sessionId: string): Array<Record<string, unknown>> {
+function getParallelReadPayloads(runtime: BrewvaRuntime, sessionId: string): Array<Record<string, unknown>> {
   const payloads: Array<Record<string, unknown>> = [];
   for (const event of runtime.queryEvents(sessionId, { type: "tool_parallel_read" })) {
     if (!event.payload) continue;
@@ -57,11 +57,11 @@ function expectTelemetryCountersConsistent(payload: Record<string, unknown>): vo
 }
 
 describe("tool parallel read runtime integration", () => {
-  test("buildRoasterTools wires runtime-aware lsp scans for telemetry", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-build-runtime-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+  test("buildBrewvaTools wires runtime-aware lsp scans for telemetry", async () => {
+    const workspace = workspaceWithSampleFiles("brewva-tools-build-runtime-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-build-runtime";
-    const tools = buildRoasterTools({ runtime });
+    const tools = buildBrewvaTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
     expect(lspSymbols).toBeDefined();
 
@@ -87,8 +87,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp workspace scan emits parallel telemetry when runtime parallel is enabled", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-parallel-enabled-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-parallel-enabled-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-enabled";
     const tools = createLspTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
@@ -127,10 +127,10 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp workspace scan emits sequential telemetry when runtime parallel is disabled", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-parallel-disabled-");
-    const config = structuredClone(DEFAULT_ROASTER_CONFIG);
+    const workspace = workspaceWithSampleFiles("brewva-tools-parallel-disabled-");
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.parallel.enabled = false;
-    const runtime = new RoasterRuntime({ cwd: workspace, config });
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "parallel-read-disabled";
     const tools = createLspTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
@@ -162,8 +162,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp workspace low-limit scan avoids eager over-read", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-low-limit-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-low-limit-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-low-limit";
     const tools = createLspTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
@@ -199,8 +199,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp_find_references with includeDeclaration=false emits both reference and definition scans", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-findrefs-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-findrefs-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-findrefs";
     const tools = createLspTools({ runtime });
     const lspFindReferences = tools.find((tool) => tool.name === "lsp_find_references");
@@ -228,8 +228,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp_goto_definition emits definition scan telemetry", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-goto-def-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-goto-def-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-goto-definition";
     const tools = createLspTools({ runtime });
     const lspGotoDefinition = tools.find((tool) => tool.name === "lsp_goto_definition");
@@ -263,8 +263,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp_prepare_rename emits both reference and definition scan telemetry", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-prepare-rename-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-prepare-rename-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-prepare-rename";
     const tools = createLspTools({ runtime });
     const lspPrepareRename = tools.find((tool) => tool.name === "lsp_prepare_rename");
@@ -291,8 +291,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp_symbols in document scope does not emit parallel telemetry", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-doc-scope-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-doc-scope-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-doc-scope";
     const tools = createLspTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
@@ -316,12 +316,12 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("parallel batch size is capped for very high runtime maxConcurrent", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-batch-cap-");
-    const config = structuredClone(DEFAULT_ROASTER_CONFIG);
+    const workspace = workspaceWithSampleFiles("brewva-tools-batch-cap-");
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.parallel.enabled = true;
     config.parallel.maxConcurrent = 1000;
     config.parallel.maxTotal = 1000;
-    const runtime = new RoasterRuntime({ cwd: workspace, config });
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "parallel-read-batch-cap";
     const tools = createLspTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
@@ -348,8 +348,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("does not emit telemetry when session id is unavailable in tool context", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-no-session-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-no-session-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const tools = createLspTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
     expect(lspSymbols).toBeDefined();
@@ -370,13 +370,13 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("counts failed files in telemetry when some files are unreadable", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-read-failures-");
+    const workspace = workspaceWithSampleFiles("brewva-tools-read-failures-");
     const unreadable = join(workspace, "src/unreadable.ts");
     writeFileSync(unreadable, "export const unreadableValue = 7;\n", "utf8");
     chmodSync(unreadable, 0o000);
 
     try {
-      const runtime = new RoasterRuntime({ cwd: workspace });
+      const runtime = new BrewvaRuntime({ cwd: workspace });
       const sessionId = "parallel-read-failures";
       const tools = createLspTools({ runtime });
       const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
@@ -410,8 +410,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("lsp workspace scan tolerates invalid cwd that points to a file", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-invalid-cwd-file-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-invalid-cwd-file-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-invalid-cwd-file";
     const tools = createLspTools({ runtime });
     const lspSymbols = tools.find((tool) => tool.name === "lsp_symbols");
@@ -441,8 +441,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("ast_grep_search fallback tolerates invalid cwd that points to a file", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-astgrep-file-cwd-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-astgrep-file-cwd-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-astgrep-file-cwd";
     const tools = createAstGrepTools({ runtime });
     const astGrepSearch = tools.find((tool) => tool.name === "ast_grep_search");
@@ -471,7 +471,7 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("ast_grep_search fallback avoids eager over-read when first file saturates limit", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-tools-astgrep-saturate-"));
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-astgrep-saturate-"));
     const hitRoot = join(workspace, "hit");
     const tailRoot = join(workspace, "tail");
     mkdirSync(hitRoot, { recursive: true });
@@ -483,7 +483,7 @@ describe("tool parallel read runtime integration", () => {
       writeFileSync(join(tailRoot, `tail-${i}.ts`), `const tailToken${i} = ${i};\n`, "utf8");
     }
 
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-astgrep-saturate";
     const tools = createAstGrepTools({ runtime });
     const astGrepSearch = tools.find((tool) => tool.name === "ast_grep_search");
@@ -517,8 +517,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("ast_grep_search fallback emits runtime telemetry when command execution fails", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-astgrep-search-fallback-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-astgrep-search-fallback-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-astgrep-search-fallback";
     const tools = createAstGrepTools({ runtime });
     const astGrepSearch = tools.find((tool) => tool.name === "ast_grep_search");
@@ -547,8 +547,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("ast_grep_replace fallback emits runtime telemetry when command execution fails", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-astgrep-replace-fallback-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-astgrep-replace-fallback-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-astgrep-replace-fallback";
     const tools = createAstGrepTools({ runtime });
     const astGrepReplace = tools.find((tool) => tool.name === "ast_grep_replace");
@@ -579,8 +579,8 @@ describe("tool parallel read runtime integration", () => {
   });
 
   test("ast_grep_replace fallback non-dry-run applies updates and records consistent telemetry", async () => {
-    const workspace = workspaceWithSampleFiles("roaster-tools-astgrep-replace-apply-");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = workspaceWithSampleFiles("brewva-tools-astgrep-replace-apply-");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "parallel-read-astgrep-replace-apply";
     const tools = createAstGrepTools({ runtime });
     const astGrepReplace = tools.find((tool) => tool.name === "ast_grep_replace");

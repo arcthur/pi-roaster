@@ -10,28 +10,28 @@
 - Rollback snapshots: `.orchestrator/snapshots/<session>/*.snap`
   - per-file pre-mutation snapshots used only by rollback
 - Rollback patch history: `.orchestrator/snapshots/<session>/patchsets.json`
-- Generated skill index: `.pi-roaster/skills_index.json`
+- Generated skill index: `.brewva/skills_index.json`
   - includes selected skill roots (`roots`) and the merged selector index (`skills`)
 
 ## Global Roots
 
-- Global roaster root: `$XDG_CONFIG_HOME/pi-roaster` (or `~/.config/pi-roaster`)
-  - resolution can be overridden via `PI-ROASTER_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR` (see `packages/roaster-runtime/src/config/paths.ts`)
-- Agent directory: `<globalRoot>/agent` (default: `~/.config/pi-roaster/agent`)
+- Global Brewva root: `$XDG_CONFIG_HOME/brewva` (or `~/.config/brewva`)
+  - resolution can be overridden via `BREWVA_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR` (see `packages/brewva-runtime/src/config/paths.ts`)
+- Agent directory: `<globalRoot>/agent` (default: `~/.config/brewva/agent`)
   - authentication: `auth.json`
   - model registry: `models.json`
 
 ## Distribution Paths
 
-- Launcher package: `distribution/pi-roaster`
+- Launcher package: `distribution/brewva`
 - Platform package examples:
-  - `distribution/pi-roaster-darwin-arm64`
-  - `distribution/pi-roaster-linux-x64`
-  - `distribution/pi-roaster-windows-x64`
+  - `distribution/brewva-darwin-arm64`
+  - `distribution/brewva-linux-x64`
+  - `distribution/brewva-windows-x64`
 
 ## Source Paths
 
-- Runtime: `packages/roaster-runtime/src`
-- Tools: `packages/roaster-tools/src`
-- Extensions: `packages/roaster-extensions/src`
-- CLI: `packages/roaster-cli/src`
+- Runtime: `packages/brewva-runtime/src`
+- Tools: `packages/brewva-tools/src`
+- Extensions: `packages/brewva-extensions/src`
+- CLI: `packages/brewva-cli/src`

@@ -57,8 +57,8 @@ describe("e2e: print and json modes", () => {
       const lines = parseJsonLines(result.stdout, { strict: true });
       const bundle = findFinalBundle(lines);
       expect(bundle).toBeDefined();
-      expect(bundle?.schema).toBe("roaster.stream.v1");
-      expect(bundle?.type).toBe("roaster_event_bundle");
+      expect(bundle?.schema).toBe("brewva.stream.v1");
+      expect(bundle?.type).toBe("brewva_event_bundle");
       expect(typeof bundle?.sessionId).toBe("string");
       expect(bundle?.sessionId.length ?? 0).toBeGreaterThan(0);
       expect(Array.isArray(bundle?.events)).toBe(true);

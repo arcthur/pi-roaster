@@ -1,0 +1,12 @@
+{
+  "name": "@brewva/brewva-windows-x64",
+  "version": "0.1.0",
+  "description": "Platform binary for Brewva (windows-x64)",
+  "license": "MIT",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin"],
+  "bin": {
+    "brewva": "./bin/brewva.exe"
+  }
+}

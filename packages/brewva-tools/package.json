@@ -1,0 +1,20 @@
+{
+  "name": "@brewva/brewva-tools",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@brewva/brewva-runtime": "workspace:*",
+    "@mariozechner/pi-coding-agent": "^0.53.0",
+    "@sinclair/typebox": "^0.34.48"
+  }
+}

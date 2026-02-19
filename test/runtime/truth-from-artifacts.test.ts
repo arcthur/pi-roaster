@@ -2,18 +2,18 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import { BrewvaRuntime } from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  const workspace = mkdtempSync(join(tmpdir(), `roaster-${name}-`));
-  mkdirSync(join(workspace, ".pi-roaster"), { recursive: true });
+  const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
+  mkdirSync(join(workspace, ".brewva"), { recursive: true });
   return workspace;
 }
 
 describe("Truth extraction from evidence artifacts", () => {
   test("records command_failure truth facts and clears on success", () => {
     const workspace = createWorkspace("truth-from-artifacts");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "truth-from-artifacts-1";
 
     const failureOutput = [

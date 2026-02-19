@@ -1,6 +1,6 @@
 # Reference: Tools
 
-Tool registry entrypoint: `packages/roaster-tools/src/index.ts`.
+Tool registry entrypoint: `packages/brewva-tools/src/index.ts`.
 
 ## LSP Tools
 
@@ -11,14 +11,14 @@ Tool registry entrypoint: `packages/roaster-tools/src/index.ts`.
 - `lsp_prepare_rename`
 - `lsp_rename`
 
-Defined in `packages/roaster-tools/src/lsp.ts`.
+Defined in `packages/brewva-tools/src/lsp.ts`.
 
 ## AST Tools
 
 - `ast_grep_search`
 - `ast_grep_replace`
 
-Defined in `packages/roaster-tools/src/ast-grep.ts`.
+Defined in `packages/brewva-tools/src/ast-grep.ts`.
 
 ## Runtime-Aware Tools
 
@@ -41,12 +41,12 @@ Defined in `packages/roaster-tools/src/ast-grep.ts`.
 
 Definitions:
 
-- `packages/roaster-tools/src/look-at.ts`
-- `packages/roaster-tools/src/cost-view.ts`
-- `packages/roaster-tools/src/ledger-query.ts`
-- `packages/roaster-tools/src/tape.ts`
-- `packages/roaster-tools/src/session-compact.ts`
-- `packages/roaster-tools/src/rollback-last-patch.ts`
-- `packages/roaster-tools/src/skill-load.ts`
-- `packages/roaster-tools/src/skill-complete.ts`
-- `packages/roaster-tools/src/task-ledger.ts`
+- `packages/brewva-tools/src/look-at.ts`
+- `packages/brewva-tools/src/cost-view.ts`
+- `packages/brewva-tools/src/ledger-query.ts`
+- `packages/brewva-tools/src/tape.ts`
+- `packages/brewva-tools/src/session-compact.ts`
+- `packages/brewva-tools/src/rollback-last-patch.ts`
+- `packages/brewva-tools/src/skill-load.ts`
+- `packages/brewva-tools/src/skill-complete.ts`
+- `packages/brewva-tools/src/task-ledger.ts`

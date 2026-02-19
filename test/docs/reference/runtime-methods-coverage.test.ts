@@ -25,7 +25,7 @@ function collectPublicRuntimeMethods(source: string): string[] {
 describe("docs/reference runtime coverage", () => {
   it("documents public runtime methods", () => {
     const repoRoot = resolve(import.meta.dirname, "../../..");
-    const runtimeSource = readFileSync(resolve(repoRoot, "packages/roaster-runtime/src/runtime.ts"), "utf-8");
+    const runtimeSource = readFileSync(resolve(repoRoot, "packages/brewva-runtime/src/runtime.ts"), "utf-8");
     const markdown = readFileSync(resolve(repoRoot, "docs/reference/runtime.md"), "utf-8");
 
     const methods = collectPublicRuntimeMethods(runtimeSource);

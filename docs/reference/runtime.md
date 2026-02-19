@@ -1,6 +1,6 @@
 # Reference: Runtime API
 
-Primary class: `packages/roaster-runtime/src/runtime.ts`.
+Primary class: `packages/brewva-runtime/src/runtime.ts`.
 
 ## Public Methods
 
@@ -70,11 +70,11 @@ Primary class: `packages/roaster-runtime/src/runtime.ts`.
 
 ## Type Contract
 
-All public runtime data contracts are defined in `packages/roaster-runtime/src/types.ts`.
+All public runtime data contracts are defined in `packages/brewva-runtime/src/types.ts`.
 
 ## Viewport Policy
 
-`buildContextInjection()` may build and inject a viewport context (`roaster.viewport`) to ground the model in a small set of relevant source lines.
+`buildContextInjection()` may build and inject a viewport context (`brewva.viewport`) to ground the model in a small set of relevant source lines.
 When the viewport signal is low (or the context is truncated), the runtime can downshift the viewport variant or skip injecting it entirely.
 
-When policy decisions trigger, the runtime emits `viewport_built` / `viewport_policy_evaluated` events and may inject a `roaster.viewport-policy` guard block to enforce a verification-first posture.
+When policy decisions trigger, the runtime emits `viewport_built` / `viewport_policy_evaluated` events and may inject a `brewva.viewport-policy` guard block to enforce a verification-first posture.

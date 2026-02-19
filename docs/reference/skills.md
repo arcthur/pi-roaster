@@ -2,9 +2,9 @@
 
 Skill parsing, merge, and selection logic:
 
-- `packages/roaster-runtime/src/skills/contract.ts`
-- `packages/roaster-runtime/src/skills/registry.ts`
-- `packages/roaster-runtime/src/skills/selector.ts`
+- `packages/brewva-runtime/src/skills/contract.ts`
+- `packages/brewva-runtime/src/skills/registry.ts`
+- `packages/brewva-runtime/src/skills/selector.ts`
 
 ## Base Skills
 
@@ -28,7 +28,7 @@ Skill parsing, merge, and selection logic:
 
 ## Project Skills
 
-- `roaster-project`
+- `brewva-project`
 
 ## Storage Convention
 

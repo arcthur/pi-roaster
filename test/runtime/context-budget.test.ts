@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { ContextBudgetManager, DEFAULT_ROASTER_CONFIG } from "@pi-roaster/roaster-runtime";
+import { ContextBudgetManager, DEFAULT_BREWVA_CONFIG } from "@brewva/brewva-runtime";
 
 describe("Context budget manager", () => {
   test("uses conservative token estimate for injection decisions", () => {
     const manager = new ContextBudgetManager({
-      ...DEFAULT_ROASTER_CONFIG.infrastructure.contextBudget,
+      ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
     });
 
     const decision = manager.planInjection("budget-conservative-1", "x".repeat(15), {
@@ -20,7 +20,7 @@ describe("Context budget manager", () => {
 
   test("applies conservative truncation at token boundary", () => {
     const manager = new ContextBudgetManager({
-      ...DEFAULT_ROASTER_CONFIG.infrastructure.contextBudget,
+      ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
       maxInjectionTokens: 32,
     });
 
@@ -34,7 +34,7 @@ describe("Context budget manager", () => {
     let nowMs = 1_000;
     const manager = new ContextBudgetManager(
       {
-        ...DEFAULT_ROASTER_CONFIG.infrastructure.contextBudget,
+        ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
         minTurnsBetweenCompaction: 0,
         minSecondsBetweenCompaction: 45,
         pressureBypassPercent: 0.95,
@@ -79,7 +79,7 @@ describe("Context budget manager", () => {
     let nowMs = 5_000;
     const manager = new ContextBudgetManager(
       {
-        ...DEFAULT_ROASTER_CONFIG.infrastructure.contextBudget,
+        ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
         minTurnsBetweenCompaction: 10,
         minSecondsBetweenCompaction: 300,
         pressureBypassPercent: 0.9,
@@ -116,7 +116,7 @@ describe("Context budget manager", () => {
 
   test("normalizes percentage-point context usage into ratio", () => {
     const manager = new ContextBudgetManager({
-      ...DEFAULT_ROASTER_CONFIG.infrastructure.contextBudget,
+      ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
     });
     const sessionId = "budget-percent-points";
 

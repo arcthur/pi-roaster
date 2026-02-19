@@ -25,5 +25,5 @@ flowchart TD
 
 ## Code Pointers
 
-- Context budget manager: `packages/roaster-runtime/src/context/budget.ts`
-- Context transform hook: `packages/roaster-extensions/src/context-transform.ts`
+- Context budget manager: `packages/brewva-runtime/src/context/budget.ts`
+- Context transform hook: `packages/brewva-extensions/src/context-transform.ts`

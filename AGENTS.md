@@ -8,13 +8,13 @@
 
 ## OVERVIEW
 
-`pi-roaster` is a Bun + TypeScript monorepo for an AI-native coding agent runtime built on top of `@mariozechner/pi-coding-agent`.
+`Brewva` is a Bun + TypeScript monorepo for an AI-native coding agent runtime built on top of `@mariozechner/pi-coding-agent`.
 
 Primary deliverables:
-- Runtime core (`@pi-roaster/roaster-runtime`)
-- Tool registry (`@pi-roaster/roaster-tools`)
-- Extension wiring (`@pi-roaster/roaster-extensions`)
-- CLI session bootstrap (`@pi-roaster/roaster-cli`)
+- Runtime core (`@brewva/brewva-runtime`)
+- Tool registry (`@brewva/brewva-tools`)
+- Extension wiring (`@brewva/brewva-extensions`)
+- CLI session bootstrap (`@brewva/brewva-cli`)
 - Cross-platform compiled binaries (`distribution/*`)
 
 ---
@@ -22,12 +22,12 @@ Primary deliverables:
 ## STRUCTURE
 
 ```text
-pi-roaster/
+brewva/
 ├── packages/
-│   ├── roaster-runtime/      # skill contracts, ledger, verification, replay, snapshots, cost tracking
-│   ├── roaster-tools/        # runtime-aware tools + lsp/ast helpers
-│   ├── roaster-extensions/   # event hooks and runtime integration
-│   └── roaster-cli/          # CLI entrypoint + session creation
+│   ├── brewva-runtime/      # skill contracts, ledger, verification, replay, snapshots, cost tracking
+│   ├── brewva-tools/        # runtime-aware tools + lsp/ast helpers
+│   ├── brewva-extensions/   # event hooks and runtime integration
+│   └── brewva-cli/          # CLI entrypoint + session creation
 ├── distribution/             # launcher + per-platform binary packages
 ├── script/                   # build-binaries.ts, verify-dist.ts
 ├── skills/                   # base/packs/project skills
@@ -41,17 +41,17 @@ pi-roaster/
 
 ### 1) CLI Branding and Command Surface
 
-- User-facing command name is `pi-roaster`.
-- `roaster` exists only as compatibility alias in `@pi-roaster/roaster-cli`.
-- Help text, examples, launcher package metadata, and process title must stay aligned with `pi-roaster`.
+- User-facing command name is `brewva`.
+- `brewva` exists only as compatibility alias in `@brewva/brewva-cli`.
+- Help text, examples, launcher package metadata, and process title must stay aligned with `brewva`.
 
 ### 2) Package Boundary and Import Policy
 
 - Use workspace package imports across boundaries:
-  - `@pi-roaster/roaster-runtime`
-  - `@pi-roaster/roaster-tools`
-  - `@pi-roaster/roaster-extensions`
-  - `@pi-roaster/roaster-cli`
+  - `@brewva/brewva-runtime`
+  - `@brewva/brewva-tools`
+  - `@brewva/brewva-extensions`
+  - `@brewva/brewva-cli`
 - Do not reintroduce local alias schemes like `@/...`.
 - Do not mix `src` and `dist` class types in public boundaries (prevents nominal/private-field type conflicts).
 
@@ -78,15 +78,15 @@ pi-roaster/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Runtime behavior | `packages/roaster-runtime/src/runtime.ts` | orchestration state, verification, snapshots, replay |
-| Runtime contracts | `packages/roaster-runtime/src/types.ts` | core shared types |
-| Tool registry | `packages/roaster-tools/src/index.ts` | all registered tools |
-| Extension composition | `packages/roaster-extensions/src/index.ts` | hook wiring and runtime/tool registration |
-| CLI args/modes | `packages/roaster-cli/src/index.ts` | parseArgs, interactive/print/json, undo/replay |
-| Session bootstrap | `packages/roaster-cli/src/session.ts` | model/session/resource loader setup |
+| Runtime behavior | `packages/brewva-runtime/src/runtime.ts` | orchestration state, verification, snapshots, replay |
+| Runtime contracts | `packages/brewva-runtime/src/types.ts` | core shared types |
+| Tool registry | `packages/brewva-tools/src/index.ts` | all registered tools |
+| Extension composition | `packages/brewva-extensions/src/index.ts` | hook wiring and runtime/tool registration |
+| CLI args/modes | `packages/brewva-cli/src/index.ts` | parseArgs, interactive/print/json, undo/replay |
+| Session bootstrap | `packages/brewva-cli/src/session.ts` | model/session/resource loader setup |
 | Binary build | `script/build-binaries.ts` | compile targets + runtime asset copy |
 | Dist smoke checks | `script/verify-dist.ts` | Node/dist import + help banner checks |
-| Launcher package | `distribution/pi-roaster/` | postinstall and platform resolution |
+| Launcher package | `distribution/brewva/` | postinstall and platform resolution |
 | CI pipeline | `.github/workflows/ci.yml` | quality + binaries jobs |
 
 ---
@@ -151,7 +151,7 @@ Workflow: `.github/workflows/ci.yml`
 ### binaries job
 
 1. `bun run build:binaries`
-2. smoke test: `./distribution/pi-roaster-linux-x64/bin/pi-roaster --help`
+2. smoke test: `./distribution/brewva-linux-x64/bin/brewva --help`
 
 ---
 
@@ -163,4 +163,4 @@ Before finalizing:
 3. `bun test` passes.
 4. If exports/CLI/distribution changed: `bun run test:dist` passes.
 5. If binary packaging changed: `bun run build:binaries` succeeds.
-6. User-facing command/help text remains `pi-roaster`-consistent.
+6. User-facing command/help text remains `brewva`-consistent.

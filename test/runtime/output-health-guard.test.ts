@@ -2,18 +2,18 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import { BrewvaRuntime } from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  const workspace = mkdtempSync(join(tmpdir(), `roaster-${name}-`));
-  mkdirSync(join(workspace, ".pi-roaster"), { recursive: true });
+  const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
+  mkdirSync(join(workspace, ".brewva"), { recursive: true });
   return workspace;
 }
 
 describe("Output health guard", () => {
   test("injects guard when drunk output detected", () => {
     const workspace = createWorkspace("output-health-guard");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "output-health-guard-1";
 
     runtime.recordEvent({
@@ -37,7 +37,7 @@ describe("Output health guard", () => {
 
   test("skips guard for healthy output", () => {
     const workspace = createWorkspace("output-health-ok");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "output-health-guard-ok-1";
 
     runtime.recordEvent({

@@ -13,7 +13,7 @@ import {
 } from "./helpers.js";
 
 type ReplayStructuredEvent = {
-  schema: "roaster.event.v1";
+  schema: "brewva.event.v1";
   sessionId: string;
   type: string;
   timestamp: number;
@@ -24,7 +24,7 @@ function toReplayStructuredEvents(lines: unknown[]): ReplayStructuredEvent[] {
   const events: ReplayStructuredEvent[] = [];
   for (const line of lines) {
     if (!isRecord(line)) continue;
-    if (line.schema !== "roaster.event.v1") continue;
+    if (line.schema !== "brewva.event.v1") continue;
     if (typeof line.sessionId !== "string") continue;
     if (typeof line.type !== "string") continue;
     if (typeof line.timestamp !== "number") continue;
@@ -68,7 +68,7 @@ describe("e2e: replay and persistence", () => {
       expect(replayEvents.length).toBeGreaterThan(0);
 
       for (const event of replayEvents) {
-        expect(event.schema).toBe("roaster.event.v1");
+        expect(event.schema).toBe("brewva.event.v1");
         expect(event.sessionId).toBe(sessionId);
         expect(typeof event.type).toBe("string");
         expect(typeof event.timestamp).toBe("number");

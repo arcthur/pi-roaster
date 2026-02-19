@@ -2,18 +2,18 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import { BrewvaRuntime } from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  const workspace = mkdtempSync(join(tmpdir(), `roaster-${name}-`));
-  mkdirSync(join(workspace, ".pi-roaster"), { recursive: true });
+  const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
+  mkdirSync(join(workspace, ".brewva"), { recursive: true });
   return workspace;
 }
 
 describe("Truth extraction from lsp_diagnostics", () => {
   test("records diagnostic truth facts and resolves on clean output", () => {
     const workspace = createWorkspace("truth-from-lsp-diagnostics");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "truth-from-lsp-diagnostics-1";
 
     const diagnosticsOutput = [
@@ -60,7 +60,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
 
   test("clean output resolves only diagnostic facts for that file", () => {
     const workspace = createWorkspace("truth-from-lsp-diagnostics-scoped");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "truth-from-lsp-diagnostics-2";
 
     runtime.recordToolResult({
@@ -109,7 +109,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
 
   test("stale diagnostic codes resolve when unfiltered output changes", () => {
     const workspace = createWorkspace("truth-from-lsp-diagnostics-stale");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "truth-from-lsp-diagnostics-3";
 
     runtime.recordToolResult({

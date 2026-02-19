@@ -1,14 +1,14 @@
 # Reference: Commands (CLI Surface)
 
-`pi-roaster` does not expose a slash-command registry. Its command surface is the CLI flag set.
+Brewva does not expose a slash-command registry. Its command surface is the CLI flag set.
 
-Implementation source: `packages/roaster-cli/src/index.ts`.
+Implementation source: `packages/brewva-cli/src/index.ts`.
 
 ## Mode Commands
 
 - Interactive mode (default)
 - Print text mode (`--print`)
-- Print JSON mode (`--mode json`, `--json`; newline-delimited JSON output, plus final `roaster_event_bundle` for one-shot runs)
+- Print JSON mode (`--mode json`, `--json`; newline-delimited JSON output, plus final `brewva_event_bundle` for one-shot runs)
 - Undo mode (`--undo`)
 - Replay mode (`--replay`)
 
@@ -45,7 +45,7 @@ Short aliases:
 - `--replay` uses `--session` when provided; otherwise it replays the latest replayable session.
 - `--undo` uses `--session` when provided; otherwise it resolves the latest session with rollback history.
 - Prompt text is ignored in `--replay` and `--undo` flows.
-- Replay JSON output is event-per-line; the `roaster_event_bundle` record is only emitted for one-shot JSON runs.
+- Replay JSON output is event-per-line; the `brewva_event_bundle` record is only emitted for one-shot JSON runs.
 
 ## Startup Defaults
 

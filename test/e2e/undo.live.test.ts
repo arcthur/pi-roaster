@@ -7,7 +7,7 @@ import {
   cleanupWorkspace,
   createWorkspace,
   findFinalBundle,
-  type RoasterEventBundle,
+  type BrewvaEventBundle,
   parseJsonLines,
   runCliSync,
   runLive,
@@ -32,7 +32,7 @@ describe("e2e: undo", () => {
         `Use a file editing tool now. Rewrite ./undo_fixture.txt so the full file content is exactly '${changed.trim()}' with a trailing newline.`,
       ];
 
-      let bundle: RoasterEventBundle | undefined;
+      let bundle: BrewvaEventBundle | undefined;
       let sessionId = "";
       let afterEdit = readFileSync(fixturePath, "utf8");
 

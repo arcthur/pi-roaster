@@ -2,13 +2,13 @@
 
 Configuration contract sources:
 
-- Default values: `packages/roaster-runtime/src/config/defaults.ts`
-- Loader entrypoint: `packages/roaster-runtime/src/config/loader.ts`
-- Type contract: `packages/roaster-runtime/src/types.ts`
+- Default values: `packages/brewva-runtime/src/config/defaults.ts`
+- Loader entrypoint: `packages/brewva-runtime/src/config/loader.ts`
+- Type contract: `packages/brewva-runtime/src/types.ts`
 
 ## Top-Level Keys
 
-`RoasterConfig` supports the following top-level keys:
+`BrewvaConfig` supports the following top-level keys:
 
 - `skills`
 - `verification`
@@ -20,7 +20,7 @@ Configuration contract sources:
 
 ## Key Defaults
 
-Defaults are defined in `packages/roaster-runtime/src/config/defaults.ts`.
+Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 
 ### Skills
 
@@ -88,8 +88,8 @@ precedence):
 
 1. module ancestors (bounded to depth 10 from the runtime module path)
 2. executable ancestors (bounded to depth 10 from `process.execPath`)
-3. global roaster root (`$XDG_CONFIG_HOME/pi-roaster` or `~/.config/pi-roaster`)
-4. project root (`<cwd>/.pi-roaster`)
+3. global Brewva root (`$XDG_CONFIG_HOME/brewva` or `~/.config/brewva`)
+4. project root (`<cwd>/.brewva`)
 5. explicit `skills.roots` entries (relative paths are resolved from the config file that declared them)
 
 For each discovered root, runtime accepts either:
@@ -113,20 +113,20 @@ Pack loading behavior:
 
 ## Config File Location
 
-Default project config path: `.pi-roaster/roaster.json`.
-By default, runtime merges global config from `$XDG_CONFIG_HOME/pi-roaster/roaster.json` (or `~/.config/pi-roaster/roaster.json`) and then project config from `.pi-roaster/roaster.json`; project values override global values on conflicts.
+Default project config path: `.brewva/brewva.json`.
+By default, runtime merges global config from `$XDG_CONFIG_HOME/brewva/brewva.json` (or `~/.config/brewva/brewva.json`) and then project config from `.brewva/brewva.json`; project values override global values on conflicts.
 
-Loading behavior is implemented in `packages/roaster-runtime/src/config/loader.ts`.
+Loading behavior is implemented in `packages/brewva-runtime/src/config/loader.ts`.
 
-Global root resolution can be overridden via `PI-ROASTER_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR`. See `packages/roaster-runtime/src/config/paths.ts`.
+Global root resolution can be overridden via `BREWVA_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR`. See `packages/brewva-runtime/src/config/paths.ts`.
 
 ## JSON Schema
 
-To enable editor completion and validation for `.pi-roaster/roaster.json`, set `$schema` to the schema file shipped with the runtime package:
+To enable editor completion and validation for `.brewva/brewva.json`, set `$schema` to the schema file shipped with the runtime package:
 
 ```json
 {
-  "$schema": "../../node_modules/@pi-roaster/roaster-runtime/schema/roaster.schema.json"
+  "$schema": "../../node_modules/@brewva/brewva-runtime/schema/brewva.schema.json"
 }
 ```
 
@@ -149,7 +149,7 @@ If you store the config file elsewhere (for example via `--config`), adjust the 
 - `security.skillMaxParallelMode`: `off` | `warn` | `enforce` (default `warn`).
   - `off`: Do not apply the per-skill `maxParallel` contract; only the global `parallel.*` limits apply.
   - `warn`: When a skill reaches/exceeds `maxParallel` active runs, allow acquisitions but emit a `skill_parallel_warning` event once per (session, skill).
-  - `enforce`: Reject `RoasterRuntime.acquireParallelSlot()` calls once `maxParallel` is reached, returning `reason=skill_max_parallel`.
+  - `enforce`: Reject `BrewvaRuntime.acquireParallelSlot()` calls once `maxParallel` is reached, returning `reason=skill_max_parallel`.
 
 ## Tool Scan Parallelism
 

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseArgs } from "@pi-roaster/roaster-cli";
+import { parseArgs } from "@brewva/brewva-cli";
 
-describe("pi-roaster cli args", () => {
-  test("prints pi-roaster help banner", () => {
+describe("brewva cli args", () => {
+  test("prints Brewva help banner", () => {
     const originalLog = console.log;
     const logs: string[] = [];
     console.log = (...args: unknown[]) => {
@@ -17,8 +17,8 @@ describe("pi-roaster cli args", () => {
     }
 
     const output = logs.join("\n");
-    expect(output.includes("pi-roaster - AI-native coding agent CLI")).toBe(true);
-    expect(output.includes("Usage:\n  pi-roaster [options] [prompt]")).toBe(true);
+    expect(output.includes("Brewva - AI-native coding agent CLI")).toBe(true);
+    expect(output.includes("Usage:\n  brewva [options] [prompt]")).toBe(true);
   });
 
   test("defaults to interactive mode and keeps prompt", () => {

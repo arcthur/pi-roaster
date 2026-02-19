@@ -19,9 +19,9 @@ export type RuntimeEventLike = {
   [key: string]: unknown;
 };
 
-export type RoasterEventBundle = {
-  schema: "roaster.stream.v1";
-  type: "roaster_event_bundle";
+export type BrewvaEventBundle = {
+  schema: "brewva.stream.v1";
+  type: "brewva_event_bundle";
   sessionId: string;
   events: RuntimeEventLike[];
   costSummary?: {
@@ -34,11 +34,11 @@ export type RoasterEventBundle = {
 
 export const repoRoot = resolve(import.meta.dir, "../..");
 export const runLive: typeof test =
-  process.env.PI_ROASTER_E2E_LIVE === "1" ? test : test.skip;
-export const keepWorkspace = process.env.PI_ROASTER_E2E_KEEP_WORKSPACE === "1";
+  process.env.BREWVA_E2E_LIVE === "1" ? test : test.skip;
+export const keepWorkspace = process.env.BREWVA_E2E_KEEP_WORKSPACE === "1";
 
 export function createWorkspace(prefix: string): string {
-  return mkdtempSync(join(tmpdir(), `pi-roaster-e2e-${prefix}-`));
+  return mkdtempSync(join(tmpdir(), `brewva-e2e-${prefix}-`));
 }
 
 export function cleanupWorkspace(workspace: string): void {
@@ -50,10 +50,10 @@ export function writeMinimalConfig(
   workspace: string,
   overrides?: Record<string, unknown>,
 ): void {
-  const configDir = join(workspace, ".pi-roaster");
+  const configDir = join(workspace, ".brewva");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(
-    join(configDir, "roaster.json"),
+    join(configDir, "brewva.json"),
     JSON.stringify(overrides ?? {}, null, 2),
     "utf8",
   );
@@ -157,16 +157,16 @@ export function parseJsonLines(
   return parsed;
 }
 
-export function findFinalBundle(lines: unknown[]): RoasterEventBundle | undefined {
+export function findFinalBundle(lines: unknown[]): BrewvaEventBundle | undefined {
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const row = lines[i];
     if (!isRecord(row)) continue;
-    if (row.schema !== "roaster.stream.v1") continue;
-    if (row.type !== "roaster_event_bundle") continue;
+    if (row.schema !== "brewva.stream.v1") continue;
+    if (row.type !== "brewva_event_bundle") continue;
     if (typeof row.sessionId !== "string") continue;
     if (!Array.isArray(row.events)) continue;
 
-    return row as RoasterEventBundle;
+    return row as BrewvaEventBundle;
   }
   return undefined;
 }

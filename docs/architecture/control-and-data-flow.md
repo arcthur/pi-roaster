@@ -8,16 +8,16 @@ execution, interruption recovery, replay, and rollback.
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant CLI as roaster-cli
+  participant CLI as brewva-cli
   participant SES as session.ts
-  participant RT as RoasterRuntime
-  participant EXT as roaster-extensions
-  participant TOOLS as roaster-tools
+  participant RT as BrewvaRuntime
+  participant EXT as brewva-extensions
+  participant TOOLS as brewva-tools
   participant STORES as Ledger/Event Stores
 
   U->>CLI: invoke command
   CLI->>CLI: parse args + resolve mode
-  CLI->>SES: createRoasterSession()
+  CLI->>SES: createBrewvaSession()
   SES->>RT: construct runtime
   SES->>EXT: register extension handlers + tools
   U->>CLI: submit prompt / run turn
@@ -36,7 +36,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A["createRoasterSession(enableExtensions=false)"] --> B["register custom tools directly"]
+  A["createBrewvaSession(enableExtensions=false)"] --> B["register custom tools directly"]
   B --> C["registerRuntimeCoreEventBridge()"]
   C --> D["record core lifecycle + assistant usage events"]
   D --> E["runtime/tools continue without extension hooks"]
@@ -49,11 +49,11 @@ transforms are intentionally bypassed.
 
 ```mermaid
 flowchart LR
-  INPUT["Prompt / Tool IO / Usage"] --> RT["RoasterRuntime"]
+  INPUT["Prompt / Tool IO / Usage"] --> RT["BrewvaRuntime"]
   RT --> EVENTS[".orchestrator/events/<session>.jsonl (event tape)"]
   RT --> LEDGER[".orchestrator/ledger/evidence.jsonl (evidence chain)"]
   RT --> SNAP[".orchestrator/snapshots/<session>/* (rollback only)"]
-  RT --> INDEX[".pi-roaster/skills_index.json"]
+  RT --> INDEX[".brewva/skills_index.json"]
 ```
 
 ## Interruption and Recovery Flow

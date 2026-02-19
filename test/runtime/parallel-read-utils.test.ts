@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import type { RoasterToolRuntime } from "../../packages/roaster-tools/src/types.js";
+import type { BrewvaToolRuntime } from "../../packages/brewva-tools/src/types.js";
 import {
   getToolSessionId,
   readTextBatch,
@@ -10,13 +10,13 @@ import {
   resolveAdaptiveBatchSize,
   resolveParallelReadConfig,
   summarizeReadBatch,
-} from "../../packages/roaster-tools/src/utils/parallel-read.js";
+} from "../../packages/brewva-tools/src/utils/parallel-read.js";
 
 describe("parallel-read utils", () => {
   test("resolveParallelReadConfig handles enabled, disabled, and capped budgets", () => {
     const disabledRuntime = {
       config: { parallel: { enabled: false, maxConcurrent: 8, maxTotal: 16 } },
-    } as unknown as RoasterToolRuntime;
+    } as unknown as BrewvaToolRuntime;
     const disabled = resolveParallelReadConfig(disabledRuntime);
     expect(disabled).toEqual({
       batchSize: 1,
@@ -26,7 +26,7 @@ describe("parallel-read utils", () => {
 
     const enabledRuntime = {
       config: { parallel: { enabled: true, maxConcurrent: 3, maxTotal: 16 } },
-    } as unknown as RoasterToolRuntime;
+    } as unknown as BrewvaToolRuntime;
     const enabled = resolveParallelReadConfig(enabledRuntime);
     expect(enabled).toEqual({
       batchSize: 12,
@@ -36,7 +36,7 @@ describe("parallel-read utils", () => {
 
     const cappedByTotalRuntime = {
       config: { parallel: { enabled: true, maxConcurrent: 50, maxTotal: 2 } },
-    } as unknown as RoasterToolRuntime;
+    } as unknown as BrewvaToolRuntime;
     const cappedByTotal = resolveParallelReadConfig(cappedByTotalRuntime);
     expect(cappedByTotal.batchSize).toBe(8);
     expect(cappedByTotal.mode).toBe("parallel");
@@ -44,7 +44,7 @@ describe("parallel-read utils", () => {
 
     const cappedRuntime = {
       config: { parallel: { enabled: true, maxConcurrent: 1000, maxTotal: 16 } },
-    } as unknown as RoasterToolRuntime;
+    } as unknown as BrewvaToolRuntime;
     const capped = resolveParallelReadConfig(cappedRuntime);
     expect(capped.batchSize).toBe(64);
     expect(capped.mode).toBe("parallel");
@@ -87,7 +87,7 @@ describe("parallel-read utils", () => {
         calls.push(input);
         return undefined;
       },
-    } as unknown as RoasterToolRuntime;
+    } as unknown as BrewvaToolRuntime;
 
     recordParallelReadTelemetry(runtime, undefined, {
       toolName: "lsp_symbols",

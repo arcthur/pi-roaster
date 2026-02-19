@@ -2,7 +2,7 @@
 
 ## Core Object
 
-`RoasterRuntime` in `packages/roaster-runtime/src/runtime.ts` is the central system object.
+`BrewvaRuntime` in `packages/brewva-runtime/src/runtime.ts` is the central system object.
 
 It composes the following subsystems:
 
@@ -22,7 +22,7 @@ Runtime state reconstruction is handled by tape replay (`checkpoint + delta`) vi
 
 ## Shared Type Contract
 
-All core contracts are defined in `packages/roaster-runtime/src/types.ts`, including:
+All core contracts are defined in `packages/brewva-runtime/src/types.ts`, including:
 
 - Skill contracts and selection types
 - Ledger row and digest types
@@ -35,6 +35,6 @@ All core contracts are defined in `packages/roaster-runtime/src/types.ts`, inclu
 
 ## Configuration Contract
 
-- Defaults: `packages/roaster-runtime/src/config/defaults.ts`
-- Loader: `packages/roaster-runtime/src/config/loader.ts`
-- Merge: `packages/roaster-runtime/src/config/merge.ts`
+- Defaults: `packages/brewva-runtime/src/config/defaults.ts`
+- Loader: `packages/brewva-runtime/src/config/loader.ts`
+- Merge: `packages/brewva-runtime/src/config/merge.ts`

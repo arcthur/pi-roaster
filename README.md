@@ -1,10 +1,10 @@
-# pi-roaster
+# Brewva
 
 **A runtime that lets coding agents govern their own memory, context window, and execution quality — instead of having the framework do it behind their back.**
 
 Most agent frameworks silently manage compaction, memory injection, and state persistence on behalf of the LLM. The agent never knows when its context was compressed, what was lost, or why a session resumed with stale state. This opacity makes agent behavior unpredictable and undebuggable.
 
-pi-roaster takes the opposite approach: **make the agent the owner**.
+Brewva takes the opposite approach: **make the agent the owner**.
 
 ## Core Design Principles
 
@@ -20,26 +20,26 @@ The runtime exposes two orthogonal resource pipelines and hands the controls dir
 The framework injects a **Context Contract** — explicit if-then rules that tell the agent which pressure triggers which action — but never acts on the agent's behalf. No auto-compaction, no prebuilt memory injection, no opaque snapshot restoration.
 
 ```
-┌───────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────┐
 │                        Agent (LLM)                            │
 │                                                               │
 │  State mgmt:    tape_handoff / tape_info / tape_search        │
 │  Message mgmt:  session_compact                               │
 │                                                               │
 │  The agent decides when to switch phases and when to compact  │
-├───────────────────────────────────────────────────────────────┤
+├─────────────────────────────────────────────────────────────────┤
 │                Context Contract + TapeStatus                  │
 │  Two independent signals:                                     │
 │  • tape_pressure:    entries since last anchor                │
 │  • context_pressure: actual token usage in message buffer     │
 │  Explicit rules: which pressure triggers which action         │
-├───────────────────────────────────────────────────────────────┤
+├─────────────────────────────────────────────────────────────────┤
 │              TurnReplayEngine (per-turn replay)               │
-│  read tape → replay(checkpoint + delta) → TurnStateView       │
-├───────────────────────────────────────────────────────────────┤
+│   read tape → replay(checkpoint + delta) → TurnStateView      │
+├─────────────────────────────────────────────────────────────────┤
 │               Session Tape Store (append-only)                │
-│  event / anchor / checkpoint                                  │
-└───────────────────────────────────────────────────────────────┘
+│                 event / anchor / checkpoint                   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 2. Tape-First Recovery — State Lives in the Event Stream
@@ -93,10 +93,10 @@ is documented in:
 
 | Package | Responsibility |
 |---------|---------------|
-| `@pi-roaster/roaster-runtime` | Skill contracts, evidence ledger, verification gates, tape replay engine, context budget, cost tracking |
-| `@pi-roaster/roaster-tools` | Runtime-aware tools: LSP/AST adapters, ledger query, skill lifecycle, task management, tape operations |
-| `@pi-roaster/roaster-extensions` | Event hook wiring: context injection, quality gates, completion guards, event stream persistence |
-| `@pi-roaster/roaster-cli` | CLI entrypoint, session bootstrap, TUI / `--print` / `--json` modes, replay and undo |
+| `@brewva/brewva-runtime` | Skill contracts, evidence ledger, verification gates, tape replay engine, context budget, cost tracking |
+| `@brewva/brewva-tools` | Runtime-aware tools: LSP/AST adapters, ledger query, skill lifecycle, task management, tape operations |
+| `@brewva/brewva-extensions` | Event hook wiring: context injection, quality gates, completion guards, event stream persistence |
+| `@brewva/brewva-cli` | CLI entrypoint, session bootstrap, TUI / `--print` / `--json` modes, replay and undo |
 
 ## Skill System
 
@@ -106,7 +106,7 @@ Skills are loaded in three tiers with increasing precedence — higher tiers can
 |------|----------|----------|
 | Base | `skills/base/` | `cartography`, `debugging`, `planning`, `verification`, `patching`, `review` |
 | Pack | `skills/packs/` | `typescript`, `react`, `bun`, `browser`, `frontend-ui-ux` |
-| Project | `skills/project/` | `roaster-project` |
+| Project | `skills/project/` | `brewva-project` |
 
 Discovery walks multiple roots (module ancestors, executable sidecar, global config, project config, explicit `skills.roots`) with symlink containment and depth bounds.
 
@@ -142,7 +142,7 @@ bun run start -- --undo
 
 ## Binary Distribution
 
-Platform-specific binaries are compiled with `bun build --compile` and published via the `@pi-roaster/pi-roaster` launcher package, which resolves the correct platform binary at install time.
+Platform-specific binaries are compiled with `bun build --compile` and published via the `@brewva/brewva` launcher package, which resolves the correct platform binary at install time.
 
 ```bash
 bun run build:binaries

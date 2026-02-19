@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extractEvidenceArtifacts } from "@pi-roaster/roaster-runtime";
+import { extractEvidenceArtifacts } from "@brewva/brewva-runtime";
 
 describe("Evidence artifact extraction", () => {
   test("extracts command_failure artifacts from bash output", () => {

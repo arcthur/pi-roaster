@@ -7,18 +7,18 @@ import {
   buildItemAddedEvent,
   buildTapeCheckpointPayload,
   buildTruthFactUpsertedEvent,
-} from "@pi-roaster/roaster-runtime";
+} from "@brewva/brewva-runtime";
 import type {
-  RoasterEventRecord,
+  BrewvaEventRecord,
   TaskState,
-} from "@pi-roaster/roaster-runtime";
+} from "@brewva/brewva-runtime";
 
 function taskEvent(input: {
   sessionId: string;
   id: string;
   timestamp: number;
   text: string;
-}): RoasterEventRecord {
+}): BrewvaEventRecord {
   return {
     id: input.id,
     sessionId: input.sessionId,
@@ -27,7 +27,7 @@ function taskEvent(input: {
     payload: buildItemAddedEvent({
       text: input.text,
       status: "todo",
-    }) as RoasterEventRecord["payload"],
+    }) as BrewvaEventRecord["payload"],
   };
 }
 
@@ -36,7 +36,7 @@ function truthEvent(input: {
   id: string;
   timestamp: number;
   factId: string;
-}): RoasterEventRecord {
+}): BrewvaEventRecord {
   return {
     id: input.id,
     sessionId: input.sessionId,
@@ -51,7 +51,7 @@ function truthEvent(input: {
       evidenceIds: ["led-1"],
       firstSeenAt: input.timestamp,
       lastSeenAt: input.timestamp,
-    }) as unknown as RoasterEventRecord["payload"],
+    }) as unknown as BrewvaEventRecord["payload"],
   };
 }
 
@@ -74,7 +74,7 @@ function checkpointEvent(input: {
     }>;
     updatedAt: number | null;
   };
-}): RoasterEventRecord {
+}): BrewvaEventRecord {
   return {
     id: input.id,
     sessionId: input.sessionId,
@@ -85,7 +85,7 @@ function checkpointEvent(input: {
       truthState: input.truthState,
       reason: "unit_test",
       basedOnEventId: "evt-prev",
-    }) as unknown as RoasterEventRecord["payload"],
+    }) as unknown as BrewvaEventRecord["payload"],
   };
 }
 
@@ -93,7 +93,7 @@ describe("TurnReplayEngine", () => {
   test("replay is deterministic and state getters return defensive copies", () => {
     const sessionId = "replay-engine-deterministic";
     let turn = 3;
-    const events: RoasterEventRecord[] = [
+    const events: BrewvaEventRecord[] = [
       taskEvent({
         sessionId,
         id: "evt-task-1",
@@ -129,7 +129,7 @@ describe("TurnReplayEngine", () => {
 
   test("new events are observed only after invalidate within the same turn", () => {
     const sessionId = "replay-engine-invalidate";
-    const events: RoasterEventRecord[] = [
+    const events: BrewvaEventRecord[] = [
       taskEvent({
         sessionId,
         id: "evt-task-1",
@@ -165,7 +165,7 @@ describe("TurnReplayEngine", () => {
   test("advancing turn keeps cached state and updates replay view turn", () => {
     const sessionId = "replay-engine-turn";
     let turn = 1;
-    const events: RoasterEventRecord[] = [
+    const events: BrewvaEventRecord[] = [
       taskEvent({
         sessionId,
         id: "evt-task-1",
@@ -190,7 +190,7 @@ describe("TurnReplayEngine", () => {
 
   test("without checkpoint replays task events from tape start", () => {
     const sessionId = "replay-engine-no-checkpoint";
-    const events: RoasterEventRecord[] = [
+    const events: BrewvaEventRecord[] = [
       taskEvent({
         sessionId,
         id: "evt-task-1",
@@ -217,7 +217,7 @@ describe("TurnReplayEngine", () => {
 
   test("replays from latest tape checkpoint and ignores earlier events", () => {
     const sessionId = "replay-engine-checkpoint";
-    const events: RoasterEventRecord[] = [
+    const events: BrewvaEventRecord[] = [
       taskEvent({
         sessionId,
         id: "evt-task-old",

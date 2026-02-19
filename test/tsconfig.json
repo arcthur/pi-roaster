@@ -7,10 +7,10 @@
     "types": ["node", "bun-types"]
   },
   "references": [
-    { "path": "../packages/roaster-runtime" },
-    { "path": "../packages/roaster-tools" },
-    { "path": "../packages/roaster-extensions" },
-    { "path": "../packages/roaster-cli" }
+    { "path": "../packages/brewva-runtime" },
+    { "path": "../packages/brewva-tools" },
+    { "path": "../packages/brewva-extensions" },
+    { "path": "../packages/brewva-cli" }
   ],
   "include": ["./**/*.ts", "./**/*.d.ts"]
 }

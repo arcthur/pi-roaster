@@ -3,123 +3,122 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pi-roaster",
+      "name": "brewva",
       "devDependencies": {
+        "@brewva/brewva-cli": "workspace:*",
+        "@brewva/brewva-extensions": "workspace:*",
+        "@brewva/brewva-runtime": "workspace:*",
+        "@brewva/brewva-tools": "workspace:*",
         "@mariozechner/pi-coding-agent": "^0.53.0",
-        "@pi-roaster/roaster-cli": "workspace:*",
-        "@pi-roaster/roaster-extensions": "workspace:*",
-        "@pi-roaster/roaster-runtime": "workspace:*",
-        "@pi-roaster/roaster-tools": "workspace:*",
         "@types/node": "^25.2.3",
         "bun-types": "^1.3.9",
         "ts-json-schema-generator": "^2.5.0",
         "typescript": "^5.9.3",
       },
     },
-    "distribution/pi-roaster": {
-      "name": "@pi-roaster/pi-roaster",
+    "distribution/brewva": {
+      "name": "@brewva/brewva",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster.js",
+        "brewva": "./bin/brewva.js",
       },
       "dependencies": {
         "detect-libc": "^2.0.4",
       },
       "optionalDependencies": {
-        "@pi-roaster/pi-roaster-darwin-arm64": "0.1.0",
-        "@pi-roaster/pi-roaster-darwin-x64": "0.1.0",
-        "@pi-roaster/pi-roaster-linux-arm64": "0.1.0",
-        "@pi-roaster/pi-roaster-linux-arm64-musl": "0.1.0",
-        "@pi-roaster/pi-roaster-linux-x64": "0.1.0",
-        "@pi-roaster/pi-roaster-linux-x64-musl": "0.1.0",
-        "@pi-roaster/pi-roaster-windows-x64": "0.1.0",
+        "@brewva/brewva-darwin-arm64": "0.1.0",
+        "@brewva/brewva-darwin-x64": "0.1.0",
+        "@brewva/brewva-linux-arm64": "0.1.0",
+        "@brewva/brewva-linux-arm64-musl": "0.1.0",
+        "@brewva/brewva-linux-x64": "0.1.0",
+        "@brewva/brewva-linux-x64-musl": "0.1.0",
+        "@brewva/brewva-windows-x64": "0.1.0",
       },
     },
-    "distribution/pi-roaster-darwin-arm64": {
-      "name": "@pi-roaster/pi-roaster-darwin-arm64",
+    "distribution/brewva-darwin-arm64": {
+      "name": "@brewva/brewva-darwin-arm64",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster",
+        "brewva": "./bin/brewva",
       },
     },
-    "distribution/pi-roaster-darwin-x64": {
-      "name": "@pi-roaster/pi-roaster-darwin-x64",
+    "distribution/brewva-darwin-x64": {
+      "name": "@brewva/brewva-darwin-x64",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster",
+        "brewva": "./bin/brewva",
       },
     },
-    "distribution/pi-roaster-linux-arm64": {
-      "name": "@pi-roaster/pi-roaster-linux-arm64",
+    "distribution/brewva-linux-arm64": {
+      "name": "@brewva/brewva-linux-arm64",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster",
+        "brewva": "./bin/brewva",
       },
     },
-    "distribution/pi-roaster-linux-arm64-musl": {
-      "name": "@pi-roaster/pi-roaster-linux-arm64-musl",
+    "distribution/brewva-linux-arm64-musl": {
+      "name": "@brewva/brewva-linux-arm64-musl",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster",
+        "brewva": "./bin/brewva",
       },
     },
-    "distribution/pi-roaster-linux-x64": {
-      "name": "@pi-roaster/pi-roaster-linux-x64",
+    "distribution/brewva-linux-x64": {
+      "name": "@brewva/brewva-linux-x64",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster",
+        "brewva": "./bin/brewva",
       },
     },
-    "distribution/pi-roaster-linux-x64-musl": {
-      "name": "@pi-roaster/pi-roaster-linux-x64-musl",
+    "distribution/brewva-linux-x64-musl": {
+      "name": "@brewva/brewva-linux-x64-musl",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster",
+        "brewva": "./bin/brewva",
       },
     },
-    "distribution/pi-roaster-windows-x64": {
-      "name": "@pi-roaster/pi-roaster-windows-x64",
+    "distribution/brewva-windows-x64": {
+      "name": "@brewva/brewva-windows-x64",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./bin/pi-roaster.exe",
+        "brewva": "./bin/brewva.exe",
       },
     },
-    "packages/roaster-cli": {
-      "name": "@pi-roaster/roaster-cli",
+    "packages/brewva-cli": {
+      "name": "@brewva/brewva-cli",
       "version": "0.1.0",
       "bin": {
-        "pi-roaster": "./dist/index.js",
-        "roaster": "./dist/index.js",
+        "brewva": "./dist/index.js",
       },
       "dependencies": {
+        "@brewva/brewva-extensions": "workspace:*",
+        "@brewva/brewva-runtime": "workspace:*",
+        "@brewva/brewva-tools": "workspace:*",
         "@mariozechner/pi-coding-agent": "^0.53.0",
-        "@pi-roaster/roaster-extensions": "workspace:*",
-        "@pi-roaster/roaster-runtime": "workspace:*",
-        "@pi-roaster/roaster-tools": "workspace:*",
       },
     },
-    "packages/roaster-extensions": {
-      "name": "@pi-roaster/roaster-extensions",
+    "packages/brewva-extensions": {
+      "name": "@brewva/brewva-extensions",
       "version": "0.1.0",
       "dependencies": {
+        "@brewva/brewva-runtime": "workspace:*",
+        "@brewva/brewva-tools": "workspace:*",
         "@mariozechner/pi-coding-agent": "^0.53.0",
-        "@pi-roaster/roaster-runtime": "workspace:*",
-        "@pi-roaster/roaster-tools": "workspace:*",
       },
     },
-    "packages/roaster-runtime": {
-      "name": "@pi-roaster/roaster-runtime",
+    "packages/brewva-runtime": {
+      "name": "@brewva/brewva-runtime",
       "version": "0.1.0",
       "dependencies": {
         "yaml": "^2.8.2",
       },
     },
-    "packages/roaster-tools": {
-      "name": "@pi-roaster/roaster-tools",
+    "packages/brewva-tools": {
+      "name": "@brewva/brewva-tools",
       "version": "0.1.0",
       "dependencies": {
+        "@brewva/brewva-runtime": "workspace:*",
         "@mariozechner/pi-coding-agent": "^0.53.0",
-        "@pi-roaster/roaster-runtime": "workspace:*",
         "@sinclair/typebox": "^0.34.48",
       },
     },
@@ -199,6 +198,30 @@
 
     "@borewit/text-codec": ["@borewit/text-codec@0.2.1", "", {}, "sha512-k7vvKPbf7J2fZ5klGRD9AeKfUvojuZIQ3BT5u7Jfv+puwXkUBUT5PVyMDfJZpy30CBDXGMgw7fguK/lpOMBvgw=="],
 
+    "@brewva/brewva": ["@brewva/brewva@workspace:distribution/brewva"],
+
+    "@brewva/brewva-cli": ["@brewva/brewva-cli@workspace:packages/brewva-cli"],
+
+    "@brewva/brewva-darwin-arm64": ["@brewva/brewva-darwin-arm64@workspace:distribution/brewva-darwin-arm64"],
+
+    "@brewva/brewva-darwin-x64": ["@brewva/brewva-darwin-x64@workspace:distribution/brewva-darwin-x64"],
+
+    "@brewva/brewva-extensions": ["@brewva/brewva-extensions@workspace:packages/brewva-extensions"],
+
+    "@brewva/brewva-linux-arm64": ["@brewva/brewva-linux-arm64@workspace:distribution/brewva-linux-arm64"],
+
+    "@brewva/brewva-linux-arm64-musl": ["@brewva/brewva-linux-arm64-musl@workspace:distribution/brewva-linux-arm64-musl"],
+
+    "@brewva/brewva-linux-x64": ["@brewva/brewva-linux-x64@workspace:distribution/brewva-linux-x64"],
+
+    "@brewva/brewva-linux-x64-musl": ["@brewva/brewva-linux-x64-musl@workspace:distribution/brewva-linux-x64-musl"],
+
+    "@brewva/brewva-runtime": ["@brewva/brewva-runtime@workspace:packages/brewva-runtime"],
+
+    "@brewva/brewva-tools": ["@brewva/brewva-tools@workspace:packages/brewva-tools"],
+
+    "@brewva/brewva-windows-x64": ["@brewva/brewva-windows-x64@workspace:distribution/brewva-windows-x64"],
+
     "@google/genai": ["@google/genai@1.41.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^7.1.1", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-S4WGil+PG0NBQRAx+0yrQuM/TWOLn2gGEy5wn4IsoOI6ouHad0P61p3OWdhJ3aqr9kfj8o904i/jevfaGoGuIQ=="],
 
     "@isaacs/cliui": ["@isaacs/cliui@9.0.0", "", {}, "sha512-AokJm4tuBHillT+FpMtxQ60n8ObyXBatq7jD2/JA9dxbDDokKQm8KMht5ibGzLVU9IJDIKK4TPKgMHEYMn3lMg=="],
@@ -236,30 +259,6 @@
     "@mariozechner/pi-tui": ["@mariozechner/pi-tui@0.53.0", "", { "dependencies": { "@types/mime-types": "^2.1.4", "chalk": "^5.5.0", "get-east-asian-width": "^1.3.0", "koffi": "^2.9.0", "marked": "^15.0.12", "mime-types": "^3.0.1" } }, "sha512-ffma5Xj6DTN8FWA+6jM5tDiFicF/NnyNSwPH0vw2oqkXqlXt1zSSM9FymZIbSjDLW+A/f1zMvAHORhFIeQTBJQ=="],
 
     "@mistralai/mistralai": ["@mistralai/mistralai@1.10.0", "", { "dependencies": { "zod": "^3.20.0", "zod-to-json-schema": "^3.24.1" } }, "sha512-tdIgWs4Le8vpvPiUEWne6tK0qbVc+jMenujnvTqOjogrJUsCSQhus0tHTU1avDDh5//Rq2dFgP9mWRAdIEoBqg=="],
-
-    "@pi-roaster/pi-roaster": ["@pi-roaster/pi-roaster@workspace:distribution/pi-roaster"],
-
-    "@pi-roaster/pi-roaster-darwin-arm64": ["@pi-roaster/pi-roaster-darwin-arm64@workspace:distribution/pi-roaster-darwin-arm64"],
-
-    "@pi-roaster/pi-roaster-darwin-x64": ["@pi-roaster/pi-roaster-darwin-x64@workspace:distribution/pi-roaster-darwin-x64"],
-
-    "@pi-roaster/pi-roaster-linux-arm64": ["@pi-roaster/pi-roaster-linux-arm64@workspace:distribution/pi-roaster-linux-arm64"],
-
-    "@pi-roaster/pi-roaster-linux-arm64-musl": ["@pi-roaster/pi-roaster-linux-arm64-musl@workspace:distribution/pi-roaster-linux-arm64-musl"],
-
-    "@pi-roaster/pi-roaster-linux-x64": ["@pi-roaster/pi-roaster-linux-x64@workspace:distribution/pi-roaster-linux-x64"],
-
-    "@pi-roaster/pi-roaster-linux-x64-musl": ["@pi-roaster/pi-roaster-linux-x64-musl@workspace:distribution/pi-roaster-linux-x64-musl"],
-
-    "@pi-roaster/pi-roaster-windows-x64": ["@pi-roaster/pi-roaster-windows-x64@workspace:distribution/pi-roaster-windows-x64"],
-
-    "@pi-roaster/roaster-cli": ["@pi-roaster/roaster-cli@workspace:packages/roaster-cli"],
-
-    "@pi-roaster/roaster-extensions": ["@pi-roaster/roaster-extensions@workspace:packages/roaster-extensions"],
-
-    "@pi-roaster/roaster-runtime": ["@pi-roaster/roaster-runtime@workspace:packages/roaster-runtime"],
-
-    "@pi-roaster/roaster-tools": ["@pi-roaster/roaster-tools@workspace:packages/roaster-tools"],
 
     "@pkgjs/parseargs": ["@pkgjs/parseargs@0.11.0", "", {}, "sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg=="],
 

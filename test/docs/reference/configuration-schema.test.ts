@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DEFAULT_ROASTER_CONFIG } from "@pi-roaster/roaster-runtime";
+import { DEFAULT_BREWVA_CONFIG } from "@brewva/brewva-runtime";
 
 type SchemaObject = Record<string, unknown>;
 
@@ -10,10 +10,10 @@ function getObject(value: unknown): SchemaObject | undefined {
   return value as SchemaObject;
 }
 
-describe("roaster config schema", () => {
-  it("covers all top-level RoasterConfig keys", () => {
+describe("brewva config schema", () => {
+  it("covers all top-level BrewvaConfig keys", () => {
     const repoRoot = resolve(import.meta.dirname, "../../..");
-    const schemaPath = resolve(repoRoot, "packages/roaster-runtime/schema/roaster.schema.json");
+    const schemaPath = resolve(repoRoot, "packages/brewva-runtime/schema/brewva.schema.json");
     const schema = JSON.parse(readFileSync(schemaPath, "utf-8")) as SchemaObject;
 
     expect(schema.$schema).toBeDefined();
@@ -22,16 +22,16 @@ describe("roaster config schema", () => {
     const definitions = getObject(schema.definitions);
     expect(definitions).toBeDefined();
 
-    const roasterConfig = getObject(definitions?.RoasterConfig);
-    expect(roasterConfig).toBeDefined();
+    const brewvaConfig = getObject(definitions?.BrewvaConfig);
+    expect(brewvaConfig).toBeDefined();
 
-    const properties = getObject(roasterConfig?.properties);
+    const properties = getObject(brewvaConfig?.properties);
     expect(properties).toBeDefined();
 
-    const keys = Object.keys(DEFAULT_ROASTER_CONFIG);
+    const keys = Object.keys(DEFAULT_BREWVA_CONFIG);
     const missing = keys.filter((key) => !(key in (properties ?? {})));
 
-    expect(missing, `Missing keys in packages/roaster-runtime/schema/roaster.schema.json: ${missing.join(", ")}`).toEqual(
+    expect(missing, `Missing keys in packages/brewva-runtime/schema/brewva.schema.json: ${missing.join(", ")}`).toEqual(
       [],
     );
   });

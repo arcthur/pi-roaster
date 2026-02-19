@@ -2,17 +2,17 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
-import type { TaskSpec } from "@pi-roaster/roaster-runtime";
+import { BrewvaRuntime } from "@brewva/brewva-runtime";
+import type { TaskSpec } from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  return mkdtempSync(join(tmpdir(), `roaster-${name}-`));
+  return mkdtempSync(join(tmpdir(), `brewva-${name}-`));
 }
 
 describe("Viewport neighborhood probe", () => {
   test("includes export default line for default imports", () => {
     const workspace = createWorkspace("viewport-default-import");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "viewport-default-1";
 
     mkdirSync(join(workspace, "src"), { recursive: true });
@@ -28,7 +28,7 @@ describe("Viewport neighborhood probe", () => {
     );
 
     const spec: TaskSpec = {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal: "Ensure viewport shows default export definition",
       targets: { files: ["src/foo.ts"] },
     };

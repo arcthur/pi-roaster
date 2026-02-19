@@ -1,0 +1,19 @@
+{
+  "name": "@brewva/brewva-runtime",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./schema/brewva.schema.json": "./schema/brewva.schema.json"
+  },
+  "dependencies": {
+    "yaml": "^2.8.2"
+  }
+}

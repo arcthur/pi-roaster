@@ -1,19 +1,19 @@
 # CLI
 
-CLI implementation: `packages/roaster-cli/src/index.ts`.
+CLI implementation: `packages/brewva-cli/src/index.ts`.
 
 ## Execution Modes
 
 - Interactive mode (default)
 - One-shot text mode (`--print`)
-- One-shot JSON mode (`--mode json` or `--json`; newline-delimited JSON output, plus final `roaster_event_bundle`)
+- One-shot JSON mode (`--mode json` or `--json`; newline-delimited JSON output, plus final `brewva_event_bundle`)
 - Undo mode (`--undo`)
 - Replay mode (`--replay`)
 
 ## Startup Behavior
 
 - Interactive mode defaults to quiet startup, reducing banner/changelog/version-check noise during initialization.
-- This behavior is enforced by `@pi-roaster/roaster-cli` and does not depend on local `pi-coding-agent` configuration files.
+- This behavior is enforced by `@brewva/brewva-cli` and does not depend on local `pi-coding-agent` configuration files.
 
 ## Mode and Input Resolution
 
@@ -49,7 +49,7 @@ Short aliases:
 
 `--verbose` overrides quiet startup and emits the full startup output.
 
-To temporarily restore upstream version-check notifications, launch with an empty override:
+To temporarily restore upstream version-check notifications (this is an upstream `pi-coding-agent` environment variable), launch with an empty override:
 
 ```bash
 PI_SKIP_VERSION_CHECK= bun run start

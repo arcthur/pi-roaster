@@ -2,17 +2,17 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
-import type { TaskSpec } from "@pi-roaster/roaster-runtime";
+import { BrewvaRuntime } from "@brewva/brewva-runtime";
+import type { TaskSpec } from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  return mkdtempSync(join(tmpdir(), `roaster-${name}-`));
+  return mkdtempSync(join(tmpdir(), `brewva-${name}-`));
 }
 
 describe("Viewport LoopPolicy (SNR-driven)", () => {
   test("skips viewport injection when signal is near-zero", () => {
     const workspace = createWorkspace("viewport-policy-skip");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "viewport-policy-skip-1";
 
     mkdirSync(join(workspace, "src"), { recursive: true });
@@ -28,7 +28,7 @@ describe("Viewport LoopPolicy (SNR-driven)", () => {
     );
 
     const spec: TaskSpec = {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal: "Fix failing runtime tests",
       targets: { files: ["src/irrelevant.ts"] },
     };
@@ -53,7 +53,7 @@ describe("Viewport LoopPolicy (SNR-driven)", () => {
 
   test("drops neighborhood probe when it dominates SNR", () => {
     const workspace = createWorkspace("viewport-policy-no-neighborhood");
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "viewport-policy-no-neighborhood-1";
 
     mkdirSync(join(workspace, "src"), { recursive: true });
@@ -91,7 +91,7 @@ describe("Viewport LoopPolicy (SNR-driven)", () => {
     );
 
     const spec: TaskSpec = {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal: "Fix foo wiring",
       targets: { files: ["src/foo.ts"] },
     };

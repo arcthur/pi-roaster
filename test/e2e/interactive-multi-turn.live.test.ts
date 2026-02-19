@@ -42,10 +42,10 @@ function ensureExpectAvailable(): void {
 }
 
 function writeWorkspaceConfig(workspace: string): void {
-  const configDir = join(workspace, ".pi-roaster");
+  const configDir = join(workspace, ".brewva");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(
-    join(configDir, "roaster.json"),
+    join(configDir, "brewva.json"),
     JSON.stringify(
       {
         infrastructure: {
@@ -297,7 +297,7 @@ function formatFailureOutput(result: RegressionRunResult): string {
 }
 
 function runRegression(rounds: number): RegressionRunResult {
-  const workspace = mkdtempSync(join(tmpdir(), "pi-roaster-interactive-live-"));
+  const workspace = mkdtempSync(join(tmpdir(), "brewva-interactive-live-"));
   writeWorkspaceConfig(workspace);
   const promptsPath = writePromptsFile(workspace);
   const expectPath = writeExpectDriver(workspace);

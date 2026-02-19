@@ -2,9 +2,9 @@
 
 ## Lifecycle Stages
 
-1. Parse CLI args and resolve mode/input (`packages/roaster-cli/src/index.ts`)
-2. Create session + runtime (`packages/roaster-cli/src/session.ts`)
-3. Register extension handlers (`packages/roaster-extensions/src/index.ts`)
+1. Parse CLI args and resolve mode/input (`packages/brewva-cli/src/index.ts`)
+2. Create session + runtime (`packages/brewva-cli/src/session.ts`)
+3. Register extension handlers (`packages/brewva-extensions/src/index.ts`)
 4. Run turn loop with tool execution, ledger/event writes, and verification updates
 5. Emit replayable event timeline and dispose session resources
 
@@ -12,7 +12,7 @@
 
 - Replay (`--replay`): query structured events and print text/JSON timeline
 - Undo (`--undo`): resolve target session and rollback latest tracked patch set
-- JSON one-shot (`--mode json`/`--json`): emits normal stream plus final `roaster_event_bundle`
+- JSON one-shot (`--mode json`/`--json`): emits normal stream plus final `brewva_event_bundle`
 
 ## Recovery Path
 

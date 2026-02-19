@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
-import type { RoasterRuntime } from "@pi-roaster/roaster-runtime";
-import { registerRuntimeCoreEventBridge } from "../../packages/roaster-cli/src/session-event-bridge.js";
+import type { BrewvaRuntime } from "@brewva/brewva-runtime";
+import { registerRuntimeCoreEventBridge } from "../../packages/brewva-cli/src/session-event-bridge.js";
 
 type RecordedEvent = {
   sessionId: string;
@@ -46,7 +46,7 @@ function createRuntimeMock() {
     getCostSummary(sessionId: string): Record<string, unknown> {
       return costSummaryBySession.get(sessionId) ?? { totalTokens: 0, totalCostUsd: 0 };
     },
-  } as unknown as RoasterRuntime;
+  } as unknown as BrewvaRuntime;
 
   return {
     runtime,

@@ -38,13 +38,13 @@
 - `task_resolve_blocker`
 - `task_view_state`
 
-Tool registry source: `packages/roaster-tools/src/index.ts`
+Tool registry source: `packages/brewva-tools/src/index.ts`
 
 ## Skill Surface
 
 - Base: `cartography`, `compose`, `debugging`, `exploration`, `git`, `patching`, `planning`, `review`, `verification`
 - Packs: `browser`, `bun`, `frontend-ui-ux`, `react`, `typescript`
-- Project: `roaster-project`
+- Project: `brewva-project`
 
 Skill roots:
 

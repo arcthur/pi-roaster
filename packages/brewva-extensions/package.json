@@ -1,0 +1,20 @@
+{
+  "name": "@brewva/brewva-extensions",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@brewva/brewva-runtime": "workspace:*",
+    "@brewva/brewva-tools": "workspace:*",
+    "@mariozechner/pi-coding-agent": "^0.53.0"
+  }
+}

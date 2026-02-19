@@ -36,12 +36,12 @@ Note: Conventional Commits does not mandate a fixed `type` set, but consistency 
 ## 3) Choosing `scope` (optional, recommended)
 
 Use stable, searchable identifiers:
-- Workspace package names (e.g., `roaster-cli`, `roaster-runtime`, `roaster-tools`)
+- Workspace package names (e.g., `brewva-cli`, `brewva-runtime`, `brewva-tools`)
 - Or module/directory names (e.g., `distribution`, `docs`, `script`)
 
 ```text
-feat(roaster-cli): support --json output
-fix(roaster-runtime): avoid snapshot corruption on retry
+feat(brewva-cli): support --json output
+fix(brewva-runtime): avoid snapshot corruption on retry
 docs(distribution): add troubleshooting guide
 ```
 
@@ -54,7 +54,7 @@ Two equivalent ways:
 Recommended: use `!` in the header, and include a `BREAKING CHANGE:` footer that states what broke and the minimal migration.
 
 ```text
-refactor(roaster-runtime)!: replace legacy ledger writer
+refactor(brewva-runtime)!: replace legacy ledger writer
 
 BREAKING CHANGE: ledger entry IDs are now UUIDv7; re-run migrations with `bun run ledger:migrate`.
 ```
@@ -64,7 +64,7 @@ BREAKING CHANGE: ledger entry IDs are now UUIDv7; re-run migrations with `bun ru
 Use the body when it materially improves reviewability (why, validation steps, impact scope, migration notes, issue references):
 
 ```text
-feat(roaster-tools): add AST helper for import rewrites
+feat(brewva-tools): add AST helper for import rewrites
 
 This adds a helper used by the refactor pipeline to safely rewrite imports across packages.
 

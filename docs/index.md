@@ -52,7 +52,7 @@ This repository uses a layered documentation system:
 
 ## Source of Truth
 
-- Runtime package: `packages/roaster-runtime/src/index.ts`
-- Tool package: `packages/roaster-tools/src/index.ts`
-- Extension package: `packages/roaster-extensions/src/index.ts`
-- CLI package: `packages/roaster-cli/src/index.ts`
+- Runtime package: `packages/brewva-runtime/src/index.ts`
+- Tool package: `packages/brewva-tools/src/index.ts`
+- Extension package: `packages/brewva-extensions/src/index.ts`
+- CLI package: `packages/brewva-cli/src/index.ts`

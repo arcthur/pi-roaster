@@ -33,7 +33,7 @@ function collectToolNames(sourceRoot: string): string[] {
 describe("docs/reference tools coverage", () => {
   it("documents all tool names", () => {
     const repoRoot = resolve(import.meta.dirname, "../../..");
-    const toolNames = collectToolNames(resolve(repoRoot, "packages/roaster-tools/src"));
+    const toolNames = collectToolNames(resolve(repoRoot, "packages/brewva-tools/src"));
     const markdown = readFileSync(resolve(repoRoot, "docs/reference/tools.md"), "utf-8");
 
     const missing = toolNames.filter((name) => !markdown.includes(`\`${name}\``));

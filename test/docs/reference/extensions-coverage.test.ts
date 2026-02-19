@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const EXPECTED_SYMBOLS = [
-  "createRoasterExtension",
-  "roasterExtension",
+  "createBrewvaExtension",
+  "brewvaExtension",
   "registerContextTransform",
   "registerEventStream",
   "registerQualityGate",

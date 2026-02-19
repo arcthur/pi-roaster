@@ -23,7 +23,7 @@ function runOrThrow(command: string, args: string[], options: { cwd: string; inp
 
 function main(): void {
   const repoRoot = process.cwd();
-  const cliDistPath = resolve(repoRoot, "packages/roaster-cli/dist/index.js");
+  const cliDistPath = resolve(repoRoot, "packages/brewva-cli/dist/index.js");
   if (!existsSync(cliDistPath)) {
     throw new Error(`CLI dist entry is missing: ${cliDistPath}. Run 'bun run typecheck' first.`);
   }
@@ -32,18 +32,18 @@ function main(): void {
     cwd: repoRoot,
     step: "cli help smoke",
   });
-  if (!helpText.includes("pi-roaster - AI-native coding agent CLI")) {
-    throw new Error("cli help smoke failed: missing pi-roaster banner in dist output.");
+  if (!helpText.includes("Brewva - AI-native coding agent CLI")) {
+    throw new Error("cli help smoke failed: missing Brewva banner in dist output.");
   }
 
   const resolveScript = String.raw`
     import { createRequire } from "node:module";
     const require = createRequire(import.meta.url);
     const packages = [
-      "@pi-roaster/roaster-runtime",
-      "@pi-roaster/roaster-tools",
-      "@pi-roaster/roaster-extensions",
-      "@pi-roaster/roaster-cli",
+      "@brewva/brewva-runtime",
+      "@brewva/brewva-tools",
+      "@brewva/brewva-extensions",
+      "@brewva/brewva-cli",
     ];
     const resolved = packages.map((name) => ({ name, path: require.resolve(name) }));
     for (const entry of resolved) {

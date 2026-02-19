@@ -10,7 +10,7 @@ function extractLongFlags(cliSource: string): string[] {
 describe("docs/reference commands coverage", () => {
   it("documents all long-form CLI flags", () => {
     const repoRoot = resolve(import.meta.dirname, "../../..");
-    const cliPath = resolve(repoRoot, "packages/roaster-cli/src/index.ts");
+    const cliPath = resolve(repoRoot, "packages/brewva-cli/src/index.ts");
     const docsPath = resolve(repoRoot, "docs/reference/commands.md");
 
     const cliSource = readFileSync(cliPath, "utf-8");

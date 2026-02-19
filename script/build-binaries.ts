@@ -24,22 +24,22 @@ interface RuntimePackageJson {
   };
 }
 
-const roasterCliRequire = createRequire(join(process.cwd(), "packages/roaster-cli/package.json"));
+const brewvaCliRequire = createRequire(join(process.cwd(), "packages/brewva-cli/package.json"));
 
 export const PLATFORMS: PlatformTarget[] = [
-  { dir: "pi-roaster-darwin-arm64", target: "bun-darwin-arm64", binary: "pi-roaster", description: "macOS ARM64" },
-  { dir: "pi-roaster-darwin-x64", target: "bun-darwin-x64", binary: "pi-roaster", description: "macOS x64" },
-  { dir: "pi-roaster-linux-x64", target: "bun-linux-x64", binary: "pi-roaster", description: "Linux x64 (glibc)" },
-  { dir: "pi-roaster-linux-arm64", target: "bun-linux-arm64", binary: "pi-roaster", description: "Linux ARM64 (glibc)" },
-  { dir: "pi-roaster-linux-x64-musl", target: "bun-linux-x64-musl", binary: "pi-roaster", description: "Linux x64 (musl)" },
-  { dir: "pi-roaster-linux-arm64-musl", target: "bun-linux-arm64-musl", binary: "pi-roaster", description: "Linux ARM64 (musl)" },
-  { dir: "pi-roaster-windows-x64", target: "bun-windows-x64", binary: "pi-roaster.exe", description: "Windows x64" },
+  { dir: "brewva-darwin-arm64", target: "bun-darwin-arm64", binary: "brewva", description: "macOS ARM64" },
+  { dir: "brewva-darwin-x64", target: "bun-darwin-x64", binary: "brewva", description: "macOS x64" },
+  { dir: "brewva-linux-x64", target: "bun-linux-x64", binary: "brewva", description: "Linux x64 (glibc)" },
+  { dir: "brewva-linux-arm64", target: "bun-linux-arm64", binary: "brewva", description: "Linux ARM64 (glibc)" },
+  { dir: "brewva-linux-x64-musl", target: "bun-linux-x64-musl", binary: "brewva", description: "Linux x64 (musl)" },
+  { dir: "brewva-linux-arm64-musl", target: "bun-linux-arm64-musl", binary: "brewva", description: "Linux ARM64 (musl)" },
+  { dir: "brewva-windows-x64", target: "bun-windows-x64", binary: "brewva.exe", description: "Windows x64" },
 ];
 
-const ENTRY_POINT = "packages/roaster-cli/src/index.ts";
-const WRAPPER_PACKAGE_JSON = "distribution/pi-roaster/package.json";
+const ENTRY_POINT = "packages/brewva-cli/src/index.ts";
+const WRAPPER_PACKAGE_JSON = "distribution/brewva/package.json";
 
-const PI_CODING_AGENT_DIR = dirname(roasterCliRequire.resolve("@mariozechner/pi-coding-agent/package.json"));
+const PI_CODING_AGENT_DIR = dirname(brewvaCliRequire.resolve("@mariozechner/pi-coding-agent/package.json"));
 const piCodingAgentRequire = createRequire(join(PI_CODING_AGENT_DIR, "package.json"));
 const PHOTON_WASM_PATH = join(
   dirname(piCodingAgentRequire.resolve("@silvia-odwyer/photon-node/package.json")),
@@ -66,8 +66,8 @@ function copyRuntimeAssets(outDir: string): void {
     license: wrapperPackage.license,
     type: wrapperPackage.type ?? "module",
     piConfig: {
-      name: wrapperPackage.piConfig?.name ?? "pi-roaster",
-      configDir: wrapperPackage.piConfig?.configDir ?? ".config/pi-roaster",
+      name: wrapperPackage.piConfig?.name ?? "brewva",
+      configDir: wrapperPackage.piConfig?.configDir ?? ".config/brewva",
     },
   };
 
@@ -117,7 +117,7 @@ async function buildPlatform(platform: PlatformTarget): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
-  console.log("Building pi-roaster platform binaries");
+  console.log("Building Brewva platform binaries");
   console.log(`  entry point: ${ENTRY_POINT}`);
   console.log(`  platforms: ${PLATFORMS.length}`);
 

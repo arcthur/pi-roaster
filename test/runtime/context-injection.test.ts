@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ContextInjectionCollector } from "@pi-roaster/roaster-runtime";
+import { ContextInjectionCollector } from "@brewva/brewva-runtime";
 
 describe("Context injection collector", () => {
   const estimateTokens = (text: string): number => Math.max(0, Math.ceil(text.length / 3.5));

@@ -3,18 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_ROASTER_CONFIG,
-  loadRoasterConfig,
-  resolveGlobalRoasterConfigPath,
-} from "@pi-roaster/roaster-runtime";
+  DEFAULT_BREWVA_CONFIG,
+  loadBrewvaConfig,
+  resolveGlobalBrewvaConfigPath,
+} from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  const workspace = mkdtempSync(join(tmpdir(), `roaster-config-${name}-`));
-  mkdirSync(join(workspace, ".pi-roaster"), { recursive: true });
+  const workspace = mkdtempSync(join(tmpdir(), `brewva-config-${name}-`));
+  mkdirSync(join(workspace, ".brewva"), { recursive: true });
   return workspace;
 }
 
-describe("Roaster config loader normalization", () => {
+describe("Brewva config loader normalization", () => {
   test("normalizes malformed values and preserves hierarchy invariants", () => {
     const workspace = createWorkspace("normalize");
     const rawConfig = {
@@ -45,10 +45,10 @@ describe("Roaster config loader normalization", () => {
         },
       },
     };
-    writeFileSync(join(workspace, ".pi-roaster/roaster.json"), JSON.stringify(rawConfig, null, 2), "utf8");
+    writeFileSync(join(workspace, ".brewva/brewva.json"), JSON.stringify(rawConfig, null, 2), "utf8");
 
-    const loaded = loadRoasterConfig({ cwd: workspace, configPath: ".pi-roaster/roaster.json" });
-    const defaults = DEFAULT_ROASTER_CONFIG;
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    const defaults = DEFAULT_BREWVA_CONFIG;
 
     expect(loaded.tape.checkpointIntervalEntries).toBe(0);
     expect(loaded.tape.tapePressureThresholds.low).toBe(20);
@@ -78,11 +78,11 @@ describe("Roaster config loader normalization", () => {
   test("returns isolated config instances when no config file exists", () => {
     const workspace = createWorkspace("isolation");
 
-    const first = loadRoasterConfig({ cwd: workspace, configPath: ".pi-roaster/roaster.json" });
+    const first = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
     first.security.enforceDeniedTools = false;
 
-    const second = loadRoasterConfig({ cwd: workspace, configPath: ".pi-roaster/roaster.json" });
-    expect(second.security.enforceDeniedTools).toBe(DEFAULT_ROASTER_CONFIG.security.enforceDeniedTools);
+    const second = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect(second.security.enforceDeniedTools).toBe(DEFAULT_BREWVA_CONFIG.security.enforceDeniedTools);
   });
 
   test("normalizes skills roots arrays and selector values", () => {
@@ -98,26 +98,26 @@ describe("Roaster config loader normalization", () => {
         },
       },
     };
-    writeFileSync(join(workspace, ".pi-roaster/roaster.json"), JSON.stringify(rawConfig, null, 2), "utf8");
+    writeFileSync(join(workspace, ".brewva/brewva.json"), JSON.stringify(rawConfig, null, 2), "utf8");
 
-    const loaded = loadRoasterConfig({ cwd: workspace, configPath: ".pi-roaster/roaster.json" });
-    expect(loaded.skills.roots).toEqual([join(workspace, ".pi-roaster/skills-extra")]);
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect(loaded.skills.roots).toEqual([join(workspace, ".brewva/skills-extra")]);
     expect(loaded.skills.packs).toEqual(["typescript"]);
     expect(loaded.skills.disabled).toEqual(["review"]);
-    expect(loaded.skills.selector.k).toBe(DEFAULT_ROASTER_CONFIG.skills.selector.k);
-    expect(loaded.skills.selector.maxDigestTokens).toBe(DEFAULT_ROASTER_CONFIG.skills.selector.maxDigestTokens);
+    expect(loaded.skills.selector.k).toBe(DEFAULT_BREWVA_CONFIG.skills.selector.k);
+    expect(loaded.skills.selector.maxDigestTokens).toBe(DEFAULT_BREWVA_CONFIG.skills.selector.maxDigestTokens);
   });
 
   test("loads global and project configs with project override precedence", () => {
     const workspace = createWorkspace("layered-default");
-    const xdgRoot = mkdtempSync(join(tmpdir(), "roaster-config-xdg-"));
+    const xdgRoot = mkdtempSync(join(tmpdir(), "brewva-config-xdg-"));
     const previousXdg = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = xdgRoot;
 
     try {
-      mkdirSync(join(xdgRoot, "pi-roaster"), { recursive: true });
+      mkdirSync(join(xdgRoot, "brewva"), { recursive: true });
       writeFileSync(
-        resolveGlobalRoasterConfigPath(process.env),
+        resolveGlobalBrewvaConfigPath(process.env),
         JSON.stringify(
           {
             parallel: { maxConcurrent: 7 },
@@ -130,7 +130,7 @@ describe("Roaster config loader normalization", () => {
       );
 
       writeFileSync(
-        join(workspace, ".pi-roaster/roaster.json"),
+        join(workspace, ".brewva/brewva.json"),
         JSON.stringify(
           {
             verification: { defaultLevel: "strict" },
@@ -141,7 +141,7 @@ describe("Roaster config loader normalization", () => {
         "utf8",
       );
 
-      const loaded = loadRoasterConfig({ cwd: workspace });
+      const loaded = loadBrewvaConfig({ cwd: workspace });
       expect(loaded.parallel.maxConcurrent).toBe(7);
       expect(loaded.verification.defaultLevel).toBe("strict");
     } finally {
@@ -157,7 +157,7 @@ describe("Roaster config loader normalization", () => {
     const workspace = createWorkspace("legacy-fallback-disabled");
     mkdirSync(join(workspace, ".pi"), { recursive: true });
     writeFileSync(
-      join(workspace, ".pi/roaster.json"),
+      join(workspace, ".pi/brewva.json"),
       JSON.stringify(
         {
           parallel: { maxConcurrent: 99 },
@@ -168,7 +168,7 @@ describe("Roaster config loader normalization", () => {
       "utf8",
     );
 
-    const loaded = loadRoasterConfig({ cwd: workspace });
-    expect(loaded.parallel.maxConcurrent).toBe(DEFAULT_ROASTER_CONFIG.parallel.maxConcurrent);
+    const loaded = loadBrewvaConfig({ cwd: workspace });
+    expect(loaded.parallel.maxConcurrent).toBe(DEFAULT_BREWVA_CONFIG.parallel.maxConcurrent);
   });
 });

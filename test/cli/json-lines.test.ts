@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { JsonLineWriter, type JsonLineWritable, writeJsonLine } from "../../packages/roaster-cli/src/json-lines.js";
+import { JsonLineWriter, type JsonLineWritable, writeJsonLine } from "../../packages/brewva-cli/src/json-lines.js";
 
 class MemoryWritable implements JsonLineWritable {
   private readonly chunks: string[] = [];

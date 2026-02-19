@@ -3,21 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_ROASTER_CONFIG,
-  RoasterEventStore,
+  DEFAULT_BREWVA_CONFIG,
+  BrewvaEventStore,
   buildTapeAnchorPayload,
   buildTapeCheckpointPayload,
-} from "@pi-roaster/roaster-runtime";
+} from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  return mkdtempSync(join(tmpdir(), `roaster-${name}-`));
+  return mkdtempSync(join(tmpdir(), `brewva-${name}-`));
 }
 
-describe("RoasterEventStore tape helpers", () => {
+describe("BrewvaEventStore tape helpers", () => {
   test("writes and queries anchor/checkpoint events via dedicated methods", () => {
     const workspace = createWorkspace("tape-store");
-    const store = new RoasterEventStore(
-      DEFAULT_ROASTER_CONFIG.infrastructure.events,
+    const store = new BrewvaEventStore(
+      DEFAULT_BREWVA_CONFIG.infrastructure.events,
       workspace,
     );
     const sessionId = "tape-store-1";

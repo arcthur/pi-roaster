@@ -2,11 +2,11 @@ import { cpSync, mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_ROASTER_CONFIG, RoasterRuntime, type SkillContract } from "@pi-roaster/roaster-runtime";
+import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime, type SkillContract } from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  const workspace = mkdtempSync(join(tmpdir(), `roaster-${name}-`));
-  mkdirSync(join(workspace, ".pi-roaster"), { recursive: true });
+  const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
+  mkdirSync(join(workspace, ".brewva"), { recursive: true });
 
   const repoRoot = resolve(import.meta.dirname, "../..");
   cpSync(resolve(repoRoot, "skills"), resolve(workspace, "skills"), { recursive: true });
@@ -16,11 +16,11 @@ function createWorkspace(name: string): string {
 function createRuntime(
   workspace: string,
   options: {
-    security?: Partial<RoasterRuntime["config"]["security"]>;
+    security?: Partial<BrewvaRuntime["config"]["security"]>;
     skillOverrides?: Record<string, Partial<SkillContract>>;
   } = {},
-): RoasterRuntime {
-  const config = structuredClone(DEFAULT_ROASTER_CONFIG);
+): BrewvaRuntime {
+  const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.security = {
     ...config.security,
     ...options.security,
@@ -35,7 +35,7 @@ function createRuntime(
   config.infrastructure.events.enabled = true;
   config.ledger.path = ".orchestrator/ledger/evidence.jsonl";
   config.infrastructure.events.dir = ".orchestrator/events";
-  return new RoasterRuntime({ cwd: workspace, config });
+  return new BrewvaRuntime({ cwd: workspace, config });
 }
 
 describe("tool contract policy modes", () => {

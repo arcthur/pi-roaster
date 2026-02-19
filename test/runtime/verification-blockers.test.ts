@@ -2,53 +2,53 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import type { RoasterConfig } from "@pi-roaster/roaster-runtime";
-import { DEFAULT_ROASTER_CONFIG, RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import type { BrewvaConfig } from "@brewva/brewva-runtime";
+import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime } from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
-  const workspace = mkdtempSync(join(tmpdir(), `roaster-${name}-`));
-  mkdirSync(join(workspace, ".pi-roaster"), { recursive: true });
+  const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
+  mkdirSync(join(workspace, ".brewva"), { recursive: true });
   return workspace;
 }
 
-function writeConfig(workspace: string, config: RoasterConfig): void {
-  writeFileSync(join(workspace, ".pi-roaster/roaster.json"), JSON.stringify(config, null, 2), "utf8");
+function writeConfig(workspace: string, config: BrewvaConfig): void {
+  writeFileSync(join(workspace, ".brewva/brewva.json"), JSON.stringify(config, null, 2), "utf8");
 }
 
-function createConfig(overrides: Partial<RoasterConfig>): RoasterConfig {
+function createConfig(overrides: Partial<BrewvaConfig>): BrewvaConfig {
   return {
-    ...DEFAULT_ROASTER_CONFIG,
+    ...DEFAULT_BREWVA_CONFIG,
     ...overrides,
     skills: {
-      ...DEFAULT_ROASTER_CONFIG.skills,
+      ...DEFAULT_BREWVA_CONFIG.skills,
       ...overrides.skills,
       selector: {
-        ...DEFAULT_ROASTER_CONFIG.skills.selector,
+        ...DEFAULT_BREWVA_CONFIG.skills.selector,
         ...overrides.skills?.selector,
       },
     },
     verification: {
-      ...DEFAULT_ROASTER_CONFIG.verification,
+      ...DEFAULT_BREWVA_CONFIG.verification,
       ...overrides.verification,
       checks: {
-        ...DEFAULT_ROASTER_CONFIG.verification.checks,
+        ...DEFAULT_BREWVA_CONFIG.verification.checks,
         ...overrides.verification?.checks,
       },
       commands: {
-        ...DEFAULT_ROASTER_CONFIG.verification.commands,
+        ...DEFAULT_BREWVA_CONFIG.verification.commands,
         ...overrides.verification?.commands,
       },
     },
     ledger: {
-      ...DEFAULT_ROASTER_CONFIG.ledger,
+      ...DEFAULT_BREWVA_CONFIG.ledger,
       ...overrides.ledger,
     },
     security: {
-      ...DEFAULT_ROASTER_CONFIG.security,
+      ...DEFAULT_BREWVA_CONFIG.security,
       ...overrides.security,
     },
     parallel: {
-      ...DEFAULT_ROASTER_CONFIG.parallel,
+      ...DEFAULT_BREWVA_CONFIG.parallel,
       ...overrides.parallel,
     },
   };
@@ -75,7 +75,7 @@ describe("Verification blockers", () => {
       }),
     );
 
-    const runtime = new RoasterRuntime({ cwd: workspace, configPath: ".pi-roaster/roaster.json" });
+    const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".brewva/brewva.json" });
     const sessionId = "verify-blockers-1";
 
     runtime.markToolCall(sessionId, "edit");

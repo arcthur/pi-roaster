@@ -7,7 +7,7 @@ Usage:
   script/interactive-multi-turn-regression.sh [--rounds 3-5] [--cwd <dir>] [--keep-workspace]
 
 Description:
-  Run a scripted interactive multi-turn stress regression against pi-roaster.
+  Run a scripted interactive multi-turn stress regression against Brewva.
   The script:
   1) starts interactive mode in a PTY,
   2) sends 3-5 prompts sequentially after each agent_end,
@@ -70,12 +70,12 @@ fi
 
 AUTO_WORKSPACE=0
 if [[ -z "$TARGET_CWD" ]]; then
-  TARGET_CWD="$(mktemp -d /tmp/pi-roaster-multi-turn-stress-XXXXXX)"
+  TARGET_CWD="$(mktemp -d /tmp/brewva-multi-turn-stress-XXXXXX)"
   AUTO_WORKSPACE=1
 fi
 
-mkdir -p "$TARGET_CWD/.pi-roaster"
-cat >"$TARGET_CWD/.pi-roaster/roaster.json" <<'JSON'
+mkdir -p "$TARGET_CWD/.brewva"
+cat >"$TARGET_CWD/.brewva/brewva.json" <<'JSON'
 {
   "infrastructure": {
     "contextBudget": {
@@ -95,7 +95,7 @@ cat >"$TARGET_CWD/.pi-roaster/roaster.json" <<'JSON'
 }
 JSON
 
-PROMPTS_FILE="$(mktemp /tmp/pi-roaster-prompts-XXXXXX.txt)"
+PROMPTS_FILE="$(mktemp /tmp/brewva-prompts-XXXXXX.txt)"
 cat >"$PROMPTS_FILE" <<'EOF'
 Do not call any tool. Reply exactly: ROUND-1
 Do not call any tool. Reply exactly: ROUND-2
@@ -104,7 +104,7 @@ Do not call any tool. Reply exactly: ROUND-4
 Do not call any tool. Reply exactly: ROUND-5
 EOF
 
-EXPECT_FILE="$(mktemp /tmp/pi-roaster-interactive-runner-XXXXXX.expect)"
+EXPECT_FILE="$(mktemp /tmp/brewva-interactive-runner-XXXXXX.expect)"
 cat >"$EXPECT_FILE" <<'EOF'
 #!/usr/bin/expect -f
 set timeout -1

@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_ROASTER_CONFIG,
+  DEFAULT_BREWVA_CONFIG,
   ParallelBudgetManager,
-  RoasterRuntime,
+  BrewvaRuntime,
   TAPE_CHECKPOINT_EVENT_TYPE,
   tightenContract,
-} from "@pi-roaster/roaster-runtime";
-import type { SkillContract } from "@pi-roaster/roaster-runtime";
+} from "@brewva/brewva-runtime";
+import type { SkillContract } from "@brewva/brewva-runtime";
 
 function repoRoot(): string {
   return process.cwd();
@@ -17,7 +17,7 @@ function repoRoot(): string {
 
 describe("S-001 selector inject top-k and anti-tags", () => {
   test("selects candidates and excludes anti-tags", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const selected = runtime.selectSkills("debug failing test regression in typescript module");
     expect(selected.length).toBeGreaterThan(0);
 
@@ -28,7 +28,7 @@ describe("S-001 selector inject top-k and anti-tags", () => {
 
 describe("S-002 denied tool gate", () => {
   test("blocks denied write for active patching skill", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s2";
     const activated = runtime.activateSkill(sessionId, "patching");
     expect(activated.ok).toBe(true);
@@ -38,7 +38,7 @@ describe("S-002 denied tool gate", () => {
   });
 
   test("allows denied tool when enforcement is disabled", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     runtime.config.security.enforceDeniedTools = false;
 
     const sessionId = "s2-disabled";
@@ -52,7 +52,7 @@ describe("S-002 denied tool gate", () => {
 
 describe("S-003 ledger write/query", () => {
   test("records and queries last entries", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s3";
 
     runtime.recordToolResult({
@@ -71,7 +71,7 @@ describe("S-003 ledger write/query", () => {
 
 describe("S-004/S-005 verification gate", () => {
   test("blocks without evidence after write and passes with evidence", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s4";
 
     runtime.markToolCall(sessionId, "edit");
@@ -100,7 +100,7 @@ describe("S-004/S-005 verification gate", () => {
   });
 
   test("treats multi_edit as a mutation tool for verification gating", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s4-multi-edit";
 
     runtime.markToolCall(sessionId, "multi_edit");
@@ -148,10 +148,10 @@ describe("S-006 three-layer contract tightening", () => {
   });
 
   test("higher tier keeps stricter contract when overriding", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-s6-"));
-    mkdirSync(join(workspace, ".pi-roaster"), { recursive: true });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-s6-"));
+    mkdirSync(join(workspace, ".brewva"), { recursive: true });
     writeFileSync(
-      join(workspace, ".pi-roaster/roaster.json"),
+      join(workspace, ".brewva/brewva.json"),
       JSON.stringify({
         skills: {
           packs: [],
@@ -162,19 +162,19 @@ describe("S-006 three-layer contract tightening", () => {
       }),
     );
 
-    mkdirSync(join(workspace, ".pi-roaster", "skills", "base", "foo"), { recursive: true });
+    mkdirSync(join(workspace, ".brewva", "skills", "base", "foo"), { recursive: true });
     writeFileSync(
-      join(workspace, ".pi-roaster/skills/base/foo/SKILL.md"),
+      join(workspace, ".brewva/skills/base/foo/SKILL.md"),
       `---\nname: foo\ndescription: base\ntags: [foo]\ntools:\n  required: [read]\n  optional: [edit]\n  denied: [write]\nbudget:\n  max_tool_calls: 50\n  max_tokens: 10000\n---\nbase`,
     );
 
-    mkdirSync(join(workspace, ".pi-roaster", "skills", "project", "foo"), { recursive: true });
+    mkdirSync(join(workspace, ".brewva", "skills", "project", "foo"), { recursive: true });
     writeFileSync(
-      join(workspace, ".pi-roaster/skills/project/foo/SKILL.md"),
+      join(workspace, ".brewva/skills/project/foo/SKILL.md"),
       `---\nname: foo\ndescription: project\ntags: [foo]\ntools:\n  required: []\n  optional: [write]\n  denied: [bash]\nbudget:\n  max_tool_calls: 30\n  max_tokens: 8000\n---\nproject`,
     );
 
-    const runtime = new RoasterRuntime({ cwd: workspace, configPath: ".pi-roaster/roaster.json" });
+    const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".brewva/brewva.json" });
     const foo = runtime.getSkill("foo");
     expect(foo).toBeDefined();
     expect(foo!.contract.tools.denied).toContain("write");
@@ -185,7 +185,7 @@ describe("S-006 three-layer contract tightening", () => {
 
 describe("skill output registry", () => {
   test("completed skill outputs are queryable by subsequent skills", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "output-reg-1";
 
     runtime.activateSkill(sessionId, "exploration");
@@ -202,7 +202,7 @@ describe("skill output registry", () => {
   });
 
   test("getAvailableConsumedOutputs returns matching outputs for skill consumes", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "output-reg-2";
 
     // debugging consumes: [architecture_map, execution_steps]
@@ -234,7 +234,7 @@ describe("skill output registry", () => {
   });
 
   test("getAvailableConsumedOutputs returns empty for unknown skill", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const result = runtime.getAvailableConsumedOutputs("any-session", "nonexistent");
     expect(result).toEqual({});
   });
@@ -264,7 +264,7 @@ describe("S-007 parallel budget control", () => {
 
 describe("cost evidence separation in digest", () => {
   test("ledger digest excludes infrastructure entries from summary", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = `cost-sep-${Date.now()}`;
 
     runtime.recordToolResult({
@@ -288,13 +288,13 @@ describe("cost evidence separation in digest", () => {
 
     const digest = runtime.getLedgerDigest(sessionId);
     expect(digest).toContain("count=1");
-    expect(digest).not.toContain("roaster_cost");
+    expect(digest).not.toContain("brewva_cost");
   });
 });
 
 describe("compose plan validation", () => {
   test("validates a correct skill sequence", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const validPlan = {
       steps: [
@@ -310,7 +310,7 @@ describe("compose plan validation", () => {
   });
 
   test("rejects unknown skill references", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const invalidPlan = {
       steps: [
@@ -324,7 +324,7 @@ describe("compose plan validation", () => {
   });
 
   test("warns on consumed data not produced by any prior step", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const plan = {
       steps: [
@@ -337,7 +337,7 @@ describe("compose plan validation", () => {
   });
 
   test("no warnings when all consumed data is produced by prior steps", () => {
-    const runtime = new RoasterRuntime({ cwd: repoRoot() });
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const plan = {
       steps: [
@@ -354,8 +354,8 @@ describe("compose plan validation", () => {
 
 describe("session state cleanup", () => {
   test("clearSessionState releases in-memory per-session caches", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-session-clean-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-session-clean-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "cleanup-state-1";
 
     runtime.onTurnStart(sessionId, 1);
@@ -419,12 +419,12 @@ describe("session state cleanup", () => {
   });
 
   test("invalidates replay cache on task events and rebuilds from tape", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-replay-view-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-replay-view-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "replay-view-1";
 
     runtime.setTaskSpec(sessionId, {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal: "Replay view should rebuild after new events",
     });
     runtime.getTaskState(sessionId);
@@ -447,14 +447,14 @@ describe("session state cleanup", () => {
 
 describe("tape checkpoint automation", () => {
   test("writes checkpoint events by interval and replays consistent state after restart", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-tape-checkpoint-"));
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-checkpoint-"));
     const sessionId = "tape-checkpoint-1";
-    const config = structuredClone(DEFAULT_ROASTER_CONFIG);
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.tape.checkpointIntervalEntries = 3;
 
-    const runtime = new RoasterRuntime({ cwd: workspace, config });
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
     runtime.setTaskSpec(sessionId, {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal: "checkpoint consistency",
     });
     runtime.upsertTruthFact(sessionId, {
@@ -477,7 +477,7 @@ describe("tape checkpoint automation", () => {
         truth?: { facts?: Array<{ id?: string }> };
       };
     };
-    expect(checkpointPayload.schema).toBe("roaster.tape.checkpoint.v1");
+    expect(checkpointPayload.schema).toBe("brewva.tape.checkpoint.v1");
     expect(
       checkpointPayload.state?.task?.items?.some((item) => item.text === "item-1"),
     ).toBe(true);
@@ -493,7 +493,7 @@ describe("tape checkpoint automation", () => {
     });
     runtime.addTaskItem(sessionId, { text: "item-3", status: "todo" });
 
-    const reloaded = new RoasterRuntime({ cwd: workspace, config });
+    const reloaded = new BrewvaRuntime({ cwd: workspace, config });
     const taskState = reloaded.getTaskState(sessionId);
     const truthState = reloaded.getTruthState(sessionId);
     expect(taskState.items.map((item) => item.text)).toEqual([
@@ -508,12 +508,12 @@ describe("tape checkpoint automation", () => {
 
 describe("tape status and search", () => {
   test("recordTapeHandoff writes anchor and resets entriesSinceAnchor", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-tape-status-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-status-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tape-status-1";
 
     runtime.setTaskSpec(sessionId, {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal: "status baseline",
     });
     runtime.addTaskItem(sessionId, { text: "before anchor" });
@@ -540,8 +540,8 @@ describe("tape status and search", () => {
   });
 
   test("searchTape scopes current phase by latest anchor", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-tape-search-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-search-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tape-search-1";
 
     runtime.recordTapeHandoff(sessionId, {

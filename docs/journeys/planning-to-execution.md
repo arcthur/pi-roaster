@@ -24,6 +24,6 @@ flowchart TD
 
 ## Code Pointers
 
-- Skill activation: `packages/roaster-runtime/src/runtime.ts`
-- Load tool: `packages/roaster-tools/src/skill-load.ts`
-- Completion + verification: `packages/roaster-tools/src/skill-complete.ts`
+- Skill activation: `packages/brewva-runtime/src/runtime.ts`
+- Load tool: `packages/brewva-tools/src/skill-load.ts`
+- Completion + verification: `packages/brewva-tools/src/skill-complete.ts`

@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import { BrewvaRuntime } from "@brewva/brewva-runtime";
 import {
   createCostViewTool,
   createRollbackLastPatchTool,
@@ -10,7 +10,7 @@ import {
   createSkillCompleteTool,
   createSkillLoadTool,
   createTapeTools,
-} from "@pi-roaster/roaster-tools";
+} from "@brewva/brewva-tools";
 
 function extractTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
   const textPart = result.content.find((item) => item.type === "text" && typeof item.text === "string");
@@ -29,7 +29,7 @@ function fakeContext(sessionId: string): any {
 
 describe("S-008 patching e2e loop", () => {
   test("skill_load -> edit -> verify -> skill_complete", async () => {
-    const runtime = new RoasterRuntime({ cwd: process.cwd() });
+    const runtime = new BrewvaRuntime({ cwd: process.cwd() });
     const sessionId = "s8";
 
     const loadTool = createSkillLoadTool({ runtime });
@@ -75,7 +75,7 @@ describe("S-008 patching e2e loop", () => {
   });
 
   test("skill_complete keeps skill active when verification is blocked", async () => {
-    const runtime = new RoasterRuntime({ cwd: process.cwd() });
+    const runtime = new BrewvaRuntime({ cwd: process.cwd() });
     const sessionId = "s8-blocked";
 
     const loadTool = createSkillLoadTool({ runtime });
@@ -106,11 +106,11 @@ describe("S-008 patching e2e loop", () => {
 
 describe("S-009 rollback tool flow", () => {
   test("rollback_last_patch restores tracked edits", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-rollback-tool-"));
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-rollback-tool-"));
     mkdirSync(join(workspace, "src"), { recursive: true });
     writeFileSync(join(workspace, "src/example.ts"), "export const n = 1;\n", "utf8");
 
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "s9";
     runtime.onTurnStart(sessionId, 1);
 
@@ -139,7 +139,7 @@ describe("S-009 rollback tool flow", () => {
 
 describe("S-010 cost view tool flow", () => {
   test("cost_view returns session/skill/tool breakdown", async () => {
-    const runtime = new RoasterRuntime({ cwd: process.cwd() });
+    const runtime = new BrewvaRuntime({ cwd: process.cwd() });
     const sessionId = "s10";
     runtime.onTurnStart(sessionId, 1);
     runtime.markToolCall(sessionId, "read");
@@ -165,7 +165,7 @@ describe("S-010 cost view tool flow", () => {
 
 describe("S-011 session compact tool flow", () => {
   test("session_compact requests SDK compaction with runtime instructions", async () => {
-    const runtime = new RoasterRuntime({ cwd: process.cwd() });
+    const runtime = new BrewvaRuntime({ cwd: process.cwd() });
     const sessionId = "s11";
     let compactCalls = 0;
     let capturedInstructions: string | undefined;
@@ -195,13 +195,13 @@ describe("S-011 session compact tool flow", () => {
 
 describe("S-012 tape tools flow", () => {
   test("tape_handoff writes anchor and tape_info reports tape/context pressure", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-tools-tape-info-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-tape-info-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "s12";
     runtime.onTurnStart(sessionId, 1);
 
     runtime.setTaskSpec(sessionId, {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal: "validate tape tools",
     });
 
@@ -244,8 +244,8 @@ describe("S-012 tape tools flow", () => {
   });
 
   test("tape_search returns matching entries in current phase", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-tools-tape-search-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-tape-search-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "s12-search";
     runtime.onTurnStart(sessionId, 1);
 
@@ -258,7 +258,7 @@ describe("S-012 tape tools flow", () => {
       sessionId,
       type: "task_event",
       payload: {
-        schema: "roaster.task.ledger.v1",
+        schema: "brewva.task.ledger.v1",
         kind: "item_added",
         item: { id: "i1", text: "Fix flaky pipeline", status: "todo" },
       } as Record<string, unknown>,

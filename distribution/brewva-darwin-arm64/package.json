@@ -1,0 +1,12 @@
+{
+  "name": "@brewva/brewva-darwin-arm64",
+  "version": "0.1.0",
+  "description": "Platform binary for Brewva (darwin-arm64)",
+  "license": "MIT",
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["bin"],
+  "bin": {
+    "brewva": "./bin/brewva"
+  }
+}

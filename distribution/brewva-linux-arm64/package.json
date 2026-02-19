@@ -1,0 +1,13 @@
+{
+  "name": "@brewva/brewva-linux-arm64",
+  "version": "0.1.0",
+  "description": "Platform binary for Brewva (linux-arm64, glibc)",
+  "license": "MIT",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "libc": ["glibc"],
+  "files": ["bin"],
+  "bin": {
+    "brewva": "./bin/brewva"
+  }
+}

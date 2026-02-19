@@ -52,16 +52,16 @@ describe("e2e: tool call proof", () => {
       const lines = parseJsonLines(run.stdout, { strict: true });
       const bundle = findFinalBundle(lines);
       expect(bundle).toBeDefined();
-      expect(bundle?.schema).toBe("roaster.stream.v1");
-      expect(bundle?.type).toBe("roaster_event_bundle");
+      expect(bundle?.schema).toBe("brewva.stream.v1");
+      expect(bundle?.type).toBe("brewva_event_bundle");
       expect(bundle?.events.length ?? 0).toBeGreaterThanOrEqual(2);
       expect(run.stdout.includes("NO-EXT-OK")).toBe(true);
 
       const nonBundleLines = lines.filter((line) => {
         if (!isRecord(line)) return false;
         return !(
-          line.schema === "roaster.stream.v1" &&
-          line.type === "roaster_event_bundle"
+          line.schema === "brewva.stream.v1" &&
+          line.type === "brewva_event_bundle"
         );
       });
       expect(nonBundleLines.length).toBeGreaterThan(0);

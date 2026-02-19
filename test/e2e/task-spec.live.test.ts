@@ -16,7 +16,7 @@ import {
 type TaskSpecSetPayload = {
   kind: "spec_set";
   spec: {
-    schema: "roaster.task.v1";
+    schema: "brewva.task.v1";
     goal: string;
     [key: string]: unknown;
   };
@@ -29,7 +29,7 @@ function findTaskSpecSetPayload(events: Array<{ type?: string; payload?: unknown
     if (!isRecord(event.payload)) continue;
     if (event.payload.kind !== "spec_set") continue;
     if (!isRecord(event.payload.spec)) continue;
-    if (event.payload.spec.schema !== "roaster.task.v1") continue;
+    if (event.payload.spec.schema !== "brewva.task.v1") continue;
     if (typeof event.payload.spec.goal !== "string") continue;
 
     return event.payload as TaskSpecSetPayload;
@@ -44,7 +44,7 @@ describe("e2e: task spec plumbing", () => {
 
     const goal = "Validate task plumbing";
     const taskSpec = {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal,
       constraints: ["Keep output deterministic"],
     };
@@ -65,7 +65,7 @@ describe("e2e: task spec plumbing", () => {
       const payload = findTaskSpecSetPayload(bundle?.events ?? []);
       expect(payload).toBeDefined();
       expect(payload?.kind).toBe("spec_set");
-      expect(payload?.spec.schema).toBe("roaster.task.v1");
+      expect(payload?.spec.schema).toBe("brewva.task.v1");
       expect(payload?.spec.goal).toBe(goal);
     } finally {
       cleanupWorkspace(workspace);
@@ -78,7 +78,7 @@ describe("e2e: task spec plumbing", () => {
 
     const goal = "Validate task file plumbing";
     const taskSpec = {
-      schema: "roaster.task.v1",
+      schema: "brewva.task.v1",
       goal,
       verification: {
         level: "quick",
@@ -104,7 +104,7 @@ describe("e2e: task spec plumbing", () => {
       const payload = findTaskSpecSetPayload(bundle?.events ?? []);
       expect(payload).toBeDefined();
       expect(payload?.kind).toBe("spec_set");
-      expect(payload?.spec.schema).toBe("roaster.task.v1");
+      expect(payload?.spec.schema).toBe("brewva.task.v1");
       expect(payload?.spec.goal).toBe(goal);
     } finally {
       cleanupWorkspace(workspace);
@@ -120,7 +120,7 @@ describe("e2e: task spec plumbing", () => {
       taskFile,
       JSON.stringify(
         {
-          schema: "roaster.task.v1",
+          schema: "brewva.task.v1",
           goal: "Task file goal",
         },
         null,
@@ -135,7 +135,7 @@ describe("e2e: task spec plumbing", () => {
         "json",
         "--task",
         JSON.stringify({
-          schema: "roaster.task.v1",
+          schema: "brewva.task.v1",
           goal: "Inline goal",
         }),
         "--task-file",

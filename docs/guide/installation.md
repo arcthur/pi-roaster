@@ -26,4 +26,4 @@ bun run test:docs
 
 - Root scripts: `package.json`
 - Workspace TS project graph: `tsconfig.json`
-- Runtime defaults: `packages/roaster-runtime/src/config/defaults.ts`
+- Runtime defaults: `packages/brewva-runtime/src/config/defaults.ts`

@@ -11,8 +11,8 @@ This document captures runtime invariants that must remain true for safety, reco
 
 Relevant implementation:
 
-- `packages/roaster-runtime/src/runtime.ts`
-- `packages/roaster-runtime/src/ledger/evidence-ledger.ts`
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-runtime/src/ledger/evidence-ledger.ts`
 
 ## 2) Event Observability Invariant
 
@@ -21,9 +21,9 @@ Relevant implementation:
 
 Relevant implementation:
 
-- `packages/roaster-runtime/src/events/store.ts`
-- `packages/roaster-runtime/src/runtime.ts`
-- `packages/roaster-cli/src/index.ts`
+- `packages/brewva-runtime/src/events/store.ts`
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-cli/src/index.ts`
 
 ## 3) Recovery Consistency Invariant
 
@@ -33,8 +33,8 @@ Relevant implementation:
 
 Relevant implementation:
 
-- `packages/roaster-runtime/src/tape/replay-engine.ts`
-- `packages/roaster-runtime/src/runtime.ts`
+- `packages/brewva-runtime/src/tape/replay-engine.ts`
+- `packages/brewva-runtime/src/runtime.ts`
 
 ## 4) Contract Enforcement Invariant
 
@@ -43,9 +43,9 @@ Relevant implementation:
 
 Relevant implementation:
 
-- `packages/roaster-runtime/src/security/tool-policy.ts`
-- `packages/roaster-runtime/src/runtime.ts`
-- `packages/roaster-tools/src/skill-complete.ts`
+- `packages/brewva-runtime/src/security/tool-policy.ts`
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-tools/src/skill-complete.ts`
 
 ## 5) Rollback Safety Invariant
 
@@ -54,8 +54,8 @@ Relevant implementation:
 
 Relevant implementation:
 
-- `packages/roaster-runtime/src/state/file-change-tracker.ts`
-- `packages/roaster-runtime/src/runtime.ts`
+- `packages/brewva-runtime/src/state/file-change-tracker.ts`
+- `packages/brewva-runtime/src/runtime.ts`
 
 ## 6) Budget Boundedness Invariant
 
@@ -64,9 +64,9 @@ Relevant implementation:
 
 Relevant implementation:
 
-- `packages/roaster-runtime/src/context/budget.ts`
-- `packages/roaster-runtime/src/cost/tracker.ts`
-- `packages/roaster-runtime/src/runtime.ts`
+- `packages/brewva-runtime/src/context/budget.ts`
+- `packages/brewva-runtime/src/cost/tracker.ts`
+- `packages/brewva-runtime/src/runtime.ts`
 
 ## 7) Profile Transparency Invariant
 
@@ -78,9 +78,9 @@ Relevant implementation:
 
 Relevant implementation:
 
-- `packages/roaster-cli/src/session.ts`
-- `packages/roaster-cli/src/session-event-bridge.ts`
-- `packages/roaster-extensions/src/index.ts`
+- `packages/brewva-cli/src/session.ts`
+- `packages/brewva-cli/src/session-event-bridge.ts`
+- `packages/brewva-extensions/src/index.ts`
 
 ## Failure Modes and Containment
 

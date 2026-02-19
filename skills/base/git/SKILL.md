@@ -108,7 +108,7 @@ Minimum requirement: a valid Subject line. Add a body and footers only when they
 
 - Header format: `<type>[optional scope][!]: <description>`
 - `type`: prefer `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `revert`
-- `scope`: optional; use stable package/module/directory identifiers (e.g., `roaster-cli`, `roaster-runtime`, `distribution`)
+- `scope`: optional; use stable package/module/directory identifiers (e.g., `brewva-cli`, `brewva-runtime`, `distribution`)
 - `description`: English imperative / present tense; no trailing period; avoid low-signal wording ("update", "misc", "fix bug"); aim for <= 72 chars
 - Breaking change: use `!` and add a `BREAKING CHANGE: ...` footer with a concise migration hint
 - Issue refs: use git-trailer-style footers (e.g., `Refs: #123`, `Closes: #123`)

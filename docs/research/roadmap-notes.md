@@ -12,7 +12,7 @@ This page captures systems-level priorities to keep infrastructure capabilities 
 
 ## Source Anchors
 
-- Runtime core: `packages/roaster-runtime/src/runtime.ts`
-- Event stream hook: `packages/roaster-extensions/src/event-stream.ts`
-- Context transform hook: `packages/roaster-extensions/src/context-transform.ts`
-- Cost tracker: `packages/roaster-runtime/src/cost/tracker.ts`
+- Runtime core: `packages/brewva-runtime/src/runtime.ts`
+- Event stream hook: `packages/brewva-extensions/src/event-stream.ts`
+- Context transform hook: `packages/brewva-extensions/src/context-transform.ts`
+- Cost tracker: `packages/brewva-runtime/src/cost/tracker.ts`

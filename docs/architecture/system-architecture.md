@@ -1,16 +1,16 @@
 # System Architecture
 
-This document describes the implemented architecture of `pi-roaster` based on
+This document describes the implemented architecture of Brewva based on
 current package dependencies and runtime wiring.
 
 ## Package Dependency Graph
 
 ```mermaid
 flowchart TD
-  CLI["@pi-roaster/roaster-cli"]
-  EXT["@pi-roaster/roaster-extensions"]
-  TOOLS["@pi-roaster/roaster-tools"]
-  RT["@pi-roaster/roaster-runtime"]
+  CLI["@brewva/brewva-cli"]
+  EXT["@brewva/brewva-extensions"]
+  TOOLS["@brewva/brewva-tools"]
+  RT["@brewva/brewva-runtime"]
   DIST["distribution/*"]
   SCRIPT["script/*"]
 
@@ -26,18 +26,18 @@ flowchart TD
 
 ## Responsibility Slices
 
-- **Session entry and mode control (`@pi-roaster/roaster-cli`)**
+- **Session entry and mode control (`@brewva/brewva-cli`)**
   - CLI flags, interactive/print/json modes, replay/undo, signal handling.
   - Session bootstrap and extension-enabled/disabled selection.
-- **Lifecycle orchestration (`@pi-roaster/roaster-extensions`)**
+- **Lifecycle orchestration (`@brewva/brewva-extensions`)**
   - Event stream persistence hooks.
   - Context transform and compaction gate behavior.
   - Tool-call quality gate and input sanitization.
   - Ledger writer and completion guard hooks.
-- **Tool surface (`@pi-roaster/roaster-tools`)**
+- **Tool surface (`@brewva/brewva-tools`)**
   - Runtime-aware tool definitions (LSP/AST, tape, ledger, task, skill, rollback).
   - Tool-side scan telemetry (`tool_parallel_read`) and runtime APIs.
-- **Runtime core (`@pi-roaster/roaster-runtime`)**
+- **Runtime core (`@brewva/brewva-runtime`)**
   - Skill contracts/selection, tool policy enforcement, verification gate.
   - Evidence ledger + truth/task event-sourced state.
   - Tape replay (`checkpoint + delta`), context budget, parallel budget, cost tracking.
@@ -48,11 +48,11 @@ flowchart TD
 ## Execution Profiles
 
 - **Default profile (`extensions enabled`)**
-  - `createRoasterExtension()` registers tools and all lifecycle handlers.
+  - `createBrewvaExtension()` registers tools and all lifecycle handlers.
   - Runtime behavior is mediated through extension hooks (`before_agent_start`,
     `tool_call`, `tool_result`, `agent_end`, etc.).
 - **Direct-tool profile (`--no-extensions`)**
-  - Tools are registered directly from `buildRoasterTools()`.
+  - Tools are registered directly from `buildBrewvaTools()`.
   - CLI installs `registerRuntimeCoreEventBridge()` for minimal lifecycle and
     assistant usage telemetry.
   - Extension-layer guards/hooks (context contract injection, quality gate,

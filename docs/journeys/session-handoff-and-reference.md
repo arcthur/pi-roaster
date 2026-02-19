@@ -22,6 +22,6 @@ flowchart TD
 
 ## Code Pointers
 
-- Runtime fold + injection flow: `packages/roaster-runtime/src/runtime.ts`
-- Replay engine: `packages/roaster-runtime/src/tape/replay-engine.ts`
-- Signal handling: `packages/roaster-cli/src/index.ts`
+- Runtime fold + injection flow: `packages/brewva-runtime/src/runtime.ts`
+- Replay engine: `packages/brewva-runtime/src/tape/replay-engine.ts`
+- Signal handling: `packages/brewva-cli/src/index.ts`

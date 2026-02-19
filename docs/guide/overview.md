@@ -1,13 +1,13 @@
 # Overview
 
-`pi-roaster` is an AI-native coding agent runtime built with Bun and TypeScript, organized as a monorepo with explicit package boundaries.
+`Brewva` is an AI-native coding agent runtime built with Bun and TypeScript, organized as a monorepo with explicit package boundaries.
 
 ## Package Boundaries
 
-- Runtime core: `packages/roaster-runtime/src/runtime.ts`
-- Tool registry: `packages/roaster-tools/src/index.ts`
-- Extension wiring: `packages/roaster-extensions/src/index.ts`
-- CLI entrypoint: `packages/roaster-cli/src/index.ts`
+- Runtime core: `packages/brewva-runtime/src/runtime.ts`
+- Tool registry: `packages/brewva-tools/src/index.ts`
+- Extension wiring: `packages/brewva-extensions/src/index.ts`
+- CLI entrypoint: `packages/brewva-cli/src/index.ts`
 
 ## Runtime Responsibilities
 

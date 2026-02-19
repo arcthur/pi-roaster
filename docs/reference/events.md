@@ -2,18 +2,18 @@
 
 Event system sources:
 
-- Persistent store: `packages/roaster-runtime/src/events/store.ts`
-- Runtime conversion and queries: `packages/roaster-runtime/src/runtime.ts`
-- Extension bridge: `packages/roaster-extensions/src/event-stream.ts`
+- Persistent store: `packages/brewva-runtime/src/events/store.ts`
+- Runtime conversion and queries: `packages/brewva-runtime/src/runtime.ts`
+- Extension bridge: `packages/brewva-extensions/src/event-stream.ts`
 
 ## Event Schemas
 
-- `RoasterEventRecord`
-- `RoasterStructuredEvent`
-- `RoasterEventCategory`
-- `RoasterReplaySession`
+- `BrewvaEventRecord`
+- `BrewvaStructuredEvent`
+- `BrewvaEventCategory`
+- `BrewvaReplaySession`
 
-Defined in `packages/roaster-runtime/src/types.ts`.
+Defined in `packages/brewva-runtime/src/types.ts`.
 
 ## Common Event Types
 
@@ -72,7 +72,7 @@ Payload fields:
 - `snr`: Keyword-based SNR reported by `buildViewportContext()` (`0..1`) or `null`.
 - `effectiveSnr`: Effective SNR that treats symbol/neighborhood hits as signal.
 - `policyReason`: Policy decision reason string.
-- `injected`: Whether the viewport text was injected as a `roaster.viewport`
+- `injected`: Whether the viewport text was injected as a `brewva.viewport`
   context block.
 - `requestedFiles`: Target files requested by the runtime (relative paths).
 - `includedFiles`: Files that were successfully loaded and included.
@@ -92,7 +92,7 @@ Variants:
 - `no_neighborhood`: Omits the neighborhood expansion to reduce noise.
 - `minimal`: Omits both imports/exports and neighborhood to keep only the most
   directly relevant lines.
-- `skipped`: Does not inject the viewport text; a `roaster.viewport-policy` guard
+- `skipped`: Does not inject the viewport text; a `brewva.viewport-policy` guard
   block may be injected to force a verification-first posture.
 
 ### `viewport_policy_evaluated`
@@ -120,7 +120,7 @@ Semantic boundary marker written by tape handoff flows.
 
 Payload fields:
 
-- `schema`: `roaster.tape.anchor.v1`
+- `schema`: `brewva.tape.anchor.v1`
 - `name`: phase/boundary name
 - `summary`: optional structured phase summary
 - `nextSteps`: optional next-step hint
@@ -132,7 +132,7 @@ Machine recovery baseline written by runtime checkpoint policy.
 
 Payload fields:
 
-- `schema`: `roaster.tape.checkpoint.v1`
+- `schema`: `brewva.tape.checkpoint.v1`
 - `state.task`: checkpointed task state
 - `state.truth`: checkpointed truth state
 - `basedOnEventId`: event id the checkpoint was derived from
@@ -144,7 +144,7 @@ Payload fields:
 
 ### `task_event`
 
-Event-sourced task ledger updates (`roaster.task.ledger.v1`) used to rebuild task state.
+Event-sourced task ledger updates (`brewva.task.ledger.v1`) used to rebuild task state.
 Payload `kind` includes:
 
 - `spec_set`
@@ -157,7 +157,7 @@ Payload `kind` includes:
 
 ### `truth_event`
 
-Event-sourced truth ledger updates (`roaster.truth.ledger.v1`) used to rebuild truth state.
+Event-sourced truth ledger updates (`brewva.truth.ledger.v1`) used to rebuild truth state.
 Payload `kind` includes:
 
 - `fact_upserted`

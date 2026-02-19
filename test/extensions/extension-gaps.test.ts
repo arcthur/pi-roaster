@@ -16,8 +16,8 @@ import {
   registerEventStream,
   registerLedgerWriter,
   registerQualityGate,
-} from "@pi-roaster/roaster-extensions";
-import { DEFAULT_ROASTER_CONFIG, RoasterRuntime, type RoasterConfig } from "@pi-roaster/roaster-runtime";
+} from "@brewva/brewva-extensions";
+import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime, type BrewvaConfig } from "@brewva/brewva-runtime";
 
 type Handler = (event: any, ctx: any) => unknown;
 type DeepPartial<T> = T extends (...args: any[]) => unknown
@@ -125,15 +125,15 @@ function deepMerge<T>(base: T, patch: DeepPartial<T> | undefined): T {
   return output as T;
 }
 
-function buildRuntimeConfig(patch?: DeepPartial<RoasterConfig>): RoasterConfig {
-  return deepMerge<RoasterConfig>(DEFAULT_ROASTER_CONFIG, patch);
+function buildRuntimeConfig(patch?: DeepPartial<BrewvaConfig>): BrewvaConfig {
+  return deepMerge<BrewvaConfig>(DEFAULT_BREWVA_CONFIG, patch);
 }
 
 function withRuntimeConfig<T extends Record<string, unknown>>(
   runtime: T,
-  patch?: DeepPartial<RoasterConfig>,
-): T & { config: RoasterConfig } {
-  const runtimePatch = (runtime as { config?: DeepPartial<RoasterConfig> }).config;
+  patch?: DeepPartial<BrewvaConfig>,
+): T & { config: BrewvaConfig } {
+  const runtimePatch = (runtime as { config?: DeepPartial<BrewvaConfig> }).config;
   const config = buildRuntimeConfig(patch ?? runtimePatch);
   const normalizeRatio = (value: number | null | undefined): number | null => {
     if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -253,7 +253,7 @@ describe("Extension gaps: context transform", () => {
       shouldRequestCompaction: () => false,
       markContextCompacted: () => undefined,
       buildContextInjection: () => ({
-        text: "[Roaster Context]\nTop-K Skill Candidates:\n- debugging",
+        text: "[Brewva Context]\nTop-K Skill Candidates:\n- debugging",
         accepted: true,
         originalTokens: 42,
         finalTokens: 42,
@@ -294,11 +294,11 @@ describe("Extension gaps: context transform", () => {
       },
     );
 
-    expect(result.message.customType).toBe("roaster-context-injection");
+    expect(result.message.customType).toBe("brewva-context-injection");
     expect(result.message.display).toBe(false);
-    expect(result.message.content.includes("[Roaster Context]")).toBe(true);
+    expect(result.message.content.includes("[Brewva Context]")).toBe(true);
     expect(result.message.content.includes("debugging")).toBe(true);
-    expect(result.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(result.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
   });
 
   test("does not inject context message when budget drops injection", () => {
@@ -335,9 +335,9 @@ describe("Extension gaps: context transform", () => {
       },
     );
 
-    expect(result.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(result.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
     expect(result.message?.content?.includes("[TapeStatus]")).toBe(true);
-    expect(result.message?.content?.includes("[Roaster Context]")).toBe(false);
+    expect(result.message?.content?.includes("[Brewva Context]")).toBe(false);
   });
 
   test("passes leaf id into runtime injection scope", () => {
@@ -644,7 +644,7 @@ describe("Extension gaps: context transform", () => {
       },
     );
 
-    expect(before.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(before.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
     expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
     expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
@@ -733,7 +733,7 @@ describe("Extension gaps: context transform", () => {
         getContextUsage: () => ({ tokens: 970, contextWindow: 1000, percent: 0.97 }),
       },
     );
-    expect(withinWindow.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(withinWindow.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
     expect(withinWindow.message?.content?.includes("[TapeStatus]")).toBe(true);
     expect(withinWindow.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
@@ -818,7 +818,7 @@ describe("Extension gaps: context transform", () => {
       },
     );
 
-    expect(before.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(before.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
     expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
     expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
@@ -939,7 +939,7 @@ describe("Extension gaps: ledger writer", () => {
 
 describe("Extension integration: observability", () => {
   test("emits context injection on before_agent_start via SDK runner contract", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-dual-injection-"));
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-dual-injection-"));
     mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
 
     const agentDir = join(workspace, ".pi-agent-test-dual-injection");
@@ -947,13 +947,13 @@ describe("Extension integration: observability", () => {
     process.env.PI_CODING_AGENT_DIR = agentDir;
 
     try {
-      const extensionPath = join(workspace, "roaster-inline-extension.ts");
-      const roasterExtensionEntry = join(process.cwd(), "packages/roaster-extensions/src/index.ts").replaceAll("\\", "/");
+      const extensionPath = join(workspace, "brewva-inline-extension.ts");
+      const brewvaExtensionEntry = join(process.cwd(), "packages/brewva-extensions/src/index.ts").replaceAll("\\", "/");
       writeFileSync(
         extensionPath,
         [
-          `import { createRoasterExtension } from '${roasterExtensionEntry}';`,
-          "export default createRoasterExtension({ registerTools: false });",
+          `import { createBrewvaExtension } from '${brewvaExtensionEntry}';`,
+          "export default createBrewvaExtension({ registerTools: false });",
         ].join("\n"),
         "utf8",
       );
@@ -1001,10 +1001,10 @@ describe("Extension integration: observability", () => {
       const result = await runner.emitBeforeAgentStart("continue fixing flaky tests", undefined, "base");
       const messageTypes = (result?.messages ?? []).map((message) => message.customType);
 
-      expect(result?.systemPrompt?.includes("[Roaster Context Contract]")).toBe(
+      expect(result?.systemPrompt?.includes("[Brewva Context Contract]")).toBe(
         true,
       );
-      expect(messageTypes).toEqual(["roaster-context-injection"]);
+      expect(messageTypes).toEqual(["brewva-context-injection"]);
     } finally {
       if (oldAgentDir === undefined) {
         delete process.env.PI_CODING_AGENT_DIR;
@@ -1015,11 +1015,11 @@ describe("Extension integration: observability", () => {
   });
 
   test("tool call + tool result produces correlated events, ledger row, and patch record", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-obs-"));
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-obs-"));
     mkdirSync(join(workspace, "src"), { recursive: true });
     writeFileSync(join(workspace, "src/a.ts"), "export const value = 1;\n", "utf8");
 
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "ext-obs-1";
 
     const { api, handlers } = createMockExtensionAPI();
@@ -1090,14 +1090,14 @@ describe("Extension integration: observability", () => {
     const patchPayload = patchRecorded?.payload as { changes?: Array<{ path: string; action: string }> } | undefined;
     expect(patchPayload?.changes).toEqual([{ path: "src/a.ts", action: "modify" }]);
 
-    const reloaded = new RoasterRuntime({ cwd: workspace });
+    const reloaded = new BrewvaRuntime({ cwd: workspace });
     expect(reloaded.queryEvents(sessionId).length).toBeGreaterThan(0);
     expect(reloaded.ledger.list(sessionId)).toHaveLength(1);
   });
 
   test("session_shutdown clears runtime in-memory session state", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-shutdown-clean-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-shutdown-clean-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "ext-shutdown-clean-1";
 
     runtime.onTurnStart(sessionId, 1);
@@ -1137,7 +1137,7 @@ describe("Extension integration: observability", () => {
   });
 
   test("blocked tool call is still observable as tool_call but not tool_call_marked", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-blocked-"));
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-blocked-"));
     mkdirSync(join(workspace, "skills/base/patching"), { recursive: true });
     writeFileSync(
       join(workspace, "skills/base/patching/SKILL.md"),
@@ -1158,7 +1158,7 @@ patching`,
       "utf8",
     );
 
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "ext-blocked-1";
     expect(runtime.activateSkill(sessionId, "patching").ok).toBe(true);
 
@@ -1193,8 +1193,8 @@ patching`,
   });
 
   test("persists throttled message_update events", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-throttle-"));
-    const runtime = new RoasterRuntime({ cwd: workspace });
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-throttle-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "ext-throttle-1";
 
     const { api, handlers } = createMockExtensionAPI();
