@@ -1,5 +1,7 @@
 import { relative, resolve } from "node:path";
 import type {
+  ContextPressureLevel,
+  ContextPressureStatus,
   ContextBudgetUsage,
   EvidenceQuery,
   ParallelAcquireResult,
@@ -10,12 +12,15 @@ import type {
   RoasterReplaySession,
   RoasterConfig,
   RoasterStructuredEvent,
-  RuntimeSessionRestoreResult,
-  RuntimeSessionSnapshot,
   SkillDocument,
   SkillOutputRecord,
   SkillSelection,
   SessionCostSummary,
+  TapePressureLevel,
+  TapeSearchMatch,
+  TapeSearchResult,
+  TapeSearchScope,
+  TapeStatusState,
   TaskSpec,
   TaskState,
   VerificationLevel,
@@ -71,12 +76,7 @@ import {
   type ViewportQuality,
 } from "./policy/viewport-policy.js";
 import { RoasterEventStore } from "./events/store.js";
-import { SessionSnapshotStore } from "./state/snapshot-store.js";
 import { FileChangeTracker } from "./state/file-change-tracker.js";
-import {
-  createTaskLedgerSnapshotStore,
-  type TaskLedgerSnapshotStore,
-} from "./state/task-ledger-snapshot-store.js";
 import { SessionCostTracker } from "./cost/tracker.js";
 import { sha256 } from "./utils/hash.js";
 import { normalizeJsonRecord } from "./utils/json.js";
@@ -91,28 +91,32 @@ import {
   buildStatusSetEvent,
   buildItemAddedEvent,
   buildItemUpdatedEvent,
-  coerceTaskLedgerPayload,
-  createEmptyTaskState,
-  foldTaskLedgerEvents,
   formatTaskStateBlock,
-  reduceTaskState,
 } from "./task/ledger.js";
 import {
   TRUTH_EVENT_TYPE,
   buildTruthFactResolvedEvent,
   buildTruthFactUpsertedEvent,
-  coerceTruthLedgerPayload,
-  createEmptyTruthState,
-  foldTruthLedgerEvents,
-  reduceTruthState,
 } from "./truth/ledger.js";
 import { normalizeTaskSpec } from "./task/spec.js";
+import { TurnReplayEngine } from "./tape/replay-engine.js";
+import {
+  TAPE_ANCHOR_EVENT_TYPE,
+  TAPE_CHECKPOINT_EVENT_TYPE,
+  buildTapeAnchorPayload,
+  buildTapeCheckpointPayload,
+  coerceTapeAnchorPayload,
+} from "./tape/events.js";
 
 const ALWAYS_ALLOWED_TOOLS = [
   "skill_complete",
   "skill_load",
   "ledger_query",
   "cost_view",
+  "tape_handoff",
+  "tape_info",
+  "tape_search",
+  "session_compact",
   "rollback_last_patch",
 ];
 const ALWAYS_ALLOWED_TOOL_SET = new Set(ALWAYS_ALLOWED_TOOLS);
@@ -165,6 +169,9 @@ export interface VerifyCompletionOptions {
 }
 
 function inferEventCategory(type: string): RoasterEventCategory {
+  if (type === TAPE_ANCHOR_EVENT_TYPE || type === TAPE_CHECKPOINT_EVENT_TYPE) {
+    return "state";
+  }
   if (
     type.startsWith("session_") ||
     type === "session_start" ||
@@ -223,7 +230,6 @@ function buildContextSourceTokenLimits(
     "roaster.task-state": fromRatio(0.15, 96, 360),
     "roaster.viewport": fromRatio(0.7, 240, budget),
     "roaster.skill-candidates": fromRatio(0.28, 64, 320),
-    "roaster.resume-hint": fromRatio(0.4, 96, 480),
     "roaster.compaction-summary": fromRatio(0.45, 120, 600),
     "roaster.ledger-digest": fromRatio(0.2, 96, 360),
   };
@@ -240,15 +246,12 @@ export class RoasterRuntime {
   readonly events: RoasterEventStore;
   readonly contextBudget: ContextBudgetManager;
   readonly contextInjection: ContextInjectionCollector;
-  readonly snapshots: SessionSnapshotStore;
-  readonly taskLedgerSnapshots: TaskLedgerSnapshotStore;
   readonly fileChanges: FileChangeTracker;
   readonly costTracker: SessionCostTracker;
 
   private activeSkillsBySession = new Map<string, string>();
   private turnsBySession = new Map<string, number>();
   private toolCallsBySession = new Map<string, number>();
-  private resumeHintsBySession = new Map<string, string>();
   private latestCompactionSummaryBySession = new Map<
     string,
     { entryId?: string; summary: string }
@@ -263,8 +266,7 @@ export class RoasterRuntime {
     string,
     Map<string, SkillOutputRecord>
   >();
-  private taskStateBySession = new Map<string, TaskState>();
-  private truthStateBySession = new Map<string, TruthState>();
+  private turnReplay: TurnReplayEngine;
   private viewportPolicyBySession = new Map<
     string,
     {
@@ -274,7 +276,7 @@ export class RoasterRuntime {
       updatedAt: number;
     }
   >();
-  private pendingTaskSnapshotSessions = new Set<string>();
+  private tapeCheckpointWriteInProgressBySession = new Set<string>();
   private eventListeners = new Set<(event: RoasterStructuredEvent) => void>();
 
   constructor(options: RoasterRuntimeOptions = {}) {
@@ -311,14 +313,10 @@ export class RoasterRuntime {
       truncationStrategy:
         this.config.infrastructure.contextBudget.truncationStrategy,
     });
-    this.snapshots = new SessionSnapshotStore(
-      this.config.infrastructure.interruptRecovery,
-      this.cwd,
-    );
-    this.taskLedgerSnapshots = createTaskLedgerSnapshotStore(
-      this.config,
-      this.cwd,
-    );
+    this.turnReplay = new TurnReplayEngine({
+      listEvents: (sessionId) => this.queryEvents(sessionId),
+      getTurn: (sessionId) => this.getCurrentTurn(sessionId),
+    });
     this.fileChanges = new FileChangeTracker(this.cwd);
     this.costTracker = new SessionCostTracker(
       this.config.infrastructure.costTracking,
@@ -350,7 +348,6 @@ export class RoasterRuntime {
   }
 
   onTurnStart(sessionId: string, turnIndex: number): void {
-    this.flushPendingTaskSnapshots();
     const current = this.turnsBySession.get(sessionId) ?? 0;
     const effectiveTurn = Math.max(current, turnIndex);
     this.turnsBySession.set(sessionId, effectiveTurn);
@@ -374,6 +371,102 @@ export class RoasterRuntime {
         percent: usage.percent,
       },
     });
+  }
+
+  getContextUsage(sessionId: string): ContextBudgetUsage | undefined {
+    const snapshot = this.contextBudget.snapshotSession(sessionId);
+    const usage = snapshot?.lastContextUsage;
+    if (!usage) return undefined;
+    return {
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
+    };
+  }
+
+  private normalizeRatio(value: number | null | undefined): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    if (value >= 0 && value <= 1) return value;
+    if (value > 1 && value <= 100) return value / 100;
+    if (value < 0) return 0;
+    return 1;
+  }
+
+  getContextUsageRatio(usage: ContextBudgetUsage | undefined): number | null {
+    if (!usage) return null;
+    const normalizedPercent = this.normalizeRatio(usage.percent);
+    if (normalizedPercent !== null) return normalizedPercent;
+    if (typeof usage.tokens !== "number") return null;
+    if (!Number.isFinite(usage.tokens) || usage.tokens < 0) return null;
+    if (!Number.isFinite(usage.contextWindow) || usage.contextWindow <= 0) {
+      return null;
+    }
+    return Math.max(0, Math.min(1, usage.tokens / usage.contextWindow));
+  }
+
+  getContextHardLimitRatio(): number {
+    const ratio = this.normalizeRatio(
+      this.config.infrastructure.contextBudget.hardLimitPercent,
+    );
+    if (ratio === null) return 1;
+    return Math.max(0, Math.min(1, ratio));
+  }
+
+  getContextCompactionThresholdRatio(): number {
+    const thresholdRatio = this.normalizeRatio(
+      this.config.infrastructure.contextBudget.compactionThresholdPercent,
+    );
+    return thresholdRatio ?? this.getContextHardLimitRatio();
+  }
+
+  getContextPressureStatus(
+    sessionId: string,
+    usage?: ContextBudgetUsage,
+  ): ContextPressureStatus {
+    const effectiveUsage = usage ?? this.getContextUsage(sessionId);
+    const usageRatio = this.getContextUsageRatio(effectiveUsage);
+    if (usageRatio === null) {
+      return {
+        level: "unknown",
+        usageRatio: null,
+        hardLimitRatio: this.getContextHardLimitRatio(),
+        compactionThresholdRatio: this.getContextCompactionThresholdRatio(),
+      };
+    }
+
+    const hardLimitRatio = this.getContextHardLimitRatio();
+    const compactionThresholdRatio = this.getContextCompactionThresholdRatio();
+
+    let level: ContextPressureLevel = "none";
+    if (usageRatio >= hardLimitRatio) {
+      level = "critical";
+    } else if (usageRatio >= compactionThresholdRatio) {
+      level = "high";
+    } else {
+      const mediumThreshold = Math.max(0.5, compactionThresholdRatio * 0.75);
+      if (usageRatio >= mediumThreshold) {
+        level = "medium";
+      } else {
+        const lowThreshold = Math.max(0.25, compactionThresholdRatio * 0.5);
+        if (usageRatio >= lowThreshold) {
+          level = "low";
+        }
+      }
+    }
+
+    return {
+      level,
+      usageRatio,
+      hardLimitRatio,
+      compactionThresholdRatio,
+    };
+  }
+
+  getContextPressureLevel(
+    sessionId: string,
+    usage?: ContextBudgetUsage,
+  ): ContextPressureLevel {
+    return this.getContextPressureStatus(sessionId, usage).level;
   }
 
   private isSameTaskStatus(
@@ -868,7 +961,6 @@ export class RoasterRuntime {
 
     const selected = this.selectSkills(promptText);
     const digest = this.getLedgerDigest(sessionId);
-    const resumeHint = this.getResumeHint(sessionId);
     this.registerContextInjection(sessionId, {
       source: "roaster.skill-candidates",
       id: "top-k-skills",
@@ -881,15 +973,6 @@ export class RoasterRuntime {
       priority: "normal",
       content: digest,
     });
-
-    if (resumeHint) {
-      this.registerContextInjection(sessionId, {
-        source: "roaster.resume-hint",
-        id: "resume-hint",
-        priority: "critical",
-        content: `[ResumeHint]\n${resumeHint}`,
-      });
-    }
 
     const latestCompaction =
       this.latestCompactionSummaryBySession.get(sessionId);
@@ -1045,9 +1128,6 @@ export class RoasterRuntime {
       if (previous === fingerprint) {
         this.reservedContextInjectionTokensByScope.set(scopeKey, 0);
         this.contextInjection.commit(sessionId, merged.consumedKeys);
-        if (resumeHint) {
-          this.clearResumeHint(sessionId);
-        }
         this.recordEvent({
           sessionId,
           type: "context_injection_dropped",
@@ -1066,9 +1146,6 @@ export class RoasterRuntime {
       }
 
       this.contextInjection.commit(sessionId, merged.consumedKeys);
-      if (resumeHint) {
-        this.clearResumeHint(sessionId);
-      }
       this.reservedContextInjectionTokensByScope.set(
         scopeKey,
         this.isContextBudgetEnabled() ? decision.finalTokens : 0,
@@ -1248,6 +1325,10 @@ export class RoasterRuntime {
       },
     });
     return true;
+  }
+
+  getCompactionInstructions(): string {
+    return this.contextBudget.getCompactionInstructions();
   }
 
   markContextCompacted(
@@ -2441,98 +2522,219 @@ export class RoasterRuntime {
     return { ok: true };
   }
 
-  getTaskState(sessionId: string): TaskState {
-    const cached = this.taskStateBySession.get(sessionId);
-    if (cached) {
-      return {
-        spec: cached.spec,
-        status: cached.status
-          ? {
-              ...cached.status,
-              truthFactIds: cached.status.truthFactIds
-                ? [...cached.status.truthFactIds]
-                : undefined,
-            }
-          : undefined,
-        items: [...cached.items],
-        blockers: [...cached.blockers],
-        updatedAt: cached.updatedAt,
-      };
+  private resolveTapePressureLevel(entriesSinceAnchor: number): TapePressureLevel {
+    const thresholds = this.config.tape.tapePressureThresholds;
+    if (entriesSinceAnchor >= thresholds.high) return "high";
+    if (entriesSinceAnchor >= thresholds.medium) return "medium";
+    if (entriesSinceAnchor >= thresholds.low) return "low";
+    return "none";
+  }
+
+  getTapeStatus(sessionId: string): TapeStatusState {
+    const events = this.queryEvents(sessionId);
+    const totalEntries = events.length;
+
+    let lastAnchorIndex = -1;
+    let lastCheckpointIndex = -1;
+    let lastAnchorEvent: RoasterEventRecord | undefined;
+    let lastCheckpointId: string | undefined;
+
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (!event) continue;
+
+      if (lastCheckpointIndex < 0 && event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
+        lastCheckpointIndex = index;
+        lastCheckpointId = event.id;
+      }
+
+      if (lastAnchorIndex < 0 && event.type === TAPE_ANCHOR_EVENT_TYPE) {
+        lastAnchorIndex = index;
+        lastAnchorEvent = event;
+      }
+
+      if (lastAnchorIndex >= 0 && lastCheckpointIndex >= 0) {
+        break;
+      }
     }
 
-    const hydrated = this.taskLedgerSnapshots.hydrate(sessionId);
-    if (hydrated) {
-      this.taskStateBySession.set(sessionId, hydrated);
-      return {
-        spec: hydrated.spec,
-        status: hydrated.status
-          ? {
-              ...hydrated.status,
-              truthFactIds: hydrated.status.truthFactIds
-                ? [...hydrated.status.truthFactIds]
-                : undefined,
-            }
-          : undefined,
-        items: [...hydrated.items],
-        blockers: [...hydrated.blockers],
-        updatedAt: hydrated.updatedAt,
-      };
-    }
+    const entriesSinceAnchor =
+      lastAnchorIndex >= 0 ? Math.max(0, totalEntries - lastAnchorIndex - 1) : totalEntries;
+    const entriesSinceCheckpoint =
+      lastCheckpointIndex >= 0
+        ? Math.max(0, totalEntries - lastCheckpointIndex - 1)
+        : totalEntries;
 
-    const events = this.queryEvents(sessionId, { type: TASK_EVENT_TYPE });
-    const state = foldTaskLedgerEvents(events);
-    this.taskStateBySession.set(sessionId, state);
-    try {
-      this.taskLedgerSnapshots.save(sessionId, state);
-    } catch (error) {
-      this.recordEvent({
-        sessionId,
-        type: "task_ledger_snapshot_failed",
-        payload: {
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-    }
+    const thresholds = this.config.tape.tapePressureThresholds;
+    const anchorPayload = coerceTapeAnchorPayload(lastAnchorEvent?.payload);
+
     return {
-      spec: state.spec,
-      status: state.status
+      totalEntries,
+      entriesSinceAnchor,
+      entriesSinceCheckpoint,
+      tapePressure: this.resolveTapePressureLevel(entriesSinceAnchor),
+      thresholds: {
+        low: thresholds.low,
+        medium: thresholds.medium,
+        high: thresholds.high,
+      },
+      lastAnchor: lastAnchorEvent
         ? {
-            ...state.status,
-            truthFactIds: state.status.truthFactIds
-              ? [...state.status.truthFactIds]
-              : undefined,
+            id: lastAnchorEvent.id,
+            name: anchorPayload?.name,
+            summary: anchorPayload?.summary,
+            nextSteps: anchorPayload?.nextSteps,
+            turn: lastAnchorEvent.turn,
+            timestamp: lastAnchorEvent.timestamp,
           }
         : undefined,
-      items: [...state.items],
-      blockers: [...state.blockers],
-      updatedAt: state.updatedAt,
+      lastCheckpointId,
     };
   }
 
-  getTruthState(sessionId: string): TruthState {
-    const cached = this.truthStateBySession.get(sessionId);
-    if (cached) {
+  recordTapeHandoff(
+    sessionId: string,
+    input: { name: string; summary?: string; nextSteps?: string },
+  ): {
+    ok: boolean;
+    eventId?: string;
+    createdAt?: number;
+    error?: string;
+    tapeStatus?: TapeStatusState;
+  } {
+    const name = input.name?.trim();
+    if (!name) {
+      return { ok: false, error: "missing_name" };
+    }
+
+    const summary = input.summary?.trim() || undefined;
+    const nextSteps = input.nextSteps?.trim() || undefined;
+    const payload = buildTapeAnchorPayload({
+      name,
+      summary,
+      nextSteps,
+    });
+
+    const row = this.recordEvent({
+      sessionId,
+      type: TAPE_ANCHOR_EVENT_TYPE,
+      turn: this.getCurrentTurn(sessionId),
+      payload: payload as unknown as Record<string, unknown>,
+    });
+    if (!row) {
+      return { ok: false, error: "event_store_disabled" };
+    }
+
+    return {
+      ok: true,
+      eventId: row.id,
+      createdAt: payload.createdAt,
+      tapeStatus: this.getTapeStatus(sessionId),
+    };
+  }
+
+  private buildTapeSearchText(event: RoasterEventRecord): string {
+    if (event.type === TAPE_ANCHOR_EVENT_TYPE) {
+      const payload = coerceTapeAnchorPayload(event.payload);
+      if (!payload) return `anchor ${event.id}`;
+      return [
+        "anchor",
+        payload.name,
+        payload.summary ?? "",
+        payload.nextSteps ?? "",
+      ]
+        .join(" ")
+        .trim();
+    }
+    const payloadText =
+      event.payload && Object.keys(event.payload).length > 0
+        ? JSON.stringify(event.payload)
+        : "";
+    return `${event.type} ${payloadText}`.trim();
+  }
+
+  private trimSearchExcerpt(text: string, maxChars = 220): string {
+    const compact = text.replaceAll(/\s+/g, " ").trim();
+    if (compact.length <= maxChars) return compact;
+    return `${compact.slice(0, Math.max(1, maxChars - 3))}...`;
+  }
+
+  private scopeTapeEvents(
+    events: RoasterEventRecord[],
+    scope: TapeSearchScope,
+  ): RoasterEventRecord[] {
+    if (scope === "anchors_only") {
+      return events.filter((event) => event.type === TAPE_ANCHOR_EVENT_TYPE);
+    }
+    if (scope === "all_phases") {
+      return events;
+    }
+
+    let lastAnchorIndex = -1;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      if (events[index]?.type !== TAPE_ANCHOR_EVENT_TYPE) continue;
+      lastAnchorIndex = index;
+      break;
+    }
+    if (lastAnchorIndex < 0) return events;
+    return events.slice(lastAnchorIndex);
+  }
+
+  searchTape(
+    sessionId: string,
+    input: { query: string; scope?: TapeSearchScope; limit?: number },
+  ): TapeSearchResult {
+    const query = input.query.trim();
+    const scope: TapeSearchScope = input.scope ?? "current_phase";
+    const limit = Math.max(1, Math.min(50, Math.floor(input.limit ?? 12)));
+    const events = this.queryEvents(sessionId);
+    const scopedEvents = this.scopeTapeEvents(events, scope);
+
+    if (!query) {
       return {
-        facts: cached.facts.map((fact) => ({
-          ...fact,
-          evidenceIds: [...fact.evidenceIds],
-          details: fact.details ? { ...fact.details } : undefined,
-        })),
-        updatedAt: cached.updatedAt,
+        query,
+        scope,
+        scannedEvents: scopedEvents.length,
+        totalEvents: events.length,
+        matches: [],
       };
     }
 
-    const events = this.queryEvents(sessionId, { type: TRUTH_EVENT_TYPE });
-    const state = foldTruthLedgerEvents(events);
-    this.truthStateBySession.set(sessionId, state);
+    const needle = query.toLowerCase();
+    const matches: TapeSearchMatch[] = [];
+
+    for (let index = scopedEvents.length - 1; index >= 0; index -= 1) {
+      if (matches.length >= limit) break;
+      const event = scopedEvents[index];
+      if (!event) continue;
+
+      const haystack = this.buildTapeSearchText(event);
+      if (!haystack.toLowerCase().includes(needle)) continue;
+
+      matches.push({
+        eventId: event.id,
+        type: event.type,
+        turn: event.turn,
+        timestamp: event.timestamp,
+        excerpt: this.trimSearchExcerpt(haystack),
+      });
+    }
+
     return {
-      facts: state.facts.map((fact) => ({
-        ...fact,
-        evidenceIds: [...fact.evidenceIds],
-        details: fact.details ? { ...fact.details } : undefined,
-      })),
-      updatedAt: state.updatedAt,
+      query,
+      scope,
+      scannedEvents: scopedEvents.length,
+      totalEvents: events.length,
+      matches,
     };
+  }
+
+  getTaskState(sessionId: string): TaskState {
+    return this.turnReplay.getTaskState(sessionId);
+  }
+
+  getTruthState(sessionId: string): TruthState {
+    return this.turnReplay.getTruthState(sessionId);
   }
 
   upsertTruthFact(
@@ -2616,6 +2818,7 @@ export class RoasterRuntime {
     turn?: number;
     payload?: Record<string, unknown>;
     timestamp?: number;
+    skipTapeCheckpoint?: boolean;
   }): RoasterEventRecord | undefined {
     const row = this.events.append({
       sessionId: input.sessionId,
@@ -2625,13 +2828,14 @@ export class RoasterRuntime {
       timestamp: input.timestamp,
     });
     if (!row) return undefined;
-
-    this.tryApplyTaskEvent(row);
-    this.tryApplyTruthEvent(row);
+    this.turnReplay.invalidate(row.sessionId);
 
     const structured = this.toStructuredEvent(row);
     for (const listener of this.eventListeners.values()) {
       listener(structured);
+    }
+    if (!input.skipTapeCheckpoint) {
+      this.maybeRecordTapeCheckpoint(row);
     }
     return row;
   }
@@ -2832,223 +3036,11 @@ export class RoasterRuntime {
     this.parallelResults.clear(sessionId);
   }
 
-  restoreSessionSnapshot(sessionId: string): RuntimeSessionRestoreResult {
-    const snapshot = this.snapshots.load(sessionId);
-    if (!snapshot) {
-      return { restored: false };
-    }
-    return this.applySnapshotToSession({
-      targetSessionId: sessionId,
-      snapshot,
-      sourceSessionId: sessionId,
-    });
-  }
-
-  restoreStartupSession(sessionId: string): RuntimeSessionRestoreResult {
-    const direct = this.snapshots.load(sessionId);
-    if (direct) {
-      return this.applySnapshotToSession({
-        targetSessionId: sessionId,
-        snapshot: direct,
-        sourceSessionId: sessionId,
-      });
-    }
-
-    const latestInterrupted = this.snapshots.latestInterrupted();
-    if (!latestInterrupted) {
-      return { restored: false };
-    }
-
-    const restored = this.applySnapshotToSession({
-      targetSessionId: sessionId,
-      snapshot: latestInterrupted,
-      sourceSessionId: latestInterrupted.sessionId,
-      imported: latestInterrupted.sessionId !== sessionId,
-    });
-    if (restored.restored && latestInterrupted.sessionId !== sessionId) {
-      this.persistSessionSnapshot(sessionId, {
-        reason: "manual",
-        interrupted: false,
-      });
-      this.snapshots.remove(latestInterrupted.sessionId);
-    }
-    return restored;
-  }
-
-  private applySnapshotToSession(input: {
-    targetSessionId: string;
-    snapshot: RuntimeSessionSnapshot;
-    sourceSessionId: string;
-    imported?: boolean;
-  }): RuntimeSessionRestoreResult {
-    const { targetSessionId, snapshot } = input;
-    if (snapshot.activeSkill) {
-      this.activeSkillsBySession.set(targetSessionId, snapshot.activeSkill);
-    } else {
-      this.activeSkillsBySession.delete(targetSessionId);
-    }
-    this.turnsBySession.set(targetSessionId, snapshot.turnCounter);
-    this.toolCallsBySession.set(targetSessionId, snapshot.toolCalls);
-    this.verification.stateStore.restore(
-      targetSessionId,
-      snapshot.verification,
-    );
-    const droppedActiveRuns = this.parallel.restoreSession(
-      targetSessionId,
-      snapshot.parallel,
-    );
-    this.contextBudget.restoreSession(targetSessionId, snapshot.contextBudget);
-    this.costTracker.restore(targetSessionId, snapshot.cost);
-    if (snapshot.task?.state) {
-      this.taskStateBySession.set(targetSessionId, snapshot.task.state);
-      try {
-        this.taskLedgerSnapshots.save(targetSessionId, snapshot.task.state);
-      } catch (error) {
-        this.recordEvent({
-          sessionId: targetSessionId,
-          type: "task_ledger_snapshot_failed",
-          payload: {
-            error: error instanceof Error ? error.message : String(error),
-          },
-        });
-      }
-    } else {
-      this.taskStateBySession.delete(targetSessionId);
-    }
-    const importedPatchSets = input.imported
-      ? this.fileChanges.importSessionHistory(
-          input.sourceSessionId,
-          targetSessionId,
-        ).importedPatchSets
-      : 0;
-
-    if (snapshot.interrupted && this.shouldInjectResumeHint()) {
-      const hint = [
-        `Session recovered from interruption at ${new Date(snapshot.createdAt).toISOString()}.`,
-        `Last active skill: ${snapshot.activeSkill ?? "(none)"}.`,
-        `Tool calls used: ${snapshot.toolCalls}.`,
-        `Turn counter: ${snapshot.turnCounter}.`,
-        input.imported
-          ? `Recovered from previous session ${input.sourceSessionId}.`
-          : "",
-      ].join(" ");
-      this.resumeHintsBySession.set(targetSessionId, hint);
-    }
-
-    this.recordEvent({
-      sessionId: targetSessionId,
-      type: "session_resumed",
-      payload: {
-        snapshotAt: snapshot.createdAt,
-        reason: snapshot.reason,
-        interrupted: snapshot.interrupted,
-        activeSkill: snapshot.activeSkill ?? null,
-        droppedActiveRuns,
-        snapshotSessionId: input.sourceSessionId,
-        imported: input.imported ?? false,
-        importedPatchSets,
-      },
-    });
-
-    return { restored: true, snapshot };
-  }
-
-  persistSessionSnapshot(
-    sessionId: string,
-    options: {
-      reason: "signal" | "shutdown" | "manual";
-      interrupted?: boolean;
-    } = { reason: "manual" },
-  ): void {
-    this.flushPendingTaskSnapshots();
-    const lastEvent = this.events.latest(sessionId);
-    const taskState = this.taskStateBySession.get(sessionId);
-    const taskSnapshot =
-      taskState &&
-      (taskState.spec ||
-        taskState.items.length > 0 ||
-        taskState.blockers.length > 0)
-        ? {
-            schema: "roaster.task.snapshot.v1" as const,
-            state: taskState,
-          }
-        : undefined;
-    const snapshot = {
-      version: 1 as const,
-      sessionId,
-      createdAt: Date.now(),
-      reason: options.reason,
-      interrupted: options.interrupted ?? false,
-      activeSkill: this.activeSkillsBySession.get(sessionId),
-      toolCalls: this.toolCallsBySession.get(sessionId) ?? 0,
-      turnCounter: this.turnsBySession.get(sessionId) ?? 0,
-      verification: this.verification.stateStore.snapshot(sessionId),
-      parallel: this.parallel.snapshotSession(sessionId),
-      contextBudget: this.contextBudget.snapshotSession(sessionId),
-      cost: this.costTracker.getSummary(sessionId),
-      task: taskSnapshot,
-      lastEvent: lastEvent
-        ? {
-            id: lastEvent.id,
-            type: lastEvent.type,
-            timestamp: lastEvent.timestamp,
-          }
-        : undefined,
-    };
-    this.snapshots.save(snapshot);
-    if (
-      taskState &&
-      (taskState.spec ||
-        taskState.items.length > 0 ||
-        taskState.blockers.length > 0)
-    ) {
-      try {
-        const compaction = this.taskLedgerSnapshots.maybeCompact(
-          sessionId,
-          taskState,
-        );
-        if (compaction) {
-          this.recordEvent({
-            sessionId,
-            type: "task_ledger_compacted",
-            turn: this.getCurrentTurn(sessionId),
-            payload: {
-              compacted: compaction.compacted,
-              kept: compaction.kept,
-              bytesBefore: compaction.bytesBefore,
-              bytesAfter: compaction.bytesAfter,
-              durationMs: compaction.durationMs,
-              checkpointEventId: compaction.checkpointEventId,
-              trigger: options.reason,
-            },
-          });
-        }
-      } catch {
-        // ignore task ledger compaction failures
-      }
-    }
-    this.recordEvent({
-      sessionId,
-      type: "session_snapshot_saved",
-      payload: {
-        reason: options.reason,
-        interrupted: options.interrupted ?? false,
-      },
-    });
-  }
-
-  clearSessionSnapshot(sessionId: string): void {
-    this.snapshots.remove(sessionId);
-    this.taskLedgerSnapshots.remove(sessionId);
-    this.clearSessionState(sessionId);
-  }
-
   clearSessionState(sessionId: string): void {
-    this.pendingTaskSnapshotSessions.delete(sessionId);
+    this.tapeCheckpointWriteInProgressBySession.delete(sessionId);
     this.activeSkillsBySession.delete(sessionId);
     this.turnsBySession.delete(sessionId);
     this.toolCallsBySession.delete(sessionId);
-    this.resumeHintsBySession.delete(sessionId);
     this.lastLedgerCompactionTurnBySession.delete(sessionId);
     this.toolContractWarningsBySession.delete(sessionId);
     this.skillBudgetWarningsBySession.delete(sessionId);
@@ -3067,8 +3059,7 @@ export class RoasterRuntime {
     this.clearInjectionFingerprintsForSession(sessionId);
     this.clearReservedInjectionTokensForSession(sessionId);
 
-    this.taskStateBySession.delete(sessionId);
-    this.truthStateBySession.delete(sessionId);
+    this.turnReplay.clear(sessionId);
     this.viewportPolicyBySession.delete(sessionId);
 
     this.events.clearSessionCache(sessionId);
@@ -3287,75 +3278,69 @@ export class RoasterRuntime {
     });
   }
 
-  private getResumeHint(sessionId: string): string | undefined {
-    return this.resumeHintsBySession.get(sessionId);
+  private resolveTapeCheckpointIntervalEntries(): number {
+    const configured = this.config.tape.checkpointIntervalEntries;
+    if (!Number.isFinite(configured)) return 0;
+    return Math.max(0, Math.floor(configured));
   }
 
-  private tryApplyTaskEvent(event: RoasterEventRecord): void {
-    if (event.type !== TASK_EVENT_TYPE) {
+  private maybeRecordTapeCheckpoint(lastEvent: RoasterEventRecord): void {
+    if (lastEvent.type === TAPE_CHECKPOINT_EVENT_TYPE) {
       return;
     }
 
-    const payload = coerceTaskLedgerPayload(event.payload);
-    if (!payload) {
+    const intervalEntries = this.resolveTapeCheckpointIntervalEntries();
+    if (intervalEntries <= 0) {
       return;
     }
 
-    const current =
-      this.taskStateBySession.get(event.sessionId) ?? createEmptyTaskState();
-    const next = reduceTaskState(current, payload, event.timestamp);
-    this.taskStateBySession.set(event.sessionId, next);
-    this.pendingTaskSnapshotSessions.add(event.sessionId);
-  }
+    const sessionId = lastEvent.sessionId;
+    if (this.tapeCheckpointWriteInProgressBySession.has(sessionId)) {
+      return;
+    }
 
-  flushPendingTaskSnapshots(): void {
-    if (this.pendingTaskSnapshotSessions.size === 0) return;
-    const sessions = [...this.pendingTaskSnapshotSessions];
-    this.pendingTaskSnapshotSessions.clear();
-    for (const sessionId of sessions) {
-      const state = this.taskStateBySession.get(sessionId);
-      if (!state) continue;
-      try {
-        this.taskLedgerSnapshots.save(sessionId, state);
-      } catch (error) {
-        this.recordEvent({
-          sessionId,
-          type: "task_ledger_snapshot_failed",
-          payload: {
-            error: error instanceof Error ? error.message : String(error),
-          },
-        });
+    const events = this.queryEvents(sessionId);
+    if (events.length === 0) {
+      return;
+    }
+
+    let latestAnchorEventId: string | undefined;
+    let entriesSinceCheckpoint = 0;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (!event) continue;
+      if (!latestAnchorEventId && event.type === TAPE_ANCHOR_EVENT_TYPE) {
+        latestAnchorEventId = event.id;
       }
+      if (event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
+        break;
+      }
+      entriesSinceCheckpoint += 1;
     }
-  }
 
-  private tryApplyTruthEvent(event: RoasterEventRecord): void {
-    if (event.type !== TRUTH_EVENT_TYPE) {
+    if (entriesSinceCheckpoint < intervalEntries) {
       return;
     }
 
-    const payload = coerceTruthLedgerPayload(event.payload);
-    if (!payload) {
-      return;
+    this.tapeCheckpointWriteInProgressBySession.add(sessionId);
+    try {
+      const payload = buildTapeCheckpointPayload({
+        taskState: this.turnReplay.getTaskState(sessionId),
+        truthState: this.turnReplay.getTruthState(sessionId),
+        basedOnEventId: lastEvent.id,
+        latestAnchorEventId,
+        reason: `interval_entries_${intervalEntries}`,
+      });
+      this.recordEvent({
+        sessionId,
+        turn: this.getCurrentTurn(sessionId),
+        type: TAPE_CHECKPOINT_EVENT_TYPE,
+        payload: payload as unknown as Record<string, unknown>,
+        skipTapeCheckpoint: true,
+      });
+    } finally {
+      this.tapeCheckpointWriteInProgressBySession.delete(sessionId);
     }
-
-    const current =
-      this.truthStateBySession.get(event.sessionId) ?? createEmptyTruthState();
-    const next = reduceTruthState(current, payload, event.timestamp);
-    this.truthStateBySession.set(event.sessionId, next);
-  }
-
-  private clearResumeHint(sessionId: string): void {
-    this.resumeHintsBySession.delete(sessionId);
-  }
-
-  private shouldInjectResumeHint(): boolean {
-    const setting =
-      this.config.infrastructure.interruptRecovery.resumeHintInjectionEnabled;
-    if (typeof setting === "boolean") return setting;
-    const legacy =
-      this.config.infrastructure.interruptRecovery.resumeHintInSystemPrompt;
-    return typeof legacy === "boolean" ? legacy : true;
   }
 
   private isContextBudgetEnabled(): boolean {

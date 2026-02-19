@@ -48,25 +48,6 @@ describe("Task ledger", () => {
     expect(state.spec?.goal).toBe("Refactor context injection");
   });
 
-  test("persists and restores task state via session snapshot", () => {
-    const workspace = createWorkspace();
-    const sessionId = "task-snap";
-
-    const runtime1 = new RoasterRuntime({ cwd: workspace });
-    runtime1.setTaskSpec(sessionId, {
-      schema: "roaster.task.v1",
-      goal: "Implement TaskSpec v1",
-    });
-    runtime1.persistSessionSnapshot(sessionId, { reason: "manual", interrupted: false });
-
-    const runtime2 = new RoasterRuntime({ cwd: workspace });
-    const restored = runtime2.restoreSessionSnapshot(sessionId);
-    expect(restored.restored).toBe(true);
-
-    const state = runtime2.getTaskState(sessionId);
-    expect(state.spec?.goal).toBe("Implement TaskSpec v1");
-  });
-
   test("injects viewport context for TaskSpec target files", () => {
     const workspace = createWorkspace();
     const runtime = new RoasterRuntime({ cwd: workspace });

@@ -10,8 +10,11 @@ function collectToolNames(sourceRoot: string): string[] {
     "look-at.ts",
     "lsp.ts",
     "rollback-last-patch.ts",
+    "session-compact.ts",
     "skill-load.ts",
     "skill-complete.ts",
+    "tape.ts",
+    "task-ledger.ts",
   ];
 
   const names = new Set<string>();

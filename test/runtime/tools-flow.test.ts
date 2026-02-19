@@ -6,8 +6,10 @@ import { RoasterRuntime } from "@pi-roaster/roaster-runtime";
 import {
   createCostViewTool,
   createRollbackLastPatchTool,
+  createSessionCompactTool,
   createSkillCompleteTool,
   createSkillLoadTool,
+  createTapeTools,
 } from "@pi-roaster/roaster-tools";
 
 function extractTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -158,5 +160,125 @@ describe("S-010 cost view tool flow", () => {
     expect(text.includes("# Cost View")).toBe(true);
     expect(text.includes("Top Skills")).toBe(true);
     expect(text.includes("Top Tools")).toBe(true);
+  });
+});
+
+describe("S-011 session compact tool flow", () => {
+  test("session_compact requests SDK compaction with runtime instructions", async () => {
+    const runtime = new RoasterRuntime({ cwd: process.cwd() });
+    const sessionId = "s11";
+    let compactCalls = 0;
+    let capturedInstructions: string | undefined;
+
+    const tool = createSessionCompactTool({ runtime });
+    const result = await tool.execute(
+      "tc-compact",
+      { reason: "context pressure reached high" },
+      undefined,
+      undefined,
+      {
+        ...fakeContext(sessionId),
+        compact: (options?: { customInstructions?: string }) => {
+          compactCalls += 1;
+          capturedInstructions = options?.customInstructions;
+        },
+        getContextUsage: () => ({ tokens: 900, contextWindow: 1000, percent: 0.9 }),
+      } as any,
+    );
+
+    const text = extractTextContent(result as { content: Array<{ type: string; text?: string }> });
+    expect(text.includes("Session compaction requested")).toBe(true);
+    expect(compactCalls).toBe(1);
+    expect(capturedInstructions).toBe(runtime.getCompactionInstructions());
+  });
+});
+
+describe("S-012 tape tools flow", () => {
+  test("tape_handoff writes anchor and tape_info reports tape/context pressure", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "roaster-tools-tape-info-"));
+    const runtime = new RoasterRuntime({ cwd: workspace });
+    const sessionId = "s12";
+    runtime.onTurnStart(sessionId, 1);
+
+    runtime.setTaskSpec(sessionId, {
+      schema: "roaster.task.v1",
+      goal: "validate tape tools",
+    });
+
+    const tools = createTapeTools({ runtime });
+    const tapeHandoff = tools.find((tool) => tool.name === "tape_handoff");
+    const tapeInfo = tools.find((tool) => tool.name === "tape_info");
+    expect(tapeHandoff).toBeDefined();
+    expect(tapeInfo).toBeDefined();
+
+    const handoffResult = await tapeHandoff!.execute(
+      "tc-handoff",
+      {
+        name: "investigation-done",
+        summary: "Findings captured.",
+        next_steps: "Start implementation.",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+
+    const handoffText = extractTextContent(handoffResult as { content: Array<{ type: string; text?: string }> });
+    expect(handoffText.includes("Tape handoff recorded")).toBe(true);
+    expect(runtime.queryEvents(sessionId, { type: "anchor" }).length).toBe(1);
+
+    const infoResult = await tapeInfo!.execute(
+      "tc-info",
+      {},
+      undefined,
+      undefined,
+      {
+        ...fakeContext(sessionId),
+        getContextUsage: () => ({ tokens: 880, contextWindow: 1000, percent: 0.88 }),
+      } as any,
+    );
+    const infoText = extractTextContent(infoResult as { content: Array<{ type: string; text?: string }> });
+    expect(infoText.includes("[TapeInfo]")).toBe(true);
+    expect(infoText.includes("tape_pressure:")).toBe(true);
+    expect(infoText.includes("context_pressure: high")).toBe(true);
+  });
+
+  test("tape_search returns matching entries in current phase", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "roaster-tools-tape-search-"));
+    const runtime = new RoasterRuntime({ cwd: workspace });
+    const sessionId = "s12-search";
+    runtime.onTurnStart(sessionId, 1);
+
+    runtime.recordTapeHandoff(sessionId, {
+      name: "investigation",
+      summary: "Collected flaky test evidence.",
+      nextSteps: "Implement fix.",
+    });
+    runtime.recordEvent({
+      sessionId,
+      type: "task_event",
+      payload: {
+        schema: "roaster.task.ledger.v1",
+        kind: "item_added",
+        item: { id: "i1", text: "Fix flaky pipeline", status: "todo" },
+      } as Record<string, unknown>,
+    });
+
+    const tools = createTapeTools({ runtime });
+    const tapeSearch = tools.find((tool) => tool.name === "tape_search");
+    expect(tapeSearch).toBeDefined();
+
+    const result = await tapeSearch!.execute(
+      "tc-search",
+      { query: "flaky", scope: "current_phase" },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+
+    const text = extractTextContent(result as { content: Array<{ type: string; text?: string }> });
+    expect(text.includes("[TapeSearch]")).toBe(true);
+    expect(text.includes("matches:")).toBe(true);
+    expect(text.toLowerCase().includes("flaky")).toBe(true);
   });
 });

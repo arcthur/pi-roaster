@@ -70,6 +70,10 @@ describe("tool contract policy modes", () => {
 
     // Reserved tools should not deadlock skill lifecycle even if not declared.
     expect(runtime.checkToolAccess(sessionId, "cost_view").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "tape_handoff").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "tape_info").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "tape_search").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "session_compact").allowed).toBe(true);
     expect(runtime.checkToolAccess(sessionId, "rollback_last_patch").allowed).toBe(true);
   });
 });
@@ -129,6 +133,10 @@ describe("skill maxTokens contract modes", () => {
     expect(blocked.reason?.includes("exceeded maxTokens")).toBe(true);
 
     expect(runtime.checkToolAccess(sessionId, "cost_view").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "tape_handoff").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "tape_info").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "tape_search").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "session_compact").allowed).toBe(true);
   });
 });
 

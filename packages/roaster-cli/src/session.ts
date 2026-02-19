@@ -86,8 +86,6 @@ export async function createRoasterSession(options: CreateRoasterSessionOptions 
   });
 
   const sessionId = sessionResult.session.sessionManager.getSessionId();
-  runtime.restoreStartupSession(sessionId);
-
   if (!extensionsEnabled) {
     runtime.recordEvent({
       sessionId,

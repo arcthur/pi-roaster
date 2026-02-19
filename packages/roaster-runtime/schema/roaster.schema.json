@@ -16,26 +16,6 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "compactionCircuitBreaker": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "cooldownTurns": {
-                      "type": "number"
-                    },
-                    "enabled": {
-                      "type": "boolean"
-                    },
-                    "maxConsecutiveFailures": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "enabled",
-                    "maxConsecutiveFailures",
-                    "cooldownTurns"
-                  ]
-                },
                 "compactionInstructions": {
                   "type": "string"
                 },
@@ -78,8 +58,7 @@
                 "minSecondsBetweenCompaction",
                 "pressureBypassPercent",
                 "truncationStrategy",
-                "compactionInstructions",
-                "compactionCircuitBreaker"
+                "compactionInstructions"
               ]
             },
             "costTracking": {
@@ -139,171 +118,11 @@
                 },
                 "gracefulTimeoutMs": {
                   "type": "number"
-                },
-                "resumeHintInjectionEnabled": {
-                  "type": "boolean"
-                },
-                "resumeHintInSystemPrompt": {
-                  "type": "boolean"
-                },
-                "sessionHandoff": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "circuitBreaker": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "cooldownTurns": {
-                          "type": "number"
-                        },
-                        "enabled": {
-                          "type": "boolean"
-                        },
-                        "maxConsecutiveFailures": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "enabled",
-                        "maxConsecutiveFailures",
-                        "cooldownTurns"
-                      ]
-                    },
-                    "enabled": {
-                      "type": "boolean"
-                    },
-                    "hierarchy": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "branchFactor": {
-                          "type": "number"
-                        },
-                        "enabled": {
-                          "type": "boolean"
-                        },
-                        "entriesPerLevel": {
-                          "type": "number"
-                        },
-                        "goalFilterEnabled": {
-                          "type": "boolean"
-                        },
-                        "maxCharsPerEntry": {
-                          "type": "number"
-                        },
-                        "maxInjectedEntries": {
-                          "type": "number"
-                        },
-                        "maxLevels": {
-                          "type": "number"
-                        },
-                        "minGoalScore": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "enabled",
-                        "branchFactor",
-                        "maxLevels",
-                        "entriesPerLevel",
-                        "maxCharsPerEntry",
-                        "goalFilterEnabled",
-                        "minGoalScore",
-                        "maxInjectedEntries"
-                      ]
-                    },
-                    "injectionBudget": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "enabled": {
-                          "type": "boolean"
-                        },
-                        "maxHierarchyChars": {
-                          "type": "number"
-                        },
-                        "maxSessionDigestChars": {
-                          "type": "number"
-                        },
-                        "maxSessionHandoffChars": {
-                          "type": "number"
-                        },
-                        "maxTotalChars": {
-                          "type": "number"
-                        },
-                        "maxUserDigestChars": {
-                          "type": "number"
-                        },
-                        "maxUserHandoffChars": {
-                          "type": "number"
-                        },
-                        "maxUserPreferencesChars": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "enabled",
-                        "maxTotalChars",
-                        "maxUserPreferencesChars",
-                        "maxUserHandoffChars",
-                        "maxHierarchyChars",
-                        "maxUserDigestChars",
-                        "maxSessionHandoffChars",
-                        "maxSessionDigestChars"
-                      ]
-                    },
-                    "maxSummaryChars": {
-                      "type": "number"
-                    },
-                    "relevance": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "artifactWeight": {
-                          "type": "number"
-                        },
-                        "enabled": {
-                          "type": "boolean"
-                        },
-                        "failureWeight": {
-                          "type": "number"
-                        },
-                        "goalWeight": {
-                          "type": "number"
-                        },
-                        "recencyWeight": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "enabled",
-                        "goalWeight",
-                        "failureWeight",
-                        "recencyWeight",
-                        "artifactWeight"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "enabled",
-                    "maxSummaryChars",
-                    "relevance",
-                    "hierarchy",
-                    "injectionBudget",
-                    "circuitBreaker"
-                  ]
-                },
-                "snapshotsDir": {
-                  "type": "string"
                 }
               },
               "required": [
                 "enabled",
-                "snapshotsDir",
-                "gracefulTimeoutMs",
-                "resumeHintInjectionEnabled",
-                "sessionHandoff"
+                "gracefulTimeoutMs"
               ]
             }
           },
@@ -332,6 +151,39 @@
             "path",
             "digestWindow",
             "checkpointEveryTurns"
+          ]
+        },
+        "tape": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "checkpointIntervalEntries": {
+              "type": "number"
+            },
+            "tapePressureThresholds": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "high": {
+                  "type": "number"
+                },
+                "low": {
+                  "type": "number"
+                },
+                "medium": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          },
+          "required": [
+            "checkpointIntervalEntries",
+            "tapePressureThresholds"
           ]
         },
         "parallel": {
@@ -616,6 +468,7 @@
         "skills",
         "verification",
         "ledger",
+        "tape",
         "security",
         "parallel",
         "infrastructure"

@@ -14,32 +14,6 @@ export interface LoadConfigOptions {
   configPath?: string;
 }
 
-function normalizeLegacyConfigAliases(config: Partial<RoasterConfig>): Partial<RoasterConfig> {
-  const infrastructure = config.infrastructure;
-  if (!infrastructure) return config;
-
-  const interruptRecovery = infrastructure.interruptRecovery;
-  if (!interruptRecovery) return config;
-
-  if (typeof interruptRecovery.resumeHintInjectionEnabled === "boolean") {
-    return config;
-  }
-  if (typeof interruptRecovery.resumeHintInSystemPrompt !== "boolean") {
-    return config;
-  }
-
-  return {
-    ...config,
-    infrastructure: {
-      ...infrastructure,
-      interruptRecovery: {
-        ...interruptRecovery,
-        resumeHintInjectionEnabled: interruptRecovery.resumeHintInSystemPrompt,
-      },
-    },
-  };
-}
-
 function resolveConfigRelativeSkillRoots(
   config: Partial<RoasterConfig>,
   configPath: string,
@@ -72,7 +46,7 @@ function resolveConfigRelativeSkillRoots(
 function readConfigFile(configPath: string): Partial<RoasterConfig> | undefined {
   if (!existsSync(configPath)) return undefined;
   const raw = readFileSync(configPath, "utf8");
-  const parsed = normalizeLegacyConfigAliases(JSON.parse(raw) as Partial<RoasterConfig>);
+  const parsed = JSON.parse(raw) as Partial<RoasterConfig>;
   return resolveConfigRelativeSkillRoots(parsed, configPath);
 }
 

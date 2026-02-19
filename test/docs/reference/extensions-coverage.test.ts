@@ -7,7 +7,6 @@ const EXPECTED_SYMBOLS = [
   "roasterExtension",
   "registerContextTransform",
   "registerEventStream",
-  "registerMemory",
   "registerQualityGate",
   "registerLedgerWriter",
   "registerCompletionGuard",

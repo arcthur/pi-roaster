@@ -177,11 +177,6 @@ export type TaskLedgerEventPayload =
       blockerId: string;
     };
 
-export interface TaskSessionSnapshot {
-  schema: "roaster.task.snapshot.v1";
-  state: TaskState;
-}
-
 export interface RoasterConfig {
   skills: {
     roots?: string[];
@@ -196,6 +191,14 @@ export interface RoasterConfig {
     commands: Record<string, string>;
   };
   ledger: { path: string; digestWindow: number; checkpointEveryTurns: number };
+  tape: {
+    checkpointIntervalEntries: number;
+    tapePressureThresholds: {
+      low: number;
+      medium: number;
+      high: number;
+    };
+  };
   security: {
     sanitizeContext: boolean;
     enforceDeniedTools: boolean;
@@ -237,54 +240,10 @@ export interface RoasterConfig {
       pressureBypassPercent: number;
       truncationStrategy: "drop-entry" | "summarize" | "tail";
       compactionInstructions: string;
-      compactionCircuitBreaker: {
-        enabled: boolean;
-        maxConsecutiveFailures: number;
-        cooldownTurns: number;
-      };
     };
     interruptRecovery: {
       enabled: boolean;
-      snapshotsDir: string;
       gracefulTimeoutMs: number;
-      resumeHintInjectionEnabled: boolean;
-      resumeHintInSystemPrompt?: boolean;
-      sessionHandoff: {
-        enabled: boolean;
-        maxSummaryChars: number;
-        relevance: {
-          enabled: boolean;
-          goalWeight: number;
-          failureWeight: number;
-          recencyWeight: number;
-          artifactWeight: number;
-        };
-        hierarchy: {
-          enabled: boolean;
-          branchFactor: number;
-          maxLevels: number;
-          entriesPerLevel: number;
-          maxCharsPerEntry: number;
-          goalFilterEnabled: boolean;
-          minGoalScore: number;
-          maxInjectedEntries: number;
-        };
-        injectionBudget: {
-          enabled: boolean;
-          maxTotalChars: number;
-          maxUserPreferencesChars: number;
-          maxUserHandoffChars: number;
-          maxHierarchyChars: number;
-          maxUserDigestChars: number;
-          maxSessionHandoffChars: number;
-          maxSessionDigestChars: number;
-        };
-        circuitBreaker: {
-          enabled: boolean;
-          maxConsecutiveFailures: number;
-          cooldownTurns: number;
-        };
-      };
     };
     costTracking: {
       enabled: boolean;
@@ -410,6 +369,67 @@ export interface ContextBudgetUsage {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
+}
+
+export type TapePressureLevel = "none" | "low" | "medium" | "high";
+
+export type ContextPressureLevel =
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical"
+  | "unknown";
+
+export interface ContextPressureStatus {
+  level: ContextPressureLevel;
+  usageRatio: number | null;
+  hardLimitRatio: number;
+  compactionThresholdRatio: number;
+}
+
+export interface TapeAnchorState {
+  id: string;
+  name?: string;
+  summary?: string;
+  nextSteps?: string;
+  turn?: number;
+  timestamp: number;
+}
+
+export interface TapeStatusState {
+  totalEntries: number;
+  entriesSinceAnchor: number;
+  entriesSinceCheckpoint: number;
+  tapePressure: TapePressureLevel;
+  thresholds: {
+    low: number;
+    medium: number;
+    high: number;
+  };
+  lastAnchor?: TapeAnchorState;
+  lastCheckpointId?: string;
+}
+
+export type TapeSearchScope =
+  | "current_phase"
+  | "all_phases"
+  | "anchors_only";
+
+export interface TapeSearchMatch {
+  eventId: string;
+  type: string;
+  turn?: number;
+  timestamp: number;
+  excerpt: string;
+}
+
+export interface TapeSearchResult {
+  query: string;
+  scope: TapeSearchScope;
+  scannedEvents: number;
+  totalEvents: number;
+  matches: TapeSearchMatch[];
 }
 
 export interface ContextBudgetSessionState {
@@ -545,28 +565,6 @@ export interface RoasterReplaySession {
 export interface ParallelSessionSnapshot {
   activeRunIds: string[];
   totalStarted: number;
-}
-
-export interface RuntimeSessionSnapshot {
-  version: 1;
-  sessionId: string;
-  createdAt: number;
-  reason: "signal" | "shutdown" | "manual";
-  interrupted: boolean;
-  activeSkill?: string;
-  toolCalls: number;
-  turnCounter: number;
-  verification?: VerificationSessionState;
-  parallel?: ParallelSessionSnapshot;
-  contextBudget?: ContextBudgetSessionState;
-  cost?: SessionCostSummary;
-  task?: TaskSessionSnapshot;
-  lastEvent?: Pick<RoasterEventRecord, "id" | "type" | "timestamp">;
-}
-
-export interface RuntimeSessionRestoreResult {
-  restored: boolean;
-  snapshot?: RuntimeSessionSnapshot;
 }
 
 export interface SessionCostTotals {

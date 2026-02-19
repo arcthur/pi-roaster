@@ -38,7 +38,7 @@ flowchart TD
 - Layer 1:
   - `packages/roaster-runtime/src/events/store.ts`
   - `packages/roaster-runtime/src/context/budget.ts`
-  - `packages/roaster-runtime/src/state/snapshot-store.ts`
+  - `packages/roaster-runtime/src/tape/replay-engine.ts`
   - `packages/roaster-runtime/src/state/file-change-tracker.ts`
   - `packages/roaster-runtime/src/cost/tracker.ts`
 - Layer 0:

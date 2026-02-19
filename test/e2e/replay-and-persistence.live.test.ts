@@ -1,5 +1,4 @@
 import { describe, expect } from "bun:test";
-import { readFileSync } from "node:fs";
 import {
   assertCliSuccess,
   cleanupWorkspace,
@@ -83,15 +82,13 @@ describe("e2e: replay and persistence", () => {
       const bundleEventCount = bundle?.events.length ?? 0;
       expect(replayEvents.length).toBeGreaterThanOrEqual(bundleEventCount);
       expect(replayEvents.length).toBeLessThanOrEqual(bundleEventCount + 5);
-      expect(
-        replayEvents.some((event) => event.type === "session_snapshot_saved"),
-      ).toBe(true);
+      expect(replayTypes.has("session_shutdown")).toBe(true);
     } finally {
       cleanupWorkspace(workspace);
     }
   });
 
-  runLive("normal shutdown writes session snapshot under state directory", () => {
+  runLive("normal shutdown does not write legacy runtime snapshot file", () => {
     const workspace = createWorkspace("persistence");
     writeMinimalConfig(workspace);
 
@@ -110,15 +107,7 @@ describe("e2e: replay and persistence", () => {
       expect(sessionId.length).toBeGreaterThan(0);
 
       const snapshotFile = latestStateSnapshot(workspace);
-      expect(snapshotFile).toBeDefined();
-
-      const snapshot = JSON.parse(readFileSync(snapshotFile!, "utf8")) as Record<
-        string,
-        unknown
-      >;
-      expect(snapshot.version).toBe(1);
-      expect(snapshot.sessionId).toBe(sessionId);
-      expect(snapshot.interrupted).toBe(false);
+      expect(snapshotFile).toBeUndefined();
     } finally {
       cleanupWorkspace(workspace);
     }

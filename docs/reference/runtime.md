@@ -9,12 +9,18 @@ Primary class: `packages/roaster-runtime/src/runtime.ts`.
 - `getSkill`
 - `selectSkills`
 - `onTurnStart`
-- `flushPendingTaskSnapshots`
 - `observeContextUsage`
+- `getContextUsage`
+- `getContextUsageRatio`
+- `getContextHardLimitRatio`
+- `getContextCompactionThresholdRatio`
+- `getContextPressureStatus`
+- `getContextPressureLevel`
 - `buildContextInjection`
 - `planSupplementalContextInjection`
 - `commitSupplementalContextInjection`
 - `shouldRequestCompaction`
+- `getCompactionInstructions`
 - `markContextCompacted`
 - `activateSkill`
 - `getActiveSkill`
@@ -33,6 +39,9 @@ Primary class: `packages/roaster-runtime/src/runtime.ts`.
 - `getLedgerDigest`
 - `queryLedger`
 - `setTaskSpec`
+- `recordTapeHandoff`
+- `getTapeStatus`
+- `searchTape`
 - `getTaskState`
 - `getTruthState`
 - `addTaskItem`
@@ -56,10 +65,6 @@ Primary class: `packages/roaster-runtime/src/runtime.ts`.
 - `listWorkerResults`
 - `mergeWorkerResults`
 - `clearWorkerResults`
-- `restoreSessionSnapshot`
-- `restoreStartupSession`
-- `persistSessionSnapshot`
-- `clearSessionSnapshot`
 - `clearSessionState`
 - `sanitizeInput`
 

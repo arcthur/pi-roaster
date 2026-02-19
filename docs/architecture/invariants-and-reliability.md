@@ -27,12 +27,13 @@ Relevant implementation:
 
 ## 3) Recovery Consistency Invariant
 
-- Snapshot restore must rehydrate active skill state, counters, verification state, and parallel budget state.
-- Startup restore must not silently drop interruption context when recoverable snapshot exists.
+- Runtime recovery state must be derivable from persisted event tape only
+  (checkpoint + delta replay).
+- Process restart must not require opaque runtime snapshot blobs.
 
 Relevant implementation:
 
-- `packages/roaster-runtime/src/state/snapshot-store.ts`
+- `packages/roaster-runtime/src/tape/replay-engine.ts`
 - `packages/roaster-runtime/src/runtime.ts`
 
 ## 4) Contract Enforcement Invariant

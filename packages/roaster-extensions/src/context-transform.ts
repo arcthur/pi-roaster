@@ -1,36 +1,26 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { type ContextBudgetUsage, type RoasterRuntime } from "@pi-roaster/roaster-runtime";
+import {
+  type ContextBudgetUsage,
+  type ContextPressureStatus,
+  type RoasterRuntime,
+} from "@pi-roaster/roaster-runtime";
 
 const CONTEXT_INJECTION_MESSAGE_TYPE = "roaster-context-injection";
-type CompactionCircuitBreakerConfig = RoasterRuntime["config"]["infrastructure"]["contextBudget"]["compactionCircuitBreaker"];
+const CONTEXT_CONTRACT_MARKER = "[Roaster Context Contract]";
 
-interface CompactionCircuitState {
+interface CompactionGateState {
   turnIndex: number;
-  turnSequence: number;
-  consecutiveFailures: number;
-  pendingRequestSequence: number | null;
-  queuedRequestSequence: number | null;
-  compactIssuedForSequence: number | null;
-  openUntilTurn: number | null;
+  compactionRequired: boolean;
+  lastCompactionTurn: number | null;
 }
 
-function normalizeErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) return error.message.trim();
-  if (typeof error === "string" && error.trim().length > 0) return error.trim();
-  return "unknown_error";
-}
-
-function getOrCreateCircuitState(store: Map<string, CompactionCircuitState>, sessionId: string): CompactionCircuitState {
+function getOrCreateGateState(store: Map<string, CompactionGateState>, sessionId: string): CompactionGateState {
   const existing = store.get(sessionId);
   if (existing) return existing;
-  const created: CompactionCircuitState = {
+  const created: CompactionGateState = {
     turnIndex: 0,
-    turnSequence: 0,
-    consecutiveFailures: 0,
-    pendingRequestSequence: null,
-    queuedRequestSequence: null,
-    compactIssuedForSequence: null,
-    openUntilTurn: null,
+    compactionRequired: false,
+    lastCompactionTurn: null,
   };
   store.set(sessionId, created);
   return created;
@@ -53,48 +43,6 @@ function emitRuntimeEvent(
   });
 }
 
-function markFailure(
-  runtime: RoasterRuntime,
-  state: CompactionCircuitState,
-  breaker: CompactionCircuitBreakerConfig,
-  sessionId: string,
-  reason: "missing_session_compact" | "compact_call_failed",
-  details?: Record<string, unknown>,
-  options?: {
-    failureTurnIndex?: number;
-  },
-): void {
-  if (!breaker.enabled) return;
-  state.consecutiveFailures += 1;
-
-  if (state.consecutiveFailures < breaker.maxConsecutiveFailures) {
-    return;
-  }
-
-  const failureTurnIndex =
-    typeof options?.failureTurnIndex === "number" && Number.isFinite(options.failureTurnIndex)
-      ? Math.max(0, Math.floor(options.failureTurnIndex))
-      : state.turnIndex;
-  state.openUntilTurn = failureTurnIndex + breaker.cooldownTurns - 1;
-  state.consecutiveFailures = 0;
-
-  emitRuntimeEvent(runtime, {
-    sessionId,
-    turn: failureTurnIndex,
-    type: "context_compaction_breaker_opened",
-    payload: {
-      reason,
-      cooldownTurns: breaker.cooldownTurns,
-      openUntilTurn: state.openUntilTurn,
-      ...details,
-    },
-  });
-}
-
-function isCircuitOpen(state: CompactionCircuitState): boolean {
-  return state.openUntilTurn !== null && state.turnIndex <= state.openUntilTurn;
-}
-
 function toBudgetUsage(input: unknown): ContextBudgetUsage | undefined {
   const usage = input as { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
   if (!usage || typeof usage.contextWindow !== "number" || usage.contextWindow <= 0) {
@@ -105,6 +53,41 @@ function toBudgetUsage(input: unknown): ContextBudgetUsage | undefined {
     contextWindow: usage.contextWindow,
     percent: typeof usage.percent === "number" ? usage.percent : null,
   };
+}
+
+function formatPercent(ratio: number | null): string {
+  if (ratio === null) return "unknown";
+  return `${(ratio * 100).toFixed(1)}%`;
+}
+
+function resolveRecentCompactionWindowTurns(runtime: RoasterRuntime): number {
+  const raw = runtime.config.infrastructure.contextBudget.minTurnsBetweenCompaction;
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(1, Math.floor(raw));
+}
+
+function hydrateLastCompactionTurnFromTape(
+  runtime: RoasterRuntime,
+  sessionId: string,
+  state: CompactionGateState,
+): void {
+  if (state.lastCompactionTurn !== null) return;
+  const latest = runtime.queryEvents(sessionId, {
+    type: "context_compacted",
+    last: 1,
+  })[0];
+  if (!latest) return;
+  if (typeof latest.turn !== "number" || !Number.isFinite(latest.turn)) return;
+  state.lastCompactionTurn = Math.max(0, Math.floor(latest.turn));
+}
+
+function hasRecentCompaction(
+  runtime: RoasterRuntime,
+  state: CompactionGateState,
+): boolean {
+  if (state.lastCompactionTurn === null) return false;
+  const turnsSinceCompact = Math.max(0, state.turnIndex - state.lastCompactionTurn);
+  return turnsSinceCompact < resolveRecentCompactionWindowTurns(runtime);
 }
 
 function extractCompactionSummary(input: unknown): string | undefined {
@@ -152,67 +135,111 @@ function resolveInjectionScopeId(input: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function handleCompactError(
-  runtime: RoasterRuntime,
-  state: CompactionCircuitState,
-  breaker: CompactionCircuitBreakerConfig,
-  sessionId: string,
-  error: unknown,
-): void {
-  state.pendingRequestSequence = null;
-  state.compactIssuedForSequence = null;
-  markFailure(runtime, state, breaker, sessionId, "compact_call_failed", {
-    error: normalizeErrorMessage(error),
-  });
-  emitRuntimeEvent(runtime, {
-    sessionId,
-    turn: state.turnIndex,
-    type: "context_compaction_skipped",
-    payload: {
-      reason: "compact_call_failed",
-      error: normalizeErrorMessage(error),
-    },
-  });
+function buildCompactionGateMessage(input: {
+  pressure: ContextPressureStatus;
+}): string {
+  const usagePercent = formatPercent(input.pressure.usageRatio);
+  const hardLimitPercent = formatPercent(input.pressure.hardLimitRatio);
+  return [
+    "[ContextCompactionGate]",
+    "Context pressure is critical.",
+    `Current usage: ${usagePercent} (hard limit: ${hardLimitPercent}).`,
+    "Call tool `session_compact` immediately before any other tool call.",
+  ].join("\n");
+}
+
+function buildTapeStatusBlock(input: {
+  runtime: RoasterRuntime;
+  sessionId: string;
+  pressure: ContextPressureStatus;
+  state: CompactionGateState;
+  gateRequired: boolean;
+}): string {
+  const tapeStatus = input.runtime.getTapeStatus(input.sessionId);
+  const usagePercent = formatPercent(input.pressure.usageRatio);
+  const hardLimitPercent = formatPercent(input.pressure.hardLimitRatio);
+  const windowTurns = resolveRecentCompactionWindowTurns(input.runtime);
+  const recentCompact = hasRecentCompaction(input.runtime, input.state);
+  const contextPressure = input.pressure.level;
+  const action = input.gateRequired ? "session_compact_now" : "none";
+  const tapePressure = tapeStatus.tapePressure;
+  const totalEntries = String(tapeStatus.totalEntries);
+  const entriesSinceAnchor = String(tapeStatus.entriesSinceAnchor);
+  const entriesSinceCheckpoint = String(tapeStatus.entriesSinceCheckpoint);
+  const lastAnchorName = tapeStatus.lastAnchor?.name ?? "none";
+  const lastAnchorId = tapeStatus.lastAnchor?.id ?? "none";
+
+  return [
+    "[TapeStatus]",
+    `tape_pressure: ${tapePressure}`,
+    `tape_entries_total: ${totalEntries}`,
+    `tape_entries_since_anchor: ${entriesSinceAnchor}`,
+    `tape_entries_since_checkpoint: ${entriesSinceCheckpoint}`,
+    `last_anchor_name: ${lastAnchorName}`,
+    `last_anchor_id: ${lastAnchorId}`,
+    `context_pressure: ${contextPressure}`,
+    `context_usage: ${usagePercent}`,
+    `context_hard_limit: ${hardLimitPercent}`,
+    `recent_compact_performed: ${recentCompact ? "true" : "false"}`,
+    `recent_compaction_window_turns: ${windowTurns}`,
+    `required_action: ${action}`,
+  ].join("\n");
+}
+
+function normalizeToolName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function buildContextContractBlock(runtime: RoasterRuntime): string {
+  const tapeThresholds = runtime.config.tape.tapePressureThresholds;
+  const hardLimitPercent = formatPercent(runtime.getContextHardLimitRatio());
+  const highThresholdPercent = formatPercent(
+    runtime.getContextCompactionThresholdRatio(),
+  );
+
+  return [
+    CONTEXT_CONTRACT_MARKER,
+    "You manage two independent resources.",
+    "1) State tape:",
+    "- use `tape_handoff` for semantic phase boundaries and handoffs.",
+    "- use `tape_info` to inspect tape/context pressure.",
+    "- use `tape_search` when you need historical recall.",
+    `- tape_pressure is based on entries_since_anchor (low=${tapeThresholds.low}, medium=${tapeThresholds.medium}, high=${tapeThresholds.high}).`,
+    "2) Message buffer (LLM context window):",
+    "- use `session_compact` to reduce message history tokens.",
+    `- context_pressure >= high (${highThresholdPercent}) means compact soon.`,
+    `- context_pressure == critical (${hardLimitPercent}) means compact immediately.`,
+    "Hard rules:",
+    "- `tape_handoff` does not reduce message tokens.",
+    "- `session_compact` does not change tape state semantics.",
+    "- if context pressure is critical without recent compaction, runtime blocks non-`session_compact` tools.",
+  ].join("\n");
+}
+
+function applyContextContract(systemPrompt: unknown, runtime: RoasterRuntime): string {
+  const base = typeof systemPrompt === "string" ? systemPrompt : "";
+  if (base.includes(CONTEXT_CONTRACT_MARKER)) {
+    return base;
+  }
+  const contract = buildContextContractBlock(runtime);
+  if (base.trim().length === 0) return contract;
+  return `${base}\n\n${contract}`;
 }
 
 export function registerContextTransform(pi: ExtensionAPI, runtime: RoasterRuntime): void {
-  const compactionBreaker = runtime.config.infrastructure.contextBudget.compactionCircuitBreaker;
-  const compactionCircuitBySession = new Map<string, CompactionCircuitState>();
+  const gateStateBySession = new Map<string, CompactionGateState>();
 
   pi.on("turn_start", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    const state = getOrCreateCircuitState(compactionCircuitBySession, sessionId);
-    state.turnSequence += 1;
-    state.turnIndex = event.turnIndex;
-    if (state.queuedRequestSequence !== null && state.turnSequence > state.queuedRequestSequence + 1) {
-      state.queuedRequestSequence = null;
-      emitRuntimeEvent(runtime, {
-        sessionId,
-        turn: state.turnIndex,
-        type: "context_compaction_skipped",
-        payload: {
-          reason: "queued_request_expired",
-        },
-      });
-    }
-    if (state.openUntilTurn !== null && state.turnIndex > state.openUntilTurn) {
-      state.openUntilTurn = null;
-      emitRuntimeEvent(runtime, {
-        sessionId,
-        turn: state.turnIndex,
-        type: "context_compaction_breaker_closed",
-        payload: {
-          reason: "cooldown_elapsed",
-        },
-      });
-    }
+    const state = getOrCreateGateState(gateStateBySession, sessionId);
+    state.turnIndex = Math.max(state.turnIndex, event.turnIndex);
     runtime.onTurnStart(sessionId, event.turnIndex);
     return undefined;
   });
 
   pi.on("context", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    const state = getOrCreateCircuitState(compactionCircuitBySession, sessionId);
+    const state = getOrCreateGateState(gateStateBySession, sessionId);
     const usage = toBudgetUsage(ctx.getContextUsage());
     runtime.observeContextUsage(sessionId, usage);
 
@@ -229,99 +256,62 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: RoasterRunti
           reason: "non_interactive_mode",
         },
       });
-      return undefined;
     }
 
-    if (isCircuitOpen(state)) {
-      emitRuntimeEvent(runtime, {
-        sessionId,
-        turn: state.turnIndex,
-        type: "context_compaction_skipped",
-        payload: {
-          reason: "circuit_open",
-          openUntilTurn: state.openUntilTurn,
-        },
-      });
-      return undefined;
-    }
-
-    state.queuedRequestSequence = state.turnSequence;
     return undefined;
   });
 
-  pi.on("turn_end", (event, ctx) => {
+  pi.on("tool_call", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    const state = getOrCreateCircuitState(compactionCircuitBySession, sessionId);
-    if (state.queuedRequestSequence === null) {
+    const state = getOrCreateGateState(gateStateBySession, sessionId);
+    hydrateLastCompactionTurnFromTape(runtime, sessionId, state);
+    if (!state.compactionRequired) {
       return undefined;
     }
-    const isQueuedForCurrentTurn =
-      state.queuedRequestSequence === state.turnSequence || state.queuedRequestSequence === state.turnSequence - 1;
-    if (!isQueuedForCurrentTurn) {
-      state.queuedRequestSequence = null;
-      emitRuntimeEvent(runtime, {
-        sessionId,
-        turn: state.turnIndex,
-        type: "context_compaction_skipped",
-        payload: {
-          reason: "queued_request_expired",
-        },
-      });
-      return undefined;
-    }
-    state.queuedRequestSequence = null;
-    state.pendingRequestSequence = state.turnSequence;
-    state.compactIssuedForSequence = null;
-    return undefined;
-  });
 
-  pi.on("agent_end", (_event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    const state = getOrCreateCircuitState(compactionCircuitBySession, sessionId);
-    if (state.pendingRequestSequence === null) {
+    if (normalizeToolName(event.toolName) === "session_compact") {
       return undefined;
     }
-    if (state.compactIssuedForSequence === state.pendingRequestSequence) {
-      return undefined;
-    }
-    state.compactIssuedForSequence = state.pendingRequestSequence;
-    try {
-      ctx.compact({
-        customInstructions: runtime.contextBudget.getCompactionInstructions(),
-        onError: (error) => {
-          if (state.pendingRequestSequence === null) return;
-          handleCompactError(runtime, state, compactionBreaker, sessionId, error);
-        },
-      });
-    } catch (error) {
-      handleCompactError(runtime, state, compactionBreaker, sessionId, error);
-    }
-    return undefined;
+
+    emitRuntimeEvent(runtime, {
+      sessionId,
+      turn: state.turnIndex,
+      type: "context_compaction_gate_blocked_tool",
+      payload: {
+        blockedTool: event.toolName,
+        reason: "critical_context_pressure_without_compaction",
+      },
+    });
+
+    return {
+      block: true,
+      reason:
+        "Context usage is critical. Call tool 'session_compact' first, then continue with other tools.",
+    };
   });
 
   pi.on("session_compact", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    const state = getOrCreateCircuitState(compactionCircuitBySession, sessionId);
-    const wasOpen = state.openUntilTurn !== null;
-    state.pendingRequestSequence = null;
-    state.queuedRequestSequence = null;
-    state.compactIssuedForSequence = null;
-    state.consecutiveFailures = 0;
-    state.openUntilTurn = null;
+    const state = getOrCreateGateState(gateStateBySession, sessionId);
     const usage = toBudgetUsage(ctx.getContextUsage());
+    const wasGated = state.compactionRequired;
+    state.lastCompactionTurn = state.turnIndex;
+    state.compactionRequired = false;
+
     runtime.markContextCompacted(sessionId, {
       fromTokens: null,
       toTokens: usage?.tokens ?? null,
       summary: extractCompactionSummary(event),
       entryId: extractCompactionEntryId(event),
     });
-    if (wasOpen) {
+
+    if (wasGated) {
       emitRuntimeEvent(runtime, {
         sessionId,
         turn: state.turnIndex,
-        type: "context_compaction_breaker_closed",
+        type: "context_compaction_gate_cleared",
         payload: {
-          reason: "compaction_succeeded",
+          reason: "session_compact_performed",
         },
       });
     }
@@ -330,46 +320,84 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: RoasterRunti
 
   pi.on("session_shutdown", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    compactionCircuitBySession.delete(sessionId);
+    gateStateBySession.delete(sessionId);
     return undefined;
   });
 
   pi.on("before_agent_start", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    const state = getOrCreateCircuitState(compactionCircuitBySession, sessionId);
-    if (state.pendingRequestSequence !== null) {
-      state.pendingRequestSequence = null;
-      state.compactIssuedForSequence = null;
-      markFailure(runtime, state, compactionBreaker, sessionId, "missing_session_compact", undefined, {
-        failureTurnIndex: state.turnIndex + 1,
-      });
-    }
-    if (state.queuedRequestSequence !== null) {
-      state.queuedRequestSequence = null;
+    const state = getOrCreateGateState(gateStateBySession, sessionId);
+    hydrateLastCompactionTurnFromTape(runtime, sessionId, state);
+    const injectionScopeId = resolveInjectionScopeId(ctx.sessionManager);
+    const usage = toBudgetUsage(ctx.getContextUsage());
+    runtime.observeContextUsage(sessionId, usage);
+    const pressure = runtime.getContextPressureStatus(sessionId, usage);
+
+    const gateRequired =
+      runtime.config.infrastructure.contextBudget.enabled &&
+      pressure.level === "critical" &&
+      !hasRecentCompaction(runtime, state);
+    state.compactionRequired = gateRequired;
+    const systemPromptWithContract = applyContextContract(
+      (event as { systemPrompt?: unknown }).systemPrompt,
+      runtime,
+    );
+
+    if (gateRequired) {
       emitRuntimeEvent(runtime, {
         sessionId,
         turn: state.turnIndex,
-        type: "context_compaction_skipped",
+        type: "context_compaction_gate_armed",
         payload: {
-          reason: "queued_request_expired",
+          usagePercent: pressure.usageRatio,
+          hardLimitPercent: pressure.hardLimitRatio,
+        },
+      });
+      emitRuntimeEvent(runtime, {
+        sessionId,
+        turn: state.turnIndex,
+        type: "critical_without_compact",
+        payload: {
+          usagePercent: pressure.usageRatio,
+          hardLimitPercent: pressure.hardLimitRatio,
+          contextPressure: pressure.level,
+          requiredTool: "session_compact",
         },
       });
     }
-    const injectionScopeId = resolveInjectionScopeId(ctx.sessionManager);
-    const usage = toBudgetUsage(ctx.getContextUsage());
+
     const injection = runtime.buildContextInjection(sessionId, event.prompt, usage, injectionScopeId);
-    if (!injection.accepted) {
-      return undefined;
+    const blocks: string[] = [
+      buildTapeStatusBlock({
+        runtime,
+        sessionId,
+        pressure,
+        state,
+        gateRequired,
+      }),
+    ];
+    if (gateRequired) {
+      blocks.push(
+        buildCompactionGateMessage({
+          pressure,
+        }),
+      );
     }
+    if (injection.accepted && injection.text.trim().length > 0) {
+      blocks.push(injection.text);
+    }
+
     return {
+      systemPrompt: systemPromptWithContract,
       message: {
         customType: CONTEXT_INJECTION_MESSAGE_TYPE,
-        content: injection.text,
+        content: blocks.join("\n\n"),
         display: false,
         details: {
           originalTokens: injection.originalTokens,
           finalTokens: injection.finalTokens,
           truncated: injection.truncated,
+          gateRequired,
         },
       },
     };

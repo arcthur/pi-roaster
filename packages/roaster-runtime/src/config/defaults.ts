@@ -30,6 +30,14 @@ export const DEFAULT_ROASTER_CONFIG: RoasterConfig = {
     digestWindow: 12,
     checkpointEveryTurns: 20,
   },
+  tape: {
+    checkpointIntervalEntries: 120,
+    tapePressureThresholds: {
+      low: 80,
+      medium: 160,
+      high: 280,
+    },
+  },
   security: {
     sanitizeContext: true,
     enforceDeniedTools: true,
@@ -58,54 +66,10 @@ export const DEFAULT_ROASTER_CONFIG: RoasterConfig = {
       truncationStrategy: "summarize",
       compactionInstructions:
         "Summarize stale tool outputs and keep only active objectives, unresolved failures, and latest verification evidence.",
-      compactionCircuitBreaker: {
-        enabled: true,
-        maxConsecutiveFailures: 2,
-        cooldownTurns: 2,
-      },
     },
     interruptRecovery: {
       enabled: true,
-      snapshotsDir: ".orchestrator/state",
       gracefulTimeoutMs: 8000,
-      resumeHintInSystemPrompt: true,
-      resumeHintInjectionEnabled: true,
-      sessionHandoff: {
-        enabled: true,
-        maxSummaryChars: 800,
-        relevance: {
-          enabled: true,
-          goalWeight: 1.4,
-          failureWeight: 1.2,
-          recencyWeight: 0.8,
-          artifactWeight: 0.6,
-        },
-        hierarchy: {
-          enabled: true,
-          branchFactor: 3,
-          maxLevels: 3,
-          entriesPerLevel: 3,
-          maxCharsPerEntry: 240,
-          goalFilterEnabled: true,
-          minGoalScore: 0.34,
-          maxInjectedEntries: 4,
-        },
-        injectionBudget: {
-          enabled: true,
-          maxTotalChars: 1600,
-          maxUserPreferencesChars: 220,
-          maxUserHandoffChars: 420,
-          maxHierarchyChars: 640,
-          maxUserDigestChars: 260,
-          maxSessionHandoffChars: 520,
-          maxSessionDigestChars: 320,
-        },
-        circuitBreaker: {
-          enabled: true,
-          maxConsecutiveFailures: 2,
-          cooldownTurns: 2,
-        },
-      },
     },
     costTracking: {
       enabled: true,

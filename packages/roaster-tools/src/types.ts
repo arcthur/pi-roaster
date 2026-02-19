@@ -1,9 +1,14 @@
 import type {
+  ContextBudgetUsage,
+  ContextPressureStatus,
   EvidenceQuery,
   RoasterConfig,
   RollbackResult,
   SessionCostSummary,
   SkillDocument,
+  TapeSearchResult,
+  TapeSearchScope,
+  TapeStatusState,
   TaskItemStatus,
   TaskSpec,
   TaskState,
@@ -12,7 +17,7 @@ import type {
 } from "@pi-roaster/roaster-runtime";
 
 export interface RoasterToolRuntime {
-  readonly config?: Pick<RoasterConfig, "parallel">;
+  readonly config?: Pick<RoasterConfig, "parallel" | "infrastructure">;
   activateSkill(sessionId: string, name: string): { ok: boolean; reason?: string; skill?: SkillDocument };
   validateSkillOutputs(sessionId: string, outputs: Record<string, unknown>): { ok: boolean; missing: string[] };
   completeSkill(sessionId: string, outputs: Record<string, unknown>): { ok: boolean; missing: string[] };
@@ -25,6 +30,27 @@ export interface RoasterToolRuntime {
   queryLedger(sessionId: string, query: EvidenceQuery): string;
   getCostSummary(sessionId: string): SessionCostSummary;
   getAvailableConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown>;
+  getCompactionInstructions?(): string;
+  getContextUsage(sessionId: string): ContextBudgetUsage | undefined;
+  getContextPressureStatus(
+    sessionId: string,
+    usage?: ContextBudgetUsage,
+  ): ContextPressureStatus;
+  getTapeStatus(sessionId: string): TapeStatusState;
+  recordTapeHandoff(
+    sessionId: string,
+    input: { name: string; summary?: string; nextSteps?: string },
+  ): {
+    ok: boolean;
+    eventId?: string;
+    createdAt?: number;
+    error?: string;
+    tapeStatus?: TapeStatusState;
+  };
+  searchTape(
+    sessionId: string,
+    input: { query: string; scope?: TapeSearchScope; limit?: number },
+  ): TapeSearchResult;
 
   setTaskSpec(sessionId: string, spec: TaskSpec): void;
   getTaskState(sessionId: string): TaskState;

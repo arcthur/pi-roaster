@@ -25,6 +25,10 @@ Defined in `packages/roaster-tools/src/ast-grep.ts`.
 - `look_at`
 - `cost_view`
 - `ledger_query`
+- `tape_handoff`
+- `tape_info`
+- `tape_search`
+- `session_compact`
 - `rollback_last_patch`
 - `skill_load`
 - `skill_complete`
@@ -40,6 +44,8 @@ Definitions:
 - `packages/roaster-tools/src/look-at.ts`
 - `packages/roaster-tools/src/cost-view.ts`
 - `packages/roaster-tools/src/ledger-query.ts`
+- `packages/roaster-tools/src/tape.ts`
+- `packages/roaster-tools/src/session-compact.ts`
 - `packages/roaster-tools/src/rollback-last-patch.ts`
 - `packages/roaster-tools/src/skill-load.ts`
 - `packages/roaster-tools/src/skill-complete.ts`

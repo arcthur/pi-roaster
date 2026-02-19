@@ -13,6 +13,7 @@ Configuration contract sources:
 - `skills`
 - `verification`
 - `ledger`
+- `tape`
 - `security`
 - `parallel`
 - `infrastructure`
@@ -23,44 +24,18 @@ Configuration contract sources:
 - `skills.packs`: `typescript`, `react`, `bun`
 - `verification.defaultLevel`: `standard`
 - `ledger.path`: `.orchestrator/ledger/evidence.jsonl`
+- `tape.checkpointIntervalEntries`: `120`
+- `tape.tapePressureThresholds.low`: `80`
+- `tape.tapePressureThresholds.medium`: `160`
+- `tape.tapePressureThresholds.high`: `280`
 - `parallel.maxConcurrent`: `3`
 - `parallel.maxTotal`: `10`
 - `infrastructure.events.dir`: `.orchestrator/events`
 - `infrastructure.contextBudget.truncationStrategy`: `summarize`
 - `infrastructure.contextBudget.minSecondsBetweenCompaction`: `45`
 - `infrastructure.contextBudget.pressureBypassPercent`: `0.94`
-- `infrastructure.contextBudget.compactionCircuitBreaker.maxConsecutiveFailures`: `2`
-- `infrastructure.contextBudget.compactionCircuitBreaker.cooldownTurns`: `2`
-- `infrastructure.interruptRecovery.snapshotsDir`: `.orchestrator/state`
-- `infrastructure.interruptRecovery.resumeHintInjectionEnabled`: `true`
-- `infrastructure.interruptRecovery.sessionHandoff.enabled`: `true`
-- `infrastructure.interruptRecovery.sessionHandoff.maxSummaryChars`: `800`
-- `infrastructure.interruptRecovery.sessionHandoff.relevance.enabled`: `true`
-- `infrastructure.interruptRecovery.sessionHandoff.relevance.goalWeight`: `1.4`
-- `infrastructure.interruptRecovery.sessionHandoff.relevance.failureWeight`: `1.2`
-- `infrastructure.interruptRecovery.sessionHandoff.relevance.recencyWeight`: `0.8`
-- `infrastructure.interruptRecovery.sessionHandoff.relevance.artifactWeight`: `0.6`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.enabled`: `true`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.branchFactor`: `3`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.maxLevels`: `3`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.entriesPerLevel`: `3`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.maxCharsPerEntry`: `240`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.goalFilterEnabled`: `true`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.minGoalScore`: `0.34`
-- `infrastructure.interruptRecovery.sessionHandoff.hierarchy.maxInjectedEntries`: `4`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.enabled`: `true`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.maxTotalChars`: `1600`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.maxUserPreferencesChars`: `220`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.maxUserHandoffChars`: `420`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.maxHierarchyChars`: `640`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.maxUserDigestChars`: `260`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.maxSessionHandoffChars`: `520`
-- `infrastructure.interruptRecovery.sessionHandoff.injectionBudget.maxSessionDigestChars`: `320`
-- `infrastructure.interruptRecovery.sessionHandoff.circuitBreaker.maxConsecutiveFailures`: `2`
-- `infrastructure.interruptRecovery.sessionHandoff.circuitBreaker.cooldownTurns`: `2`
-
-`infrastructure.interruptRecovery.resumeHintInSystemPrompt` remains supported as a backward-compatible alias.  
-If both keys are set, `resumeHintInjectionEnabled` takes precedence; if only the legacy key is set, its value is mapped automatically.
+- `infrastructure.interruptRecovery.enabled`: `true`
+- `infrastructure.interruptRecovery.gracefulTimeoutMs`: `8000`
 
 ## Skill Discovery
 

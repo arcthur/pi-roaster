@@ -11,7 +11,7 @@ sequenceDiagram
   participant RT as RoasterRuntime
   participant EXT as Extensions
   participant TOOLS as Tools
-  participant STORES as Ledger/Event/Snapshot Stores
+  participant STORES as Ledger/Event Stores
 
   U->>CLI: start session
   CLI->>RT: create runtime
@@ -25,8 +25,6 @@ sequenceDiagram
   EXT->>RT: recordToolResult()
   RT->>STORES: append ledger/events
   CLI->>EXT: agent_end
-  EXT->>RT: persistSessionSnapshot()
-  RT->>STORES: write snapshot + memory digest
 ```
 
 ## Persistence Data Flow
@@ -36,8 +34,6 @@ flowchart LR
   INPUT["Prompt / Tool IO / Usage"] --> RT["RoasterRuntime"]
   RT --> LEDGER[".orchestrator/ledger/evidence.jsonl"]
   RT --> EVENTS[".orchestrator/events/<session>.jsonl"]
-  RT --> SNAP[".orchestrator/state/<session>.json"]
-  RT --> MEM[".orchestrator/memory/<session>.json"]
   RT --> INDEX[".pi-roaster/skills_index.json"]
 ```
 
@@ -45,15 +41,11 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  A["SIGINT/SIGTERM or shutdown"] --> B["persistSessionSnapshot(reason, interrupted)"]
-  B --> C["session snapshot written"]
+  A["SIGINT/SIGTERM or shutdown"] --> B["record session_interrupted event"]
+  B --> C["abort current run and exit"]
   C --> D["next startup"]
-  D --> E{"restoreStartupSession() finds snapshot?"}
-  E -->|Yes| F["restore active skill / counters / verification / parallel"]
-  E -->|No| G["fresh runtime state"]
-  F --> H["inject resume hint"]
-  G --> H
-  H --> I["continue normal turn loop"]
+  D --> E["rebuild runtime state from ledger/events"]
+  E --> F["continue normal turn loop"]
 ```
 
 ## Replay and Rollback Flow

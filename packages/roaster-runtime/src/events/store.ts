@@ -4,6 +4,12 @@ import { normalizeJsonRecord } from "../utils/json.js";
 import type { RoasterConfig, RoasterEventQuery, RoasterEventRecord } from "../types.js";
 import { ensureDir } from "../utils/fs.js";
 import { redactUnknown } from "../security/redact.js";
+import {
+  TAPE_ANCHOR_EVENT_TYPE,
+  TAPE_CHECKPOINT_EVENT_TYPE,
+  type TapeAnchorPayload,
+  type TapeCheckpointPayload,
+} from "../tape/events.js";
 
 type EventAppendInput = {
   sessionId: string;
@@ -74,6 +80,36 @@ export class RoasterEventStore {
     return row;
   }
 
+  appendAnchor(input: {
+    sessionId: string;
+    payload: TapeAnchorPayload;
+    turn?: number;
+    timestamp?: number;
+  }): RoasterEventRecord | undefined {
+    return this.append({
+      sessionId: input.sessionId,
+      type: TAPE_ANCHOR_EVENT_TYPE,
+      turn: input.turn,
+      payload: input.payload as unknown as Record<string, unknown>,
+      timestamp: input.timestamp,
+    });
+  }
+
+  appendCheckpoint(input: {
+    sessionId: string;
+    payload: TapeCheckpointPayload;
+    turn?: number;
+    timestamp?: number;
+  }): RoasterEventRecord | undefined {
+    return this.append({
+      sessionId: input.sessionId,
+      type: TAPE_CHECKPOINT_EVENT_TYPE,
+      turn: input.turn,
+      payload: input.payload as unknown as Record<string, unknown>,
+      timestamp: input.timestamp,
+    });
+  }
+
   list(sessionId: string, query: RoasterEventQuery = {}): RoasterEventRecord[] {
     const rows = parseLines(this.filePathForSession(sessionId));
     const filtered = query.type ? rows.filter((row) => row.type === query.type) : rows;
@@ -81,6 +117,20 @@ export class RoasterEventStore {
       return filtered.slice(-query.last);
     }
     return filtered;
+  }
+
+  listAnchors(sessionId: string, query: Omit<RoasterEventQuery, "type"> = {}): RoasterEventRecord[] {
+    return this.list(sessionId, {
+      ...query,
+      type: TAPE_ANCHOR_EVENT_TYPE,
+    });
+  }
+
+  listCheckpoints(sessionId: string, query: Omit<RoasterEventQuery, "type"> = {}): RoasterEventRecord[] {
+    return this.list(sessionId, {
+      ...query,
+      type: TAPE_CHECKPOINT_EVENT_TYPE,
+    });
   }
 
   latest(sessionId: string): RoasterEventRecord | undefined {

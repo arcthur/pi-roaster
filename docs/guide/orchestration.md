@@ -9,10 +9,10 @@ Orchestration is driven by runtime state management plus extension lifecycle han
 
 1. CLI creates a session (`packages/roaster-cli/src/session.ts`)
 2. Extensions are registered (`packages/roaster-extensions/src/index.ts`)
-3. `before_agent_start` injects context and memory
+3. `before_agent_start` injects context contract + tape status + replay context
 4. `tool_call` passes quality and budget gates
 5. `tool_result` updates ledger, events, and verification evidence
-6. `agent_end` persists memory digest/handoff; session snapshot persistence happens on signal/shutdown in CLI
+6. `agent_end` runs completion guard checks and notification hooks
 
 ## Runtime Subsystems
 
@@ -21,5 +21,5 @@ Orchestration is driven by runtime state management plus extension lifecycle han
 - Ledger: `packages/roaster-runtime/src/ledger/evidence-ledger.ts`
 - Context budget: `packages/roaster-runtime/src/context/budget.ts`
 - Event store: `packages/roaster-runtime/src/events/store.ts`
-- Snapshot store: `packages/roaster-runtime/src/state/snapshot-store.ts`
+- Tape replay engine: `packages/roaster-runtime/src/tape/replay-engine.ts`
 - Cost tracker: `packages/roaster-runtime/src/cost/tracker.ts`

@@ -18,7 +18,6 @@ type RegressionRunResult = {
   events: RuntimeEvent[];
 };
 
-const HANDOFF_TYPES = new Set(["session_handoff_generated", "session_handoff_skipped", "session_handoff_fallback"]);
 const COMPACTION_FOLLOW_TYPES = new Set([
   "session_before_compact",
   "session_compact",
@@ -31,7 +30,7 @@ const MULTI_TURN_PROMPTS = [
   "Do not call any tool. Reply exactly: ROUND-2 Review logic and fix non-smooth flow.",
   "Do not call any tool. Reply exactly: ROUND-3 Difficulty shows speed plus obstacle count.",
   "Do not call any tool. Reply exactly: ROUND-4 Validate long interactive session continuity.",
-  "Do not call any tool. Reply exactly: ROUND-5 Multi-turn handoff and compaction regression complete.",
+  "Do not call any tool. Reply exactly: ROUND-5 Multi-turn compaction regression complete.",
 ] as const;
 
 function ensureExpectAvailable(): void {
@@ -57,11 +56,6 @@ function writeWorkspaceConfig(workspace: string): void {
             minTurnsBetweenCompaction: 0,
             minSecondsBetweenCompaction: 0,
             pressureBypassPercent: 0,
-            compactionCircuitBreaker: {
-              enabled: true,
-              maxConsecutiveFailures: 2,
-              cooldownTurns: 2,
-            },
           },
         },
       },
@@ -261,9 +255,6 @@ function summarizeCounts(events: RuntimeEvent[]): string {
   const turnStart = countEvents(events, "turn_start");
   const turnEnd = countEvents(events, "turn_end");
   const agentEnd = countEvents(events, "agent_end");
-  const handoffGenerated = countEvents(events, "session_handoff_generated");
-  const handoffSkipped = countEvents(events, "session_handoff_skipped");
-  const handoffFallback = countEvents(events, "session_handoff_fallback");
   const compactionRequested = countEvents(events, "context_compaction_requested");
   const beforeCompact = countEvents(events, "session_before_compact");
   const sessionCompact = countEvents(events, "session_compact");
@@ -275,9 +266,6 @@ function summarizeCounts(events: RuntimeEvent[]): string {
     `turn_start=${turnStart}`,
     `turn_end=${turnEnd}`,
     `agent_end=${agentEnd}`,
-    `handoff_generated=${handoffGenerated}`,
-    `handoff_skipped=${handoffSkipped}`,
-    `handoff_fallback=${handoffFallback}`,
     `compaction_requested=${compactionRequested}`,
     `session_before_compact=${beforeCompact}`,
     `session_compact=${sessionCompact}`,
@@ -343,28 +331,10 @@ function assertCoreCounts(result: RegressionRunResult, rounds: number): void {
   const turnStart = countEvents(result.events, "turn_start");
   const turnEnd = countEvents(result.events, "turn_end");
   const agentEnd = countEvents(result.events, "agent_end");
-  const handoffTotal =
-    countEvents(result.events, "session_handoff_generated") +
-    countEvents(result.events, "session_handoff_skipped") +
-    countEvents(result.events, "session_handoff_fallback");
-
   expect(input).toBeGreaterThanOrEqual(rounds);
   expect(turnStart).toBeGreaterThanOrEqual(rounds);
   expect(turnEnd).toBeGreaterThanOrEqual(rounds);
   expect(agentEnd).toBeGreaterThanOrEqual(rounds);
-  expect(handoffTotal).toBeGreaterThanOrEqual(rounds);
-}
-
-function assertHandoffContinuity(result: RegressionRunResult, rounds: number): void {
-  const agentEndIndexes = eventIndexes(result.events, "agent_end");
-  expect(agentEndIndexes.length).toBeGreaterThanOrEqual(rounds);
-
-  for (let turn = 0; turn < rounds; turn += 1) {
-    const start = agentEndIndexes[turn]!;
-    const end = turn + 1 < agentEndIndexes.length ? agentEndIndexes[turn + 1]! : result.events.length;
-    const hasHandoff = result.events.slice(start, end).some((event) => HANDOFF_TYPES.has(String(event.type ?? "")));
-    expect(hasHandoff).toBe(true);
-  }
 }
 
 function assertCompactionContinuity(result: RegressionRunResult): void {
@@ -389,7 +359,7 @@ function assertCompactionContinuity(result: RegressionRunResult): void {
 }
 
 describe("e2e: interactive multi-turn live regression", () => {
-  runLive("runs 3~5 round segmented conversation and validates handoff/compaction continuity", () => {
+  runLive("runs 3~5 round segmented conversation and validates compaction continuity", () => {
     ensureExpectAvailable();
     for (const rounds of [3, 5]) {
       const result = runRegression(rounds);
@@ -398,7 +368,6 @@ describe("e2e: interactive multi-turn live regression", () => {
           throw new Error(formatFailureOutput(result));
         }
         assertCoreCounts(result, rounds);
-        assertHandoffContinuity(result, rounds);
         assertCompactionContinuity(result);
       } catch (error) {
         throw new Error(

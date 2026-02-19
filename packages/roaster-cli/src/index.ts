@@ -471,10 +471,6 @@ async function run(): Promise<void> {
       type: "session_interrupted",
       payload: { signal },
     });
-    runtime.persistSessionSnapshot(sessionId, {
-      reason: "signal",
-      interrupted: true,
-    });
 
     const timeout = setTimeout(() => {
       void session.abort().finally(() => {
@@ -523,10 +519,6 @@ async function run(): Promise<void> {
       return;
     }
     const sessionId = getSessionId();
-    runtime.persistSessionSnapshot(sessionId, {
-      reason: "shutdown",
-      interrupted: false,
-    });
     if (emitJsonBundle) {
       const replayEvents = runtime.queryStructuredEvents(sessionId);
       await writeJsonLine({

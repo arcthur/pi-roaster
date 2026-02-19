@@ -35,6 +35,28 @@ function normalizeNonEmptyString(value: unknown, fallback: string): string {
   return trimmed.length > 0 ? value : fallback;
 }
 
+function normalizeTapePressureThresholds(
+  value: unknown,
+  fallback: { low: number; medium: number; high: number },
+): { low: number; medium: number; high: number } {
+  const input =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+
+  const low = normalizePositiveInteger(input.low, fallback.low);
+  const medium = Math.max(
+    low,
+    normalizePositiveInteger(input.medium, fallback.medium),
+  );
+  const high = Math.max(
+    medium,
+    normalizePositiveInteger(input.high, fallback.high),
+  );
+
+  return { low, medium, high };
+}
+
 function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   if (!Array.isArray(value)) return [...fallback];
   return value
@@ -50,20 +72,6 @@ export function normalizeRoasterConfig(config: RoasterConfig, defaults: RoasterC
   const normalizedCompactionThresholdPercent = Math.min(
     normalizeUnitInterval(contextBudget.compactionThresholdPercent, defaultContextBudget.compactionThresholdPercent),
     normalizedHardLimitPercent,
-  );
-
-  const defaultSessionHandoff = defaults.infrastructure.interruptRecovery.sessionHandoff;
-  const sessionHandoff = config.infrastructure.interruptRecovery.sessionHandoff;
-  const hierarchyEntriesPerLevel = Math.max(
-    2,
-    normalizePositiveInteger(sessionHandoff.hierarchy.entriesPerLevel, defaultSessionHandoff.hierarchy.entriesPerLevel),
-  );
-  const hierarchyBranchFactor = Math.max(
-    2,
-    Math.min(
-      hierarchyEntriesPerLevel,
-      normalizePositiveInteger(sessionHandoff.hierarchy.branchFactor, defaultSessionHandoff.hierarchy.branchFactor),
-    ),
   );
 
   return {
@@ -89,6 +97,17 @@ export function normalizeRoasterConfig(config: RoasterConfig, defaults: RoasterC
       checkpointEveryTurns: normalizeNonNegativeInteger(
         config.ledger.checkpointEveryTurns,
         defaults.ledger.checkpointEveryTurns,
+      ),
+    },
+    tape: {
+      ...config.tape,
+      checkpointIntervalEntries: normalizeNonNegativeInteger(
+        config.tape.checkpointIntervalEntries,
+        defaults.tape.checkpointIntervalEntries,
+      ),
+      tapePressureThresholds: normalizeTapePressureThresholds(
+        config.tape.tapePressureThresholds,
+        defaults.tape.tapePressureThresholds,
       ),
     },
     security: {
@@ -143,136 +162,16 @@ export function normalizeRoasterConfig(config: RoasterConfig, defaults: RoasterC
           contextBudget.compactionInstructions,
           defaultContextBudget.compactionInstructions,
         ),
-        compactionCircuitBreaker: {
-          ...contextBudget.compactionCircuitBreaker,
-          enabled: normalizeBoolean(
-            contextBudget.compactionCircuitBreaker.enabled,
-            defaultContextBudget.compactionCircuitBreaker.enabled,
-          ),
-          maxConsecutiveFailures: normalizePositiveInteger(
-            contextBudget.compactionCircuitBreaker.maxConsecutiveFailures,
-            defaultContextBudget.compactionCircuitBreaker.maxConsecutiveFailures,
-          ),
-          cooldownTurns: normalizePositiveInteger(
-            contextBudget.compactionCircuitBreaker.cooldownTurns,
-            defaultContextBudget.compactionCircuitBreaker.cooldownTurns,
-          ),
-        },
       },
       interruptRecovery: {
-        ...config.infrastructure.interruptRecovery,
         enabled: normalizeBoolean(
           config.infrastructure.interruptRecovery.enabled,
           defaults.infrastructure.interruptRecovery.enabled,
-        ),
-        snapshotsDir: normalizeNonEmptyString(
-          config.infrastructure.interruptRecovery.snapshotsDir,
-          defaults.infrastructure.interruptRecovery.snapshotsDir,
         ),
         gracefulTimeoutMs: normalizePositiveInteger(
           config.infrastructure.interruptRecovery.gracefulTimeoutMs,
           defaults.infrastructure.interruptRecovery.gracefulTimeoutMs,
         ),
-        resumeHintInjectionEnabled: normalizeBoolean(
-          config.infrastructure.interruptRecovery.resumeHintInjectionEnabled,
-          defaults.infrastructure.interruptRecovery.resumeHintInjectionEnabled,
-        ),
-        resumeHintInSystemPrompt:
-          typeof config.infrastructure.interruptRecovery.resumeHintInSystemPrompt === "boolean"
-            ? config.infrastructure.interruptRecovery.resumeHintInSystemPrompt
-            : defaults.infrastructure.interruptRecovery.resumeHintInSystemPrompt,
-        sessionHandoff: {
-          ...sessionHandoff,
-          enabled: normalizeBoolean(sessionHandoff.enabled, defaultSessionHandoff.enabled),
-          maxSummaryChars: normalizePositiveInteger(sessionHandoff.maxSummaryChars, defaultSessionHandoff.maxSummaryChars),
-          relevance: {
-            ...sessionHandoff.relevance,
-            enabled: normalizeBoolean(sessionHandoff.relevance.enabled, defaultSessionHandoff.relevance.enabled),
-            goalWeight: normalizeNonNegativeNumber(
-              sessionHandoff.relevance.goalWeight,
-              defaultSessionHandoff.relevance.goalWeight,
-            ),
-            failureWeight: normalizeNonNegativeNumber(
-              sessionHandoff.relevance.failureWeight,
-              defaultSessionHandoff.relevance.failureWeight,
-            ),
-            recencyWeight: normalizeNonNegativeNumber(
-              sessionHandoff.relevance.recencyWeight,
-              defaultSessionHandoff.relevance.recencyWeight,
-            ),
-            artifactWeight: normalizeNonNegativeNumber(
-              sessionHandoff.relevance.artifactWeight,
-              defaultSessionHandoff.relevance.artifactWeight,
-            ),
-          },
-          hierarchy: {
-            ...sessionHandoff.hierarchy,
-            enabled: normalizeBoolean(sessionHandoff.hierarchy.enabled, defaultSessionHandoff.hierarchy.enabled),
-            branchFactor: hierarchyBranchFactor,
-            maxLevels: normalizePositiveInteger(sessionHandoff.hierarchy.maxLevels, defaultSessionHandoff.hierarchy.maxLevels),
-            entriesPerLevel: hierarchyEntriesPerLevel,
-            maxCharsPerEntry: normalizePositiveInteger(
-              sessionHandoff.hierarchy.maxCharsPerEntry,
-              defaultSessionHandoff.hierarchy.maxCharsPerEntry,
-            ),
-            goalFilterEnabled: normalizeBoolean(
-              sessionHandoff.hierarchy.goalFilterEnabled,
-              defaultSessionHandoff.hierarchy.goalFilterEnabled,
-            ),
-            minGoalScore: normalizeUnitInterval(
-              sessionHandoff.hierarchy.minGoalScore,
-              defaultSessionHandoff.hierarchy.minGoalScore,
-            ),
-            maxInjectedEntries: normalizePositiveInteger(
-              sessionHandoff.hierarchy.maxInjectedEntries,
-              defaultSessionHandoff.hierarchy.maxInjectedEntries,
-            ),
-          },
-          injectionBudget: {
-            ...sessionHandoff.injectionBudget,
-            enabled: normalizeBoolean(sessionHandoff.injectionBudget.enabled, defaultSessionHandoff.injectionBudget.enabled),
-            maxTotalChars: normalizePositiveInteger(
-              sessionHandoff.injectionBudget.maxTotalChars,
-              defaultSessionHandoff.injectionBudget.maxTotalChars,
-            ),
-            maxUserPreferencesChars: normalizePositiveInteger(
-              sessionHandoff.injectionBudget.maxUserPreferencesChars,
-              defaultSessionHandoff.injectionBudget.maxUserPreferencesChars,
-            ),
-            maxUserHandoffChars: normalizePositiveInteger(
-              sessionHandoff.injectionBudget.maxUserHandoffChars,
-              defaultSessionHandoff.injectionBudget.maxUserHandoffChars,
-            ),
-            maxHierarchyChars: normalizePositiveInteger(
-              sessionHandoff.injectionBudget.maxHierarchyChars,
-              defaultSessionHandoff.injectionBudget.maxHierarchyChars,
-            ),
-            maxUserDigestChars: normalizePositiveInteger(
-              sessionHandoff.injectionBudget.maxUserDigestChars,
-              defaultSessionHandoff.injectionBudget.maxUserDigestChars,
-            ),
-            maxSessionHandoffChars: normalizePositiveInteger(
-              sessionHandoff.injectionBudget.maxSessionHandoffChars,
-              defaultSessionHandoff.injectionBudget.maxSessionHandoffChars,
-            ),
-            maxSessionDigestChars: normalizePositiveInteger(
-              sessionHandoff.injectionBudget.maxSessionDigestChars,
-              defaultSessionHandoff.injectionBudget.maxSessionDigestChars,
-            ),
-          },
-          circuitBreaker: {
-            ...sessionHandoff.circuitBreaker,
-            enabled: normalizeBoolean(sessionHandoff.circuitBreaker.enabled, defaultSessionHandoff.circuitBreaker.enabled),
-            maxConsecutiveFailures: normalizePositiveInteger(
-              sessionHandoff.circuitBreaker.maxConsecutiveFailures,
-              defaultSessionHandoff.circuitBreaker.maxConsecutiveFailures,
-            ),
-            cooldownTurns: normalizePositiveInteger(
-              sessionHandoff.circuitBreaker.cooldownTurns,
-              defaultSessionHandoff.circuitBreaker.cooldownTurns,
-            ),
-          },
-        },
       },
       costTracking: {
         ...config.infrastructure.costTracking,

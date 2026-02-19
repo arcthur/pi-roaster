@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   AuthStorage,
@@ -15,7 +15,6 @@ import {
   registerContextTransform,
   registerEventStream,
   registerLedgerWriter,
-  registerMemory,
   registerQualityGate,
 } from "@pi-roaster/roaster-extensions";
 import { DEFAULT_ROASTER_CONFIG, RoasterRuntime, type RoasterConfig } from "@pi-roaster/roaster-runtime";
@@ -135,9 +134,99 @@ function withRuntimeConfig<T extends Record<string, unknown>>(
   patch?: DeepPartial<RoasterConfig>,
 ): T & { config: RoasterConfig } {
   const runtimePatch = (runtime as { config?: DeepPartial<RoasterConfig> }).config;
+  const config = buildRuntimeConfig(patch ?? runtimePatch);
+  const normalizeRatio = (value: number | null | undefined): number | null => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    if (value >= 0 && value <= 1) return value;
+    if (value > 1 && value <= 100) return value / 100;
+    if (value < 0) return 0;
+    return 1;
+  };
+  const resolveUsageRatio = (usage: unknown): number | null => {
+    const normalized = usage as { tokens?: unknown; contextWindow?: unknown; percent?: unknown } | undefined;
+    if (!normalized) return null;
+    const byPercent = normalizeRatio(
+      typeof normalized.percent === "number" ? normalized.percent : null,
+    );
+    if (byPercent !== null) return byPercent;
+    if (
+      typeof normalized.tokens !== "number" ||
+      typeof normalized.contextWindow !== "number" ||
+      normalized.tokens < 0 ||
+      normalized.contextWindow <= 0
+    ) {
+      return null;
+    }
+    return Math.max(0, Math.min(1, normalized.tokens / normalized.contextWindow));
+  };
+  const hardLimitRatio =
+    normalizeRatio(config.infrastructure.contextBudget.hardLimitPercent) ?? 1;
+  const compactionThresholdRatio =
+    normalizeRatio(config.infrastructure.contextBudget.compactionThresholdPercent) ??
+    hardLimitRatio;
   const defaults = {
     recordEvent: () => undefined,
     clearSessionState: () => undefined,
+    queryEvents: () => [],
+    getTapeStatus: () => ({
+      totalEntries: 0,
+      entriesSinceAnchor: 0,
+      entriesSinceCheckpoint: 0,
+      tapePressure: "none",
+      thresholds: {
+        low: config.tape.tapePressureThresholds.low,
+        medium: config.tape.tapePressureThresholds.medium,
+        high: config.tape.tapePressureThresholds.high,
+      },
+      lastAnchor: undefined,
+      lastCheckpointId: undefined,
+    }),
+    getContextHardLimitRatio: () => hardLimitRatio,
+    getContextCompactionThresholdRatio: () => compactionThresholdRatio,
+    getContextPressureStatus: (_sessionId: string, usage?: unknown) => {
+      const usageRatio = resolveUsageRatio(usage);
+      if (usageRatio === null) {
+        return {
+          level: "unknown",
+          usageRatio: null,
+          hardLimitRatio,
+          compactionThresholdRatio,
+        };
+      }
+
+      if (usageRatio >= hardLimitRatio) {
+        return {
+          level: "critical",
+          usageRatio,
+          hardLimitRatio,
+          compactionThresholdRatio,
+        };
+      }
+      if (usageRatio >= compactionThresholdRatio) {
+        return {
+          level: "high",
+          usageRatio,
+          hardLimitRatio,
+          compactionThresholdRatio,
+        };
+      }
+      const mediumThreshold = Math.max(0.5, compactionThresholdRatio * 0.75);
+      if (usageRatio >= mediumThreshold) {
+        return {
+          level: "medium",
+          usageRatio,
+          hardLimitRatio,
+          compactionThresholdRatio,
+        };
+      }
+      const lowThreshold = Math.max(0.25, compactionThresholdRatio * 0.5);
+      return {
+        level: usageRatio >= lowThreshold ? "low" : "none",
+        usageRatio,
+        hardLimitRatio,
+        compactionThresholdRatio,
+      };
+    },
     planSupplementalContextInjection: (_sessionId: string, inputText: string) => ({
       accepted: true,
       text: inputText,
@@ -150,21 +239,19 @@ function withRuntimeConfig<T extends Record<string, unknown>>(
   return {
     ...defaults,
     ...runtime,
-    config: buildRuntimeConfig(patch ?? runtimePatch),
+    config,
   };
 }
 
+
 describe("Extension gaps: context transform", () => {
-  test("registers context budget hooks and injects context as hidden custom message", () => {
+  test("registers context hooks and injects hidden context message", () => {
     const { api, handlers } = createMockExtensionAPI();
     const runtime = withRuntimeConfig({
       onTurnStart: () => undefined,
       observeContextUsage: () => undefined,
       shouldRequestCompaction: () => false,
       markContextCompacted: () => undefined,
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
       buildContextInjection: () => ({
         text: "[Roaster Context]\nTop-K Skill Candidates:\n- debugging",
         accepted: true,
@@ -175,18 +262,22 @@ describe("Extension gaps: context transform", () => {
     } as any);
 
     registerContextTransform(api, runtime);
+
     expect(handlers.has("context")).toBe(true);
     expect(handlers.has("turn_start")).toBe(true);
-    expect(handlers.has("turn_end")).toBe(true);
+    expect(handlers.has("before_agent_start")).toBe(true);
+    expect(handlers.has("tool_call")).toBe(true);
     expect(handlers.has("session_compact")).toBe(true);
+    expect(handlers.has("turn_end")).toBe(false);
+    expect(handlers.has("agent_end")).toBe(false);
 
     const result = invokeHandler<{
+      systemPrompt?: string;
       message: {
         customType: string;
         content: string;
         display: boolean;
       };
-      systemPrompt?: string;
     }>(
       handlers,
       "before_agent_start",
@@ -203,11 +294,11 @@ describe("Extension gaps: context transform", () => {
       },
     );
 
-    expect(result.systemPrompt).toBeUndefined();
     expect(result.message.customType).toBe("roaster-context-injection");
     expect(result.message.display).toBe(false);
     expect(result.message.content.includes("[Roaster Context]")).toBe(true);
     expect(result.message.content.includes("debugging")).toBe(true);
+    expect(result.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
   });
 
   test("does not inject context message when budget drops injection", () => {
@@ -217,9 +308,6 @@ describe("Extension gaps: context transform", () => {
       observeContextUsage: () => undefined,
       shouldRequestCompaction: () => false,
       markContextCompacted: () => undefined,
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
       buildContextInjection: () => ({
         text: "",
         accepted: false,
@@ -231,7 +319,7 @@ describe("Extension gaps: context transform", () => {
 
     registerContextTransform(api, runtime);
 
-    const result = invokeHandler<unknown>(
+    const result = invokeHandler<{ systemPrompt?: string; message?: { content?: string } }>(
       handlers,
       "before_agent_start",
       {
@@ -243,11 +331,13 @@ describe("Extension gaps: context transform", () => {
         sessionManager: {
           getSessionId: () => "s1-drop",
         },
-        getContextUsage: () => ({ tokens: 999, contextWindow: 1000, percent: 0.999 }),
+        getContextUsage: () => ({ tokens: 520, contextWindow: 1000, percent: 0.52 }),
       },
     );
 
-    expect(result).toBeUndefined();
+    expect(result.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(result.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(result.message?.content?.includes("[Roaster Context]")).toBe(false);
   });
 
   test("passes leaf id into runtime injection scope", () => {
@@ -258,9 +348,6 @@ describe("Extension gaps: context transform", () => {
       observeContextUsage: () => undefined,
       shouldRequestCompaction: () => false,
       markContextCompacted: () => undefined,
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
       buildContextInjection: (_sessionId: string, _prompt: string, _usage: unknown, scopeId?: string) => {
         scopes.push(scopeId);
         return {
@@ -295,220 +382,9 @@ describe("Extension gaps: context transform", () => {
     expect(scopes).toEqual(["leaf-1"]);
   });
 
-  test("opens compaction breaker after missing compaction result and skips during cooldown", () => {
-    const { api, handlers } = createMockExtensionAPI();
-    const eventTypes: string[] = [];
-    let compactCalls = 0;
-    const runtime = withRuntimeConfig({
-      config: {
-        infrastructure: {
-          contextBudget: {
-            compactionCircuitBreaker: {
-              enabled: true,
-              maxConsecutiveFailures: 1,
-              cooldownTurns: 2,
-            },
-          },
-        },
-      },
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => true,
-      markContextCompacted: () => undefined,
-      recordEvent: (input: { type: string }) => {
-        eventTypes.push(input.type);
-      },
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
-
-    registerContextTransform(api, runtime);
-
-    const contextCtx = {
-      sessionManager: {
-        getSessionId: () => "s-breaker",
-      },
-      getContextUsage: () => ({ tokens: 980, contextWindow: 1000, percent: 0.98 }),
-      compact: () => {
-        compactCalls += 1;
-      },
-    };
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-1", systemPrompt: "base" },
-      { sessionManager: contextCtx.sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "turn_start", { turnIndex: 1 }, { sessionManager: contextCtx.sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    expect(compactCalls).toBe(0);
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 1, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(1);
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-2", systemPrompt: "base" },
-      { sessionManager: contextCtx.sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "turn_start", { turnIndex: 2 }, { sessionManager: contextCtx.sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 2, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(1);
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-3", systemPrompt: "base" },
-      { sessionManager: contextCtx.sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "turn_start", { turnIndex: 3 }, { sessionManager: contextCtx.sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 3, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(1);
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-4", systemPrompt: "base" },
-      { sessionManager: contextCtx.sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "turn_start", { turnIndex: 4 }, { sessionManager: contextCtx.sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 4, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(2);
-
-    expect(eventTypes.includes("context_compaction_breaker_opened")).toBe(true);
-    expect(eventTypes.includes("context_compaction_skipped")).toBe(true);
-    expect(eventTypes.includes("context_compaction_breaker_closed")).toBe(true);
-  });
-
-  test("detects missing compaction even when turnIndex does not advance", () => {
+  test("records non-interactive compaction skip when compaction is requested", () => {
     const { api, handlers } = createMockExtensionAPI();
     const skippedReasons: string[] = [];
-    const eventTypes: string[] = [];
-    let compactCalls = 0;
-    const runtime = withRuntimeConfig({
-      config: {
-        infrastructure: {
-          contextBudget: {
-            compactionCircuitBreaker: {
-              enabled: true,
-              maxConsecutiveFailures: 1,
-              cooldownTurns: 1,
-            },
-          },
-        },
-      },
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => true,
-      markContextCompacted: () => undefined,
-      recordEvent: (input: { type: string; payload?: { reason?: string } }) => {
-        eventTypes.push(input.type);
-        if (input.type === "context_compaction_skipped" && input.payload?.reason) {
-          skippedReasons.push(input.payload.reason);
-        }
-      },
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
-
-    registerContextTransform(api, runtime);
-
-    const contextCtx = {
-      sessionManager: {
-        getSessionId: () => "s-flat-turn-index",
-      },
-      getContextUsage: () => ({ tokens: 980, contextWindow: 1000, percent: 0.98 }),
-      compact: () => {
-        compactCalls += 1;
-      },
-    };
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-1", systemPrompt: "base" },
-      { sessionManager: contextCtx.sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(handlers, "turn_start", { turnIndex: 0 }, { sessionManager: contextCtx.sessionManager });
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 0, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(1);
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-2", systemPrompt: "base" },
-      { sessionManager: contextCtx.sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(handlers, "turn_start", { turnIndex: 0 }, { sessionManager: contextCtx.sessionManager });
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 0, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-
-    expect(compactCalls).toBe(1);
-    expect(eventTypes.includes("context_compaction_breaker_opened")).toBe(true);
-    expect(skippedReasons).toContain("circuit_open");
-  });
-
-  test("skips compaction in non-interactive mode", () => {
-    const { api, handlers } = createMockExtensionAPI();
-    const skippedReasons: string[] = [];
-    let compactCalls = 0;
     const runtime = withRuntimeConfig({
       onTurnStart: () => undefined,
       observeContextUsage: () => undefined,
@@ -519,9 +395,6 @@ describe("Extension gaps: context transform", () => {
           skippedReasons.push(input.payload.reason);
         }
       },
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
       buildContextInjection: () => ({
         text: "",
         accepted: false,
@@ -533,7 +406,12 @@ describe("Extension gaps: context transform", () => {
 
     registerContextTransform(api, runtime);
 
-    invokeHandler(handlers, "turn_start", { turnIndex: 1 }, { sessionManager: { getSessionId: () => "s-print" } });
+    invokeHandler(
+      handlers,
+      "turn_start",
+      { turnIndex: 1 },
+      { sessionManager: { getSessionId: () => "s-print" } },
+    );
     invokeHandler(
       handlers,
       "context",
@@ -544,387 +422,115 @@ describe("Extension gaps: context transform", () => {
           getSessionId: () => "s-print",
         },
         getContextUsage: () => ({ tokens: 990, contextWindow: 1000, percent: 0.99 }),
-        compact: () => {
-          compactCalls += 1;
-        },
       },
     );
 
-    expect(compactCalls).toBe(0);
     expect(skippedReasons).toContain("non_interactive_mode");
   });
 
-  test("preserves compaction request across toolUse turns until agent_end", () => {
+  test("gates non-session_compact tools when context pressure is critical", () => {
     const { api, handlers } = createMockExtensionAPI();
-    let compactCalls = 0;
-    const runtime = withRuntimeConfig({
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => true,
-      markContextCompacted: () => undefined,
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
-
-    registerContextTransform(api, runtime);
-
-    const sessionManager = { getSessionId: () => "s-tool-use" };
-    const contextCtx = {
-      sessionManager,
-      getContextUsage: () => ({ tokens: 900, contextWindow: 1000, percent: 0.9 }),
-      compact: () => {
-        compactCalls += 1;
-      },
-    };
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "tool loop", systemPrompt: "base" },
-      { sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "turn_start", { turnIndex: 1 }, { sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 1, message: { role: "assistant", stopReason: "toolUse" }, toolResults: [{}] },
-      contextCtx,
-    );
-    expect(compactCalls).toBe(0);
-
-    invokeHandler(handlers, "turn_start", { turnIndex: 2 }, { sessionManager });
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 2, message: { role: "assistant", stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(1);
-  });
-
-  test("clears queued request on aborted turn via before_agent_start", () => {
-    const { api, handlers } = createMockExtensionAPI();
-    const skippedReasons: string[] = [];
-    let compactCalls = 0;
-    const runtime = withRuntimeConfig({
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => true,
-      markContextCompacted: () => undefined,
-      recordEvent: (input: { type: string; payload?: { reason?: string } }) => {
-        if (input.type === "context_compaction_skipped" && input.payload?.reason) {
-          skippedReasons.push(input.payload.reason);
-        }
-      },
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
-
-    registerContextTransform(api, runtime);
-
-    const sessionManager = { getSessionId: () => "s-aborted" };
-    const contextCtx = {
-      sessionManager,
-      getContextUsage: () => ({ tokens: 900, contextWindow: 1000, percent: 0.9 }),
-      compact: () => {
-        compactCalls += 1;
-      },
-    };
-
-    // Agent round 1: turn_start + context queues compaction, but no turn_end fires (aborted)
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-1", systemPrompt: "base" },
-      { sessionManager, getContextUsage: () => undefined },
-    );
-    invokeHandler(handlers, "turn_start", { turnIndex: 1 }, { sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    // No turn_end, no agent_end — simulating an aborted turn
-
-    // Agent round 2: before_agent_start should clear the dangling queued request
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "round-2", systemPrompt: "base" },
-      { sessionManager, getContextUsage: () => undefined },
-    );
-
-    expect(compactCalls).toBe(0);
-    expect(skippedReasons).toContain("queued_request_expired");
-  });
-
-  test("handles async compact onError callback and opens breaker", () => {
-    const { api, handlers } = createMockExtensionAPI();
-    const skippedReasons: string[] = [];
     const eventTypes: string[] = [];
-    let capturedOnError: ((error: unknown) => void) | null = null;
-    const runtime = withRuntimeConfig({
-      config: {
+    const capturedCompactions: Array<Record<string, unknown>> = [];
+
+    const runtime = withRuntimeConfig(
+      {
+        onTurnStart: () => undefined,
+        observeContextUsage: () => undefined,
+        shouldRequestCompaction: () => true,
+        markContextCompacted: (_sessionId: string, payload: Record<string, unknown>) => {
+          capturedCompactions.push(payload);
+        },
+        recordEvent: (input: { type: string }) => {
+          eventTypes.push(input.type);
+        },
+        buildContextInjection: () => ({
+          text: "",
+          accepted: false,
+          originalTokens: 0,
+          finalTokens: 0,
+          truncated: false,
+        }),
+      } as any,
+      {
         infrastructure: {
           contextBudget: {
-            compactionCircuitBreaker: {
-              enabled: true,
-              maxConsecutiveFailures: 1,
-              cooldownTurns: 2,
-            },
+            hardLimitPercent: 0.8,
           },
         },
       },
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => true,
-      markContextCompacted: () => undefined,
-      recordEvent: (input: { type: string; payload?: { reason?: string } }) => {
-        eventTypes.push(input.type);
-        if (input.type === "context_compaction_skipped" && input.payload?.reason) {
-          skippedReasons.push(input.payload.reason);
-        }
-      },
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
-
-    registerContextTransform(api, runtime);
-
-    const sessionManager = { getSessionId: () => "s-async-error" };
-    const contextCtx = {
-      sessionManager,
-      getContextUsage: () => ({ tokens: 950, contextWindow: 1000, percent: 0.95 }),
-      compact: (opts: { onError?: (error: unknown) => void }) => {
-        // Capture the onError callback instead of calling it immediately
-        capturedOnError = opts.onError ?? null;
-      },
-    };
-
-    invokeHandler(
-      handlers,
-      "before_agent_start",
-      { type: "before_agent_start", prompt: "go", systemPrompt: "base" },
-      { sessionManager, getContextUsage: () => undefined },
     );
-    invokeHandler(handlers, "turn_start", { turnIndex: 1 }, { sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 1, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-
-    // compact was called but didn't throw — onError was captured
-    expect(capturedOnError).not.toBeNull();
-    expect(skippedReasons).not.toContain("compact_call_failed");
-
-    // Now simulate async error callback
-    capturedOnError!(new Error("async compaction failed"));
-
-    expect(skippedReasons).toContain("compact_call_failed");
-    expect(eventTypes).toContain("context_compaction_breaker_opened");
-  });
-
-  test("clears compaction circuit state on session shutdown", () => {
-    const { api, handlers } = createMockExtensionAPI();
-    let compactCalls = 0;
-    const runtime = withRuntimeConfig({
-      config: {
-        infrastructure: {
-          contextBudget: {
-            compactionCircuitBreaker: {
-              enabled: true,
-              maxConsecutiveFailures: 1,
-              cooldownTurns: 2,
-            },
-          },
-        },
-      },
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => true,
-      markContextCompacted: () => undefined,
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
 
     registerContextTransform(api, runtime);
 
     const sessionManager = {
-      getSessionId: () => "s-shutdown-reset",
-    };
-    const contextCtx = {
-      sessionManager,
-      getContextUsage: () => ({ tokens: 960, contextWindow: 1000, percent: 0.96 }),
-      compact: () => {
-        compactCalls += 1;
-      },
+      getSessionId: () => "s-gate",
     };
 
-    invokeHandler(handlers, "turn_start", { turnIndex: 1 }, { sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(
+    const before = invokeHandler<{ message?: { content?: string } }>(
       handlers,
-      "turn_end",
-      { turnIndex: 1, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(1);
-
-    invokeHandler(handlers, "session_shutdown", { type: "session_shutdown" }, { sessionManager });
-
-    invokeHandler(handlers, "turn_start", { turnIndex: 2 }, { sessionManager });
-    invokeHandler(handlers, "context", {}, contextCtx);
-    invokeHandler(
-      handlers,
-      "turn_end",
-      { turnIndex: 2, message: { stopReason: "stop" }, toolResults: [] },
-      contextCtx,
-    );
-    invokeHandler(handlers, "agent_end", { type: "agent_end" }, contextCtx);
-    expect(compactCalls).toBe(2);
-  });
-
-  test("opens breaker when compact call throws and continues without crashing", () => {
-    const { api, handlers } = createMockExtensionAPI();
-    const skippedReasons: string[] = [];
-    const runtime = withRuntimeConfig({
-      config: {
-        infrastructure: {
-          contextBudget: {
-            compactionCircuitBreaker: {
-              enabled: true,
-              maxConsecutiveFailures: 1,
-              cooldownTurns: 1,
-            },
-          },
-        },
-      },
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => true,
-      markContextCompacted: () => undefined,
-      recordEvent: (input: { type: string; payload?: { reason?: string } }) => {
-        if (input.type === "context_compaction_skipped" && input.payload?.reason) {
-          skippedReasons.push(input.payload.reason);
-        }
-      },
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
-
-    registerContextTransform(api, runtime);
-
-    invokeHandler(handlers, "turn_start", { turnIndex: 1 }, { sessionManager: { getSessionId: () => "s-throw" } });
-    invokeHandler(
-      handlers,
-      "context",
-      {},
+      "before_agent_start",
       {
-        sessionManager: {
-          getSessionId: () => "s-throw",
-        },
-        getContextUsage: () => ({ tokens: 900, contextWindow: 1000, percent: 0.9 }),
-        compact: () => {
-          throw new Error("compact failed");
-        },
+        type: "before_agent_start",
+        prompt: "round-1",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 950, contextWindow: 1000, percent: 0.95 }),
       },
     );
+
+    expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(true);
+    expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(before.message?.content?.includes("tape_pressure:")).toBe(true);
+    expect(before.message?.content?.includes("required_action: session_compact_now")).toBe(
+      true,
+    );
+    expect(eventTypes).toContain("context_compaction_gate_armed");
+    expect(eventTypes).toContain("critical_without_compact");
+
+    const blocked = invokeHandler<{ block?: boolean; reason?: string }>(
+      handlers,
+      "tool_call",
+      {
+        type: "tool_call",
+        toolCallId: "tc-blocked",
+        toolName: "lsp_symbols",
+        input: {},
+      },
+      {
+        sessionManager,
+      },
+    );
+
+    expect(blocked.block).toBe(true);
+    expect(blocked.reason?.includes("session_compact")).toBe(true);
+
+    const allowedCompact = invokeHandler<unknown>(
+      handlers,
+      "tool_call",
+      {
+        type: "tool_call",
+        toolCallId: "tc-compact",
+        toolName: "session_compact",
+        input: {},
+      },
+      {
+        sessionManager,
+      },
+    );
+
+    expect(allowedCompact).toBeUndefined();
+
     invokeHandler(
       handlers,
-      "turn_end",
-      { turnIndex: 1, message: { stopReason: "stop" }, toolResults: [] },
+      "turn_start",
+      { turnIndex: 1 },
       {
-        sessionManager: {
-          getSessionId: () => "s-throw",
-        },
-        compact: () => {
-          throw new Error("compact failed");
-        },
+        sessionManager,
       },
     );
-    invokeHandler(
-      handlers,
-      "agent_end",
-      { type: "agent_end" },
-      {
-        sessionManager: {
-          getSessionId: () => "s-throw",
-        },
-        compact: () => {
-          throw new Error("compact failed");
-        },
-      },
-    );
-
-    expect(skippedReasons).toContain("compact_call_failed");
-  });
-
-  test("forwards compaction entry metadata into runtime compaction marker", () => {
-    const { api, handlers } = createMockExtensionAPI();
-    const captured: Array<Record<string, unknown>> = [];
-    const runtime = withRuntimeConfig({
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => false,
-      markContextCompacted: (_sessionId: string, input: Record<string, unknown>) => {
-        captured.push(input);
-      },
-      contextBudget: {
-        getCompactionInstructions: () => "compact stale context",
-      },
-      buildContextInjection: () => ({
-        text: "",
-        accepted: false,
-        originalTokens: 0,
-        finalTokens: 0,
-        truncated: false,
-      }),
-    } as any);
-
-    registerContextTransform(api, runtime);
 
     invokeHandler(
       handlers,
@@ -936,1003 +542,288 @@ describe("Extension gaps: context transform", () => {
         },
       },
       {
-        sessionManager: {
-          getSessionId: () => "s1",
-        },
+        sessionManager,
         getContextUsage: () => ({ tokens: 1200, contextWindow: 4096, percent: 0.29 }),
       },
     );
 
-    expect(captured).toHaveLength(1);
-    expect(captured[0]?.entryId).toBe("cmp-entry-1");
-    expect(captured[0]?.summary).toBe("Keep active goals only.");
-    expect(captured[0]?.toTokens).toBe(1200);
-  });
-});
+    expect(capturedCompactions).toHaveLength(1);
+    expect(capturedCompactions[0]?.entryId).toBe("cmp-entry-1");
+    expect(capturedCompactions[0]?.summary).toBe("Keep active goals only.");
+    expect(capturedCompactions[0]?.toTokens).toBe(1200);
+    expect(eventTypes).toContain("context_compaction_gate_cleared");
 
-describe("Extension gaps: user-scoped memory", () => {
-  test("persists user memory outside session scope and injects it on next session", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
+    const afterCompact = invokeHandler<unknown>(
+      handlers,
+      "tool_call",
+      {
+        type: "tool_call",
+        toolCallId: "tc-after",
+        toolName: "lsp_symbols",
+        input: {},
+      },
+      {
+        sessionManager,
+      },
+    );
 
-    const agentDir = join(workspace, ".pi-agent-test");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const { api, handlers } = createMockExtensionAPI();
-      const runtime = withRuntimeConfig({
-        getLedgerDigest: (sessionId: string) =>
-          `[EvidenceDigest session=${sessionId}]\ncount=2 pass=1 fail=1 inconclusive=0\n- read(pass) src/a.ts\n- edit(fail) src/b.ts`,
-        ledger: {
-          query: (sessionId: string) => [
-            createLedgerRow({
-              id: "ev-1",
-              timestamp: 1,
-              tool: "skill_load",
-              verdict: "pass",
-              argsSummary: "patching",
-              outputSummary: "loaded",
-              sessionId,
-            }),
-            createLedgerRow({
-              id: "ev-2",
-              timestamp: 2,
-              tool: "edit",
-              verdict: "pass",
-              argsSummary: "src/app.ts",
-              outputSummary: "updated",
-              sessionId,
-            }),
-            createLedgerRow({
-              id: "ev-3",
-              timestamp: 3,
-              tool: "roaster_verify",
-              verdict: "fail",
-              argsSummary: "tests",
-              outputSummary: "1 failed",
-              sessionId,
-            }),
-          ],
-        },
-      } as any);
-
-      registerMemory(api, runtime);
-
-      invokeHandler(
-        handlers,
-        "agent_end",
-        { type: "agent_end" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-a",
-          },
-        },
-      );
-
-      const userMemoryPath = join(dirname(agentDir), "memory", "user-preferences.json");
-      expect(existsSync(userMemoryPath)).toBe(true);
-      const userMemory = JSON.parse(readFileSync(userMemoryPath, "utf8")) as { lastDigest?: string; lastHandoff?: string };
-      expect(userMemory.lastDigest?.includes("[EvidenceDigest session=session-a]")).toBe(true);
-      expect(userMemory.lastHandoff?.includes("[SessionHandoff]")).toBe(true);
-      expect(userMemory.lastHandoff?.includes("decisions:")).toBe(true);
-      expect(userMemory.lastHandoff?.includes("artifacts:")).toBe(true);
-      expect(userMemory.lastHandoff?.includes("antiPatterns:")).toBe(true);
-
-      const injected = invokeHandler<{
-        message: {
-          customType: string;
-          content: string;
-          display: boolean;
-        };
-        systemPrompt?: string;
-      }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-          },
-        },
-      );
-
-      expect(injected.systemPrompt).toBeUndefined();
-      expect(injected.message.customType).toBe("roaster-memory-injection");
-      expect(injected.message.display).toBe(false);
-      expect(injected.message.content.includes("[UserMemoryHandoff]")).toBe(true);
-      expect(injected.message.content.includes("decisions:")).toBe(true);
-      expect(injected.message.content.includes("[UserMemoryDigest]")).toBe(true);
-      expect(injected.message.content.includes("[EvidenceDigest session=session-a]")).toBe(true);
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
+    expect(afterCompact).toBeUndefined();
   });
 
-  test("deduplicates memory injection per branch and resets on compaction", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-dedup-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
+  test("does not arm gate when critical usage has recent compaction", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const eventTypes: string[] = [];
 
-    const agentDir = join(workspace, ".pi-agent-test-dedup");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const { api, handlers } = createMockExtensionAPI();
-      const runtime = withRuntimeConfig({
-        getLedgerDigest: (sessionId: string) =>
-          `[EvidenceDigest session=${sessionId}]\ncount=1 pass=1 fail=0 inconclusive=0\n- read(pass) src/a.ts`,
-      } as any);
-
-      registerMemory(api, runtime);
-
-      invokeHandler(
-        handlers,
-        "agent_end",
-        { type: "agent_end" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-a",
-          },
+    const runtime = withRuntimeConfig(
+      {
+        onTurnStart: () => undefined,
+        observeContextUsage: () => undefined,
+        shouldRequestCompaction: () => true,
+        markContextCompacted: () => undefined,
+        recordEvent: (input: { type: string }) => {
+          eventTypes.push(input.type);
         },
-      );
-
-      const first = invokeHandler<{ message?: { customType?: string } }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-a",
-          },
-        },
-      );
-      expect(first.message?.customType).toBe("roaster-memory-injection");
-
-      const second = invokeHandler<unknown>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-a",
-          },
-        },
-      );
-      expect(second).toBeUndefined();
-
-      const third = invokeHandler<{ message?: { customType?: string } }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-b",
-          },
-        },
-      );
-      expect(third.message?.customType).toBe("roaster-memory-injection");
-
-      invokeHandler(
-        handlers,
-        "session_compact",
-        { type: "session_compact" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-a",
-          },
-        },
-      );
-
-      const fourth = invokeHandler<{ message?: { customType?: string } }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-a",
-          },
-        },
-      );
-      expect(fourth.message?.customType).toBe("roaster-memory-injection");
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
-  });
-
-  test("commits supplemental budget only for emitted memory injections", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-commit-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
-
-    const agentDir = join(workspace, ".pi-agent-test-commit");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const { api, handlers } = createMockExtensionAPI();
-      const commits: Array<{ sessionId: string; tokens: number; scopeId?: string }> = [];
-      const runtime = withRuntimeConfig({
-        getLedgerDigest: (sessionId: string) =>
-          `[EvidenceDigest session=${sessionId}]\ncount=1 pass=1 fail=0 inconclusive=0\n- read(pass) src/a.ts`,
-        planSupplementalContextInjection: (_sessionId: string, inputText: string) => ({
-          accepted: true,
-          text: inputText,
-          originalTokens: 12,
-          finalTokens: 12,
+        buildContextInjection: () => ({
+          text: "",
+          accepted: false,
+          originalTokens: 0,
+          finalTokens: 0,
           truncated: false,
         }),
-        commitSupplementalContextInjection: (sessionId: string, finalTokens: number, scopeId?: string) => {
-          commits.push({ sessionId, tokens: finalTokens, scopeId });
-        },
-      } as any);
-
-      registerMemory(api, runtime);
-
-      invokeHandler(
-        handlers,
-        "agent_end",
-        { type: "agent_end" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-a",
+      } as any,
+      {
+        infrastructure: {
+          contextBudget: {
+            hardLimitPercent: 0.8,
           },
         },
-      );
+      },
+    );
 
-      const first = invokeHandler<{ message?: { customType?: string } }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-a",
-          },
-        },
-      );
-      expect(first.message?.customType).toBe("roaster-memory-injection");
-      expect(commits).toHaveLength(1);
-      expect(commits[0]).toEqual({ sessionId: "session-b", tokens: 12, scopeId: "leaf-a" });
+    registerContextTransform(api, runtime);
 
-      const second = invokeHandler<unknown>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-a",
-          },
-        },
-      );
-      expect(second).toBeUndefined();
-      expect(commits).toHaveLength(1);
+    const sessionManager = {
+      getSessionId: () => "s-recent-compact",
+    };
 
-      const third = invokeHandler<{ message?: { customType?: string } }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-b",
-            getLeafId: () => "leaf-b",
-          },
+    invokeHandler(
+      handlers,
+      "turn_start",
+      { turnIndex: 3 },
+      {
+        sessionManager,
+      },
+    );
+
+    invokeHandler(
+      handlers,
+      "session_compact",
+      {
+        compactionEntry: {
+          id: "cmp-entry-recent",
+          summary: "recent compaction",
         },
-      );
-      expect(third.message?.customType).toBe("roaster-memory-injection");
-      expect(commits).toHaveLength(2);
-      expect(commits[1]).toEqual({ sessionId: "session-b", tokens: 12, scopeId: "leaf-b" });
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 1000, contextWindow: 4096, percent: 0.24 }),
+      },
+    );
+
+    const before = invokeHandler<{ systemPrompt?: string; message?: { content?: string } }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "round-after-compact",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 970, contextWindow: 1000, percent: 0.97 }),
+      },
+    );
+
+    expect(before.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
+    expect(eventTypes).not.toContain("context_compaction_gate_armed");
+
+    const access = invokeHandler<unknown>(
+      handlers,
+      "tool_call",
+      {
+        type: "tool_call",
+        toolCallId: "tc-open",
+        toolName: "lsp_symbols",
+        input: {},
+      },
+      {
+        sessionManager,
+      },
+    );
+    expect(access).toBeUndefined();
   });
 
-  test("clears memory dedup state on session shutdown", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-shutdown-reset-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
+  test("treats compaction as recent for configured N-turn window", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const eventTypes: string[] = [];
 
-    const agentDir = join(workspace, ".pi-agent-test-shutdown-reset");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const { api, handlers } = createMockExtensionAPI();
-      const runtime = withRuntimeConfig({
-        getLedgerDigest: (sessionId: string) =>
-          `[EvidenceDigest session=${sessionId}]\ncount=1 pass=1 fail=0 inconclusive=0\n- read(pass) src/a.ts`,
-      } as any);
-
-      registerMemory(api, runtime);
-
-      invokeHandler(
-        handlers,
-        "agent_end",
-        { type: "agent_end" },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "session-a",
+    const runtime = withRuntimeConfig(
+      {
+        onTurnStart: () => undefined,
+        observeContextUsage: () => undefined,
+        shouldRequestCompaction: () => true,
+        markContextCompacted: () => undefined,
+        queryEvents: () => [],
+        recordEvent: (input: { type: string }) => {
+          eventTypes.push(input.type);
+        },
+        buildContextInjection: () => ({
+          text: "",
+          accepted: false,
+          originalTokens: 0,
+          finalTokens: 0,
+          truncated: false,
+        }),
+      } as any,
+      {
+        infrastructure: {
+          contextBudget: {
+            hardLimitPercent: 0.8,
+            minTurnsBetweenCompaction: 2,
           },
         },
-      );
+      },
+    );
 
-      const beforeStartCtx = {
-        cwd: workspace,
-        sessionManager: {
-          getSessionId: () => "session-b",
-          getLeafId: () => "leaf-a",
+    registerContextTransform(api, runtime);
+
+    const sessionManager = {
+      getSessionId: () => "s-window",
+    };
+
+    invokeHandler(handlers, "turn_start", { turnIndex: 3 }, { sessionManager });
+    invokeHandler(
+      handlers,
+      "session_compact",
+      {
+        compactionEntry: {
+          id: "cmp-window",
+          summary: "window compact",
         },
-      };
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 500, contextWindow: 4096, percent: 0.12 }),
+      },
+    );
 
-      const first = invokeHandler<{ message?: { customType?: string } }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        beforeStartCtx,
-      );
-      expect(first.message?.customType).toBe("roaster-memory-injection");
+    invokeHandler(handlers, "turn_start", { turnIndex: 4 }, { sessionManager });
+    const withinWindow = invokeHandler<{ message?: { content?: string }; systemPrompt?: string }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "within-window",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 970, contextWindow: 1000, percent: 0.97 }),
+      },
+    );
+    expect(withinWindow.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(withinWindow.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(withinWindow.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
+    expect(eventTypes).not.toContain("context_compaction_gate_armed");
 
-      const second = invokeHandler<unknown>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        beforeStartCtx,
-      );
-      expect(second).toBeUndefined();
-
-      invokeHandler(
-        handlers,
-        "session_shutdown",
-        { type: "session_shutdown" },
-        {
-          sessionManager: {
-            getSessionId: () => "session-b",
-          },
-        },
-      );
-
-      const third = invokeHandler<{ message?: { customType?: string } }>(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", systemPrompt: "base", prompt: "next" },
-        beforeStartCtx,
-      );
-      expect(third.message?.customType).toBe("roaster-memory-injection");
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
+    invokeHandler(handlers, "turn_start", { turnIndex: 5 }, { sessionManager });
+    const afterWindow = invokeHandler<{ message?: { content?: string } }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "after-window",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 980, contextWindow: 1000, percent: 0.98 }),
+      },
+    );
+    expect(afterWindow.message?.content?.includes("[ContextCompactionGate]")).toBe(true);
+    expect(afterWindow.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(afterWindow.message?.content?.includes("tape_pressure:")).toBe(true);
+    expect(eventTypes).toContain("context_compaction_gate_armed");
+    expect(eventTypes).toContain("critical_without_compact");
   });
 
-  test("uses handoff breaker fallback and recovers after cooldown", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-handoff-breaker-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
+  test("hydrates recent compaction from tape events before gating", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const eventTypes: string[] = [];
 
-    const agentDir = join(workspace, ".pi-agent-test-handoff-breaker");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const { api, handlers } = createMockExtensionAPI();
-      const eventTypes: string[] = [];
-      let digestCalls = 0;
-      const runtime = withRuntimeConfig({
-        config: {
-          infrastructure: {
-            interruptRecovery: {
-              sessionHandoff: {
-                enabled: true,
-                maxSummaryChars: 600,
-                circuitBreaker: {
-                  enabled: true,
-                  maxConsecutiveFailures: 1,
-                  cooldownTurns: 2,
-                },
-              },
-            },
-          },
+    const runtime = withRuntimeConfig(
+      {
+        onTurnStart: () => undefined,
+        observeContextUsage: () => undefined,
+        shouldRequestCompaction: () => true,
+        markContextCompacted: () => undefined,
+        queryEvents: (_sessionId: string, query: { type?: string; last?: number }) => {
+          if (query.type === "context_compacted" && query.last === 1) {
+            return [{ turn: 7 }];
+          }
+          return [];
         },
         recordEvent: (input: { type: string }) => {
           eventTypes.push(input.type);
         },
-        getLedgerDigest: (sessionId: string) => {
-          digestCalls += 1;
-          if (digestCalls === 1) {
-            return "bad digest format";
-          }
-          return `[EvidenceDigest session=${sessionId}]\ncount=1 pass=1 fail=0 inconclusive=0\n- read(pass) src/a.ts`;
-        },
-      } as any);
-
-      registerMemory(api, runtime);
-
-      const sessionId = "session-handoff-breaker";
-      const baseCtx = {
-        cwd: workspace,
-        sessionManager: {
-          getSessionId: () => sessionId,
-        },
-      };
-
-      invokeHandler(handlers, "turn_start", { turnIndex: 1 }, baseCtx);
-      invokeHandler(handlers, "agent_end", { type: "agent_end" }, baseCtx);
-
-      const memoryFile = join(workspace, ".orchestrator/memory", `${sessionId}.json`);
-      const firstMemory = JSON.parse(readFileSync(memoryFile, "utf8")) as { lastHandoff?: string };
-      expect(firstMemory.lastHandoff?.includes("mode=fallback")).toBe(true);
-
-      invokeHandler(handlers, "turn_start", { turnIndex: 2 }, baseCtx);
-      invokeHandler(handlers, "agent_end", { type: "agent_end" }, baseCtx);
-
-      const secondMemory = JSON.parse(readFileSync(memoryFile, "utf8")) as { lastHandoff?: string };
-      expect(secondMemory.lastHandoff?.includes("mode=fallback")).toBe(true);
-
-      invokeHandler(handlers, "turn_start", { turnIndex: 3 }, baseCtx);
-      invokeHandler(handlers, "agent_end", { type: "agent_end" }, baseCtx);
-
-      const thirdMemory = JSON.parse(readFileSync(memoryFile, "utf8")) as { lastHandoff?: string };
-      expect(thirdMemory.lastHandoff?.includes("topTools=")).toBe(true);
-      expect(thirdMemory.lastHandoff?.includes("mode=fallback")).toBe(false);
-
-      expect(eventTypes.includes("session_handoff_breaker_opened")).toBe(true);
-      expect(eventTypes.includes("session_handoff_skipped")).toBe(true);
-      expect(eventTypes.includes("session_handoff_breaker_closed")).toBe(true);
-      expect(eventTypes.includes("session_handoff_generated")).toBe(true);
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
-  });
-
-  test("prioritizes goal-related artifacts in structured handoff", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-goal-rank-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
-
-    const agentDir = join(workspace, ".pi-agent-test-goal-rank");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const { api, handlers } = createMockExtensionAPI();
-      const sessionId = "session-goal-rank";
-      const runtime = withRuntimeConfig({
-        config: {
-          infrastructure: {
-            interruptRecovery: {
-              sessionHandoff: {
-                enabled: true,
-                maxSummaryChars: 1200,
-                relevance: {
-                  enabled: true,
-                  goalWeight: 3,
-                  failureWeight: 1,
-                  recencyWeight: 0.1,
-                  artifactWeight: 0.1,
-                },
-                circuitBreaker: {
-                  enabled: true,
-                  maxConsecutiveFailures: 2,
-                  cooldownTurns: 2,
-                },
-              },
-            },
+        buildContextInjection: () => ({
+          text: "",
+          accepted: false,
+          originalTokens: 0,
+          finalTokens: 0,
+          truncated: false,
+        }),
+      } as any,
+      {
+        infrastructure: {
+          contextBudget: {
+            hardLimitPercent: 0.8,
+            minTurnsBetweenCompaction: 2,
           },
         },
-        getLedgerDigest: (id: string) =>
-          `[EvidenceDigest session=${id}]\ncount=3 pass=2 fail=1 inconclusive=0\n- edit(pass) docs/guide.md\n- edit(fail) src/payment/retry.ts\n- roaster_verify(pass) payment retry tests`,
-        ledger: {
-          query: () => [
-            createLedgerRow({
-              id: "ev-docs",
-              timestamp: 1,
-              tool: "edit",
-              verdict: "pass",
-              argsSummary: "docs/guide.md",
-              outputSummary: "updated docs",
-              sessionId,
-            }),
-            createLedgerRow({
-              id: "ev-payment",
-              timestamp: 2,
-              tool: "edit",
-              verdict: "fail",
-              argsSummary: "src/payment/retry.ts",
-              outputSummary: "retry path broken",
-              sessionId,
-            }),
-            createLedgerRow({
-              id: "ev-verify",
-              timestamp: 3,
-              tool: "roaster_verify",
-              verdict: "pass",
-              argsSummary: "payment retry tests",
-              outputSummary: "ok",
-              sessionId,
-            }),
-          ],
-        },
-      } as any);
+      },
+    );
 
-      registerMemory(api, runtime);
+    registerContextTransform(api, runtime);
 
-      const context = {
-        cwd: workspace,
-        sessionManager: {
-          getSessionId: () => sessionId,
-        },
-      };
+    const sessionManager = {
+      getSessionId: () => "s-hydrate",
+    };
 
-      invokeHandler(handlers, "turn_start", { turnIndex: 1 }, context);
-      invokeHandler(
-        handlers,
-        "before_agent_start",
-        { type: "before_agent_start", prompt: "fix payment retry failure", systemPrompt: "base" },
-        context,
-      );
-      invokeHandler(handlers, "agent_end", { type: "agent_end" }, context);
+    invokeHandler(handlers, "turn_start", { turnIndex: 8 }, { sessionManager });
 
-      const memoryFile = join(workspace, ".orchestrator/memory", `${sessionId}.json`);
-      const saved = JSON.parse(readFileSync(memoryFile, "utf8")) as { lastHandoff?: string };
-      const handoff = saved.lastHandoff ?? "";
-      const artifactsSection = /artifacts:\n- ([^\n]+)/.exec(handoff);
-      expect(artifactsSection?.[1]).toContain("src/payment/retry.ts");
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
-  });
+    const before = invokeHandler<{ systemPrompt?: string; message?: { content?: string } }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "hydrated-compact",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 970, contextWindow: 1000, percent: 0.97 }),
+      },
+    );
 
-  test("builds hierarchical user handoff memory and injects aggregated levels", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-hierarchy-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
-
-    const agentDir = join(workspace, ".pi-agent-test-hierarchy");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const { api, handlers } = createMockExtensionAPI();
-      const runtime = withRuntimeConfig({
-        config: {
-          infrastructure: {
-            interruptRecovery: {
-              sessionHandoff: {
-                enabled: true,
-                maxSummaryChars: 1000,
-                hierarchy: {
-                  enabled: true,
-                  branchFactor: 2,
-                  maxLevels: 2,
-                  entriesPerLevel: 2,
-                  maxCharsPerEntry: 180,
-                },
-                circuitBreaker: {
-                  enabled: true,
-                  maxConsecutiveFailures: 2,
-                  cooldownTurns: 2,
-                },
-              },
-            },
-          },
-        },
-        getLedgerDigest: (sessionId: string) =>
-          `[EvidenceDigest session=${sessionId}]\ncount=1 pass=1 fail=0 inconclusive=0\n- edit(pass) src/${sessionId}.ts`,
-      } as any);
-
-      registerMemory(api, runtime);
-
-      for (const sessionId of ["hier-a", "hier-b", "hier-c"]) {
-        invokeHandler(
-          handlers,
-          "agent_end",
-          { type: "agent_end" },
-          {
-            cwd: workspace,
-            sessionManager: {
-              getSessionId: () => sessionId,
-            },
-          },
-        );
-      }
-
-      const userMemoryPath = join(dirname(agentDir), "memory", "user-preferences.json");
-      const userMemory = JSON.parse(readFileSync(userMemoryPath, "utf8")) as {
-        handoffHierarchy?: {
-          levels?: string[][];
-        };
-      };
-      expect(userMemory.handoffHierarchy?.levels?.[1]?.length).toBeGreaterThanOrEqual(1);
-      expect(userMemory.handoffHierarchy?.levels?.[1]?.[0]?.includes("[HierarchyL1]")).toBe(true);
-
-      const injected = invokeHandler<{
-        message: {
-          content: string;
-        };
-      }>(
-        handlers,
-        "before_agent_start",
-        {
-          type: "before_agent_start",
-          systemPrompt: "base",
-          prompt: "continue",
-        },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "hier-next",
-          },
-        },
-      );
-
-      expect(injected.message.content.includes("[UserMemoryHierarchy:L1]")).toBe(true);
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
-  });
-
-  test("filters hierarchy injection by current goal terms", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-hierarchy-goal-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
-
-    const agentDir = join(workspace, ".pi-agent-test-hierarchy-goal");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const userMemoryFile = join(dirname(agentDir), "memory", "user-preferences.json");
-      mkdirSync(dirname(userMemoryFile), { recursive: true });
-      writeFileSync(
-        userMemoryFile,
-        JSON.stringify(
-          {
-            updatedAt: Date.now(),
-            handoffHierarchy: {
-              levels: [
-                [
-                  "artifacts: src/docs/guide.md (edit)",
-                  "artifacts: src/payment/retry.ts (edit)",
-                  "openFailures: roaster_verify payment retry tests",
-                ],
-                ["[HierarchyL1]\n- docs guide cleanup", "[HierarchyL1]\n- payment retry failure investigation"],
-              ],
-            },
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-
-      const { api, handlers } = createMockExtensionAPI();
-      const runtime = withRuntimeConfig({
-        config: {
-          infrastructure: {
-            interruptRecovery: {
-              sessionHandoff: {
-                hierarchy: {
-                  enabled: true,
-                  branchFactor: 2,
-                  maxLevels: 2,
-                  entriesPerLevel: 2,
-                  maxCharsPerEntry: 180,
-                  goalFilterEnabled: true,
-                  minGoalScore: 0.34,
-                  maxInjectedEntries: 2,
-                },
-              },
-            },
-          },
-        },
-      } as any);
-
-      registerMemory(api, runtime);
-
-      const injected = invokeHandler<{
-        message: {
-          content: string;
-        };
-      }>(
-        handlers,
-        "before_agent_start",
-        {
-          type: "before_agent_start",
-          systemPrompt: "base",
-          prompt: "fix payment retry failure",
-        },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => "hier-goal-session",
-          },
-        },
-      );
-
-      const hierarchyBlock = /\[UserMemoryHierarchy:L[0-9]+\]\n([\s\S]*?)(?:\n\n|$)/.exec(injected.message.content)?.[0] ?? "";
-      expect(hierarchyBlock.includes("payment retry")).toBe(true);
-      expect(hierarchyBlock.includes("docs guide")).toBe(false);
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
-  });
-
-  test("applies memory injection total budget and per-source caps", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-injection-budget-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
-
-    const agentDir = join(workspace, ".pi-agent-test-injection-budget");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const sessionId = "budget-session";
-      const sessionMemoryDir = join(workspace, ".orchestrator", "memory");
-      mkdirSync(sessionMemoryDir, { recursive: true });
-      writeFileSync(
-        join(sessionMemoryDir, `${sessionId}.json`),
-        JSON.stringify(
-          {
-            sessionId,
-            updatedAt: Date.now(),
-            lastHandoff: `[SessionHandoff]\nSESSION-HANDOFF-KEY ${"x".repeat(600)}`,
-            lastDigest: `SESSION-DIGEST-LOW ${"y".repeat(300)}`,
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-
-      const userMemoryFile = join(dirname(agentDir), "memory", "user-preferences.json");
-      mkdirSync(dirname(userMemoryFile), { recursive: true });
-      writeFileSync(
-        userMemoryFile,
-        JSON.stringify(
-          {
-            updatedAt: Date.now(),
-            preferences: `PREFS-KEY ${"p".repeat(200)}`,
-            lastHandoff: `[SessionHandoff]\nUSER-HANDOFF-LOW ${"u".repeat(300)}`,
-            lastDigest: `USER-DIGEST-LOW ${"d".repeat(280)}`,
-            handoffHierarchy: {
-              levels: [["payment retry hierarchy key", "docs hierarchy noise"]],
-            },
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-
-      const { api, handlers } = createMockExtensionAPI();
-      const runtime = withRuntimeConfig({
-        config: {
-          infrastructure: {
-            interruptRecovery: {
-              sessionHandoff: {
-                hierarchy: {
-                  enabled: true,
-                  branchFactor: 2,
-                  maxLevels: 1,
-                  entriesPerLevel: 2,
-                  maxCharsPerEntry: 120,
-                  goalFilterEnabled: false,
-                  minGoalScore: 0,
-                  maxInjectedEntries: 2,
-                },
-                injectionBudget: {
-                  enabled: true,
-                  maxTotalChars: 340,
-                  maxUserPreferencesChars: 80,
-                  maxUserHandoffChars: 80,
-                  maxHierarchyChars: 90,
-                  maxUserDigestChars: 80,
-                  maxSessionHandoffChars: 160,
-                  maxSessionDigestChars: 80,
-                },
-              },
-            },
-          },
-        },
-      } as any);
-
-      registerMemory(api, runtime);
-
-      const injected = invokeHandler<{
-        message: {
-          content: string;
-        };
-      }>(
-        handlers,
-        "before_agent_start",
-        {
-          type: "before_agent_start",
-          systemPrompt: "base",
-          prompt: "fix payment retry",
-        },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => sessionId,
-          },
-        },
-      );
-
-      const content = injected.message.content;
-      expect(content.length).toBeLessThanOrEqual(340);
-      expect(content.includes("SESSION-HANDOFF-KEY")).toBe(true);
-      expect(content.includes("[UserMemoryHierarchy:L0]")).toBe(true);
-      expect(content.includes("USER-DIGEST-LOW")).toBe(false);
-      expect(content.includes("SESSION-DIGEST-LOW")).toBe(false);
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
-  });
-
-  test("does not apply injection caps when injectionBudget is disabled", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-memory-injection-budget-disabled-"));
-    mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
-
-    const agentDir = join(workspace, ".pi-agent-test-injection-budget-disabled");
-    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-
-    try {
-      const sessionId = "budget-disabled-session";
-      const sessionMemoryDir = join(workspace, ".orchestrator", "memory");
-      mkdirSync(sessionMemoryDir, { recursive: true });
-      writeFileSync(
-        join(sessionMemoryDir, `${sessionId}.json`),
-        JSON.stringify(
-          {
-            sessionId,
-            updatedAt: Date.now(),
-            lastHandoff: `[SessionHandoff]\nSESSION-HANDOFF-RAW ${"x".repeat(420)}`,
-            lastDigest: `SESSION-DIGEST-RAW ${"y".repeat(220)}`,
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-
-      const userMemoryFile = join(dirname(agentDir), "memory", "user-preferences.json");
-      mkdirSync(dirname(userMemoryFile), { recursive: true });
-      writeFileSync(
-        userMemoryFile,
-        JSON.stringify(
-          {
-            updatedAt: Date.now(),
-            preferences: `PREFS-RAW ${"p".repeat(220)}`,
-            lastHandoff: `[SessionHandoff]\nUSER-HANDOFF-RAW ${"u".repeat(240)}`,
-            lastDigest: `USER-DIGEST-RAW ${"d".repeat(240)}`,
-            handoffHierarchy: {
-              levels: [["hierarchy raw entry one", "hierarchy raw entry two"]],
-            },
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-
-      const { api, handlers } = createMockExtensionAPI();
-      const runtime = withRuntimeConfig({
-        config: {
-          infrastructure: {
-            interruptRecovery: {
-              sessionHandoff: {
-                hierarchy: {
-                  enabled: true,
-                  branchFactor: 2,
-                  maxLevels: 1,
-                  entriesPerLevel: 2,
-                  maxCharsPerEntry: 120,
-                  goalFilterEnabled: false,
-                  minGoalScore: 0,
-                  maxInjectedEntries: 2,
-                },
-                injectionBudget: {
-                  enabled: false,
-                  maxTotalChars: 120,
-                  maxUserPreferencesChars: 60,
-                  maxUserHandoffChars: 60,
-                  maxHierarchyChars: 60,
-                  maxUserDigestChars: 60,
-                  maxSessionHandoffChars: 60,
-                  maxSessionDigestChars: 60,
-                },
-              },
-            },
-          },
-        },
-      } as any);
-
-      registerMemory(api, runtime);
-
-      const injected = invokeHandler<{
-        message: {
-          content: string;
-        };
-      }>(
-        handlers,
-        "before_agent_start",
-        {
-          type: "before_agent_start",
-          systemPrompt: "base",
-          prompt: "fix payment retry",
-        },
-        {
-          cwd: workspace,
-          sessionManager: {
-            getSessionId: () => sessionId,
-          },
-        },
-      );
-
-      const content = injected.message.content;
-      expect(content.includes("SESSION-HANDOFF-RAW")).toBe(true);
-      expect(content.includes("SESSION-DIGEST-RAW")).toBe(true);
-      expect(content.includes("USER-DIGEST-RAW")).toBe(true);
-      expect(content.length).toBeGreaterThan(120);
-    } finally {
-      if (oldAgentDir === undefined) {
-        delete process.env.PI_CODING_AGENT_DIR;
-      } else {
-        process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      }
-    }
+    expect(before.systemPrompt?.includes("[Roaster Context Contract]")).toBe(true);
+    expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
+    expect(eventTypes).not.toContain("context_compaction_gate_armed");
   });
 });
-
 describe("Extension gaps: event stream", () => {
   // Covered by "Extension integration: observability > persists throttled message_update events"
 });
@@ -2047,7 +938,7 @@ describe("Extension gaps: ledger writer", () => {
 });
 
 describe("Extension integration: observability", () => {
-  test("emits both context and memory injections on before_agent_start via SDK runner contract", async () => {
+  test("emits context injection on before_agent_start via SDK runner contract", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "roaster-ext-dual-injection-"));
     mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
 
@@ -2110,8 +1001,10 @@ describe("Extension integration: observability", () => {
       const result = await runner.emitBeforeAgentStart("continue fixing flaky tests", undefined, "base");
       const messageTypes = (result?.messages ?? []).map((message) => message.customType);
 
-      expect(result?.systemPrompt).toBeUndefined();
-      expect(messageTypes).toEqual(["roaster-context-injection", "roaster-memory-injection"]);
+      expect(result?.systemPrompt?.includes("[Roaster Context Contract]")).toBe(
+        true,
+      );
+      expect(messageTypes).toEqual(["roaster-context-injection"]);
     } finally {
       if (oldAgentDir === undefined) {
         delete process.env.PI_CODING_AGENT_DIR;

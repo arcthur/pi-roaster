@@ -5,8 +5,10 @@ import { createLedgerQueryTool } from "./ledger-query.js";
 import { createLookAtTool } from "./look-at.js";
 import { createLspTools } from "./lsp.js";
 import { createRollbackLastPatchTool } from "./rollback-last-patch.js";
+import { createSessionCompactTool } from "./session-compact.js";
 import { createSkillCompleteTool } from "./skill-complete.js";
 import { createSkillLoadTool } from "./skill-load.js";
+import { createTapeTools } from "./tape.js";
 import { createTaskLedgerTools } from "./task-ledger.js";
 import type { RoasterToolRuntime } from "./types.js";
 
@@ -21,6 +23,8 @@ export function buildRoasterTools(options: BuildRoasterToolsOptions): ToolDefini
     createLookAtTool(),
     createCostViewTool({ runtime: options.runtime }),
     createLedgerQueryTool({ runtime: options.runtime }),
+    ...createTapeTools({ runtime: options.runtime }),
+    createSessionCompactTool({ runtime: options.runtime }),
     createRollbackLastPatchTool({ runtime: options.runtime }),
     createSkillLoadTool({ runtime: options.runtime }),
     createSkillCompleteTool({ runtime: options.runtime }),
@@ -33,6 +37,8 @@ export { createAstGrepTools } from "./ast-grep.js";
 export { createLookAtTool } from "./look-at.js";
 export { createCostViewTool } from "./cost-view.js";
 export { createLedgerQueryTool } from "./ledger-query.js";
+export { createTapeTools } from "./tape.js";
+export { createSessionCompactTool } from "./session-compact.js";
 export { createRollbackLastPatchTool } from "./rollback-last-patch.js";
 export { createSkillLoadTool } from "./skill-load.js";
 export { createSkillCompleteTool } from "./skill-complete.js";

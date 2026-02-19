@@ -28,26 +28,23 @@ fields as forward-compatible.
 - `tool_result`
 - `tool_parallel_read`
 - `truth_event`
+- `anchor`
+- `checkpoint`
 - `context_usage`
 - `context_injected`
 - `context_injection_dropped`
 - `context_compaction_requested`
 - `context_compaction_skipped`
-- `context_compaction_breaker_opened`
-- `context_compaction_breaker_closed`
+- `context_compaction_gate_armed`
+- `context_compaction_gate_blocked_tool`
+- `context_compaction_gate_cleared`
+- `critical_without_compact`
 - `context_compacted`
-- `session_handoff_generated`
-- `session_handoff_fallback`
-- `session_handoff_skipped`
-- `session_handoff_breaker_opened`
-- `session_handoff_breaker_closed`
+- `session_compact_requested`
+- `session_compact_request_failed`
 - `cost_update`
 - `budget_alert`
-- `session_snapshot_saved`
 - `ledger_compacted`
-- `task_ledger_snapshot_failed`
-- `task_ledger_compacted`
-- `session_resumed`
 - `viewport_built`
 - `viewport_policy_evaluated`
 
@@ -114,15 +111,47 @@ Payload fields:
   - `importsExportsLines`, `relevantTotalLines`, `relevantHitLines`
   - `symbolLines`, `neighborhoodLines`
 
-## Snapshot and Ledger Events
+## Tape Events
 
-### `task_ledger_snapshot_failed`
+### `anchor`
 
-Emitted when the runtime fails to persist a task ledger snapshot.
+Semantic boundary marker written by tape handoff flows.
 
 Payload fields:
 
-- `error`: Error message string.
+- `schema`: `roaster.tape.anchor.v1`
+- `name`: phase/boundary name
+- `summary`: optional structured phase summary
+- `nextSteps`: optional next-step hint
+- `createdAt`: event creation timestamp (epoch ms)
+
+### `checkpoint`
+
+Machine recovery baseline written by runtime checkpoint policy.
+
+Payload fields:
+
+- `schema`: `roaster.tape.checkpoint.v1`
+- `state.task`: checkpointed task state
+- `state.truth`: checkpointed truth state
+- `basedOnEventId`: event id the checkpoint was derived from
+- `latestAnchorEventId`: nearest semantic anchor id when available
+- `reason`: checkpoint trigger reason
+- `createdAt`: event creation timestamp (epoch ms)
+
+## Context Gate Events
+
+### `critical_without_compact`
+
+Emitted during `before_agent_start` when context usage is at critical pressure and
+the runtime gate requires `session_compact` before continuing normal tool flow.
+
+Payload fields:
+
+- `usagePercent`: current context usage ratio (`0..1`) when available.
+- `hardLimitPercent`: configured hard-limit ratio (`0..1`).
+- `contextPressure`: currently fixed to `critical` for this event.
+- `requiredTool`: currently fixed to `session_compact`.
 
 ## Tool Parallel Read Event
 

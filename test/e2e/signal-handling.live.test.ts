@@ -1,11 +1,9 @@
 import { describe, expect } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync } from "node:fs";
 import {
   cleanupWorkspace,
   createWorkspace,
   latestEventFile,
-  latestStateSnapshot,
   parseEventFile,
   repoRoot,
   runLive,
@@ -102,15 +100,6 @@ describe("e2e: signal handling", () => {
       expect(eventFile).toBeDefined();
       const events = parseEventFile(eventFile!, { strict: true });
       expect(events.some((event) => event.type === "session_interrupted")).toBe(true);
-
-      const snapshotFile = latestStateSnapshot(workspace);
-      expect(snapshotFile).toBeDefined();
-      const snapshot = JSON.parse(readFileSync(snapshotFile!, "utf8")) as Record<
-        string,
-        unknown
-      >;
-      expect(snapshot.interrupted).toBe(true);
-      expect(snapshot.reason).toBe("signal");
     } catch (error) {
       const message = [
         error instanceof Error ? error.message : String(error),

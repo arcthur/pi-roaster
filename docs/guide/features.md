@@ -7,7 +7,7 @@
 - Evidence ledger and digest injection
 - Verification gates (`quick`, `standard`, `strict`)
 - Context budget tracking and compaction events
-- Session snapshot persistence and startup restore
+- Event-first runtime persistence and replay
 - Cost observability and threshold-based budget alerts
 
 ## Tool Surface
@@ -23,9 +23,16 @@
 - `look_at`
 - `cost_view`
 - `ledger_query`
+- `session_compact`
 - `rollback_last_patch`
 - `skill_load`
 - `skill_complete`
+- `task_set_spec`
+- `task_add_item`
+- `task_update_item`
+- `task_record_blocker`
+- `task_resolve_blocker`
+- `task_view_state`
 
 Tool registry source: `packages/roaster-tools/src/index.ts`
 

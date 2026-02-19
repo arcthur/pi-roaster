@@ -5,7 +5,6 @@ import { registerContextTransform } from "./context-transform.js";
 import { registerCompletionGuard } from "./completion-guard.js";
 import { registerEventStream } from "./event-stream.js";
 import { registerLedgerWriter } from "./ledger-writer.js";
-import { registerMemory } from "./memory.js";
 import { registerNotification } from "./notification.js";
 import { registerQualityGate } from "./quality-gate.js";
 
@@ -19,7 +18,6 @@ function registerAllHandlers(pi: ExtensionAPI, runtime: RoasterRuntime): void {
   registerContextTransform(pi, runtime);
   registerQualityGate(pi, runtime);
   registerLedgerWriter(pi, runtime);
-  registerMemory(pi, runtime);
   registerCompletionGuard(pi, runtime);
   registerNotification(pi);
 }
@@ -47,6 +45,5 @@ export { registerContextTransform } from "./context-transform.js";
 export { registerEventStream } from "./event-stream.js";
 export { registerQualityGate } from "./quality-gate.js";
 export { registerLedgerWriter } from "./ledger-writer.js";
-export { registerMemory } from "./memory.js";
 export { registerCompletionGuard } from "./completion-guard.js";
 export { registerNotification } from "./notification.js";

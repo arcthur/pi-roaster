@@ -2,7 +2,13 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { ParallelBudgetManager, RoasterRuntime, tightenContract } from "@pi-roaster/roaster-runtime";
+import {
+  DEFAULT_ROASTER_CONFIG,
+  ParallelBudgetManager,
+  RoasterRuntime,
+  TAPE_CHECKPOINT_EVENT_TYPE,
+  tightenContract,
+} from "@pi-roaster/roaster-runtime";
 import type { SkillContract } from "@pi-roaster/roaster-runtime";
 
 function repoRoot(): string {
@@ -402,8 +408,7 @@ describe("session state cleanup", () => {
 
     expect((runtime as any).turnsBySession.has(sessionId)).toBe(false);
     expect((runtime as any).toolCallsBySession.has(sessionId)).toBe(false);
-    expect((runtime as any).taskStateBySession.has(sessionId)).toBe(false);
-    expect((runtime as any).truthStateBySession.has(sessionId)).toBe(false);
+    expect((runtime as any).turnReplay.hasSession(sessionId)).toBe(false);
     expect(((runtime as any).contextBudget.sessions as Map<string, unknown>).has(sessionId)).toBe(false);
     expect(((runtime as any).costTracker.sessions as Map<string, unknown>).has(sessionId)).toBe(false);
     expect(((runtime as any).verification.stateStore.sessions as Map<string, unknown>).has(sessionId)).toBe(false);
@@ -413,28 +418,163 @@ describe("session state cleanup", () => {
     expect(((runtime as any).ledger.lastHashBySession.has(sessionId)) as boolean).toBe(false);
   });
 
-  test("clearSessionSnapshot removes persisted snapshot and in-memory session state", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "roaster-session-snapshot-clean-"));
+  test("invalidates replay cache on task events and rebuilds from tape", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "roaster-replay-view-"));
     const runtime = new RoasterRuntime({ cwd: workspace });
-    const sessionId = "cleanup-snapshot-1";
+    const sessionId = "replay-view-1";
 
-    runtime.onTurnStart(sessionId, 1);
-    runtime.markToolCall(sessionId, "edit");
-    runtime.persistSessionSnapshot(sessionId, {
-      reason: "manual",
-      interrupted: false,
+    runtime.setTaskSpec(sessionId, {
+      schema: "roaster.task.v1",
+      goal: "Replay view should rebuild after new events",
     });
+    runtime.getTaskState(sessionId);
 
-    expect(runtime.snapshots.load(sessionId)).toBeDefined();
-    expect((runtime as any).turnsBySession.has(sessionId)).toBe(true);
-    expect((runtime as any).toolCallsBySession.has(sessionId)).toBe(true);
+    const turnReplay = (runtime as any).turnReplay as {
+      hasSession: (session: string) => boolean;
+    };
+    expect(turnReplay.hasSession(sessionId)).toBe(true);
 
-    runtime.clearSessionSnapshot(sessionId);
+    runtime.addTaskItem(sessionId, { text: "item-1" });
+    expect(turnReplay.hasSession(sessionId)).toBe(false);
 
-    expect(runtime.snapshots.load(sessionId)).toBeUndefined();
-    expect((runtime as any).turnsBySession.has(sessionId)).toBe(false);
-    expect((runtime as any).toolCallsBySession.has(sessionId)).toBe(false);
-    expect(((runtime as any).verification.stateStore.sessions as Map<string, unknown>).has(sessionId)).toBe(false);
-    expect(((runtime as any).costTracker.sessions as Map<string, unknown>).has(sessionId)).toBe(false);
+    const updated = runtime.getTaskState(sessionId);
+    expect(updated.items).toHaveLength(1);
+    expect(updated.items[0]?.text).toBe("item-1");
+    expect(turnReplay.hasSession(sessionId)).toBe(true);
+  });
+
+});
+
+describe("tape checkpoint automation", () => {
+  test("writes checkpoint events by interval and replays consistent state after restart", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "roaster-tape-checkpoint-"));
+    const sessionId = "tape-checkpoint-1";
+    const config = structuredClone(DEFAULT_ROASTER_CONFIG);
+    config.tape.checkpointIntervalEntries = 3;
+
+    const runtime = new RoasterRuntime({ cwd: workspace, config });
+    runtime.setTaskSpec(sessionId, {
+      schema: "roaster.task.v1",
+      goal: "checkpoint consistency",
+    });
+    runtime.upsertTruthFact(sessionId, {
+      id: "truth-1",
+      kind: "test",
+      severity: "warn",
+      summary: "first fact",
+    });
+    runtime.addTaskItem(sessionId, { text: "item-1", status: "todo" });
+    runtime.addTaskItem(sessionId, { text: "item-2", status: "doing" });
+
+    const checkpoints = runtime.queryEvents(sessionId, {
+      type: TAPE_CHECKPOINT_EVENT_TYPE,
+    });
+    expect(checkpoints.length).toBeGreaterThanOrEqual(1);
+    const checkpointPayload = (checkpoints.at(-1)?.payload ?? {}) as {
+      schema?: string;
+      state?: {
+        task?: { items?: Array<{ text?: string }> };
+        truth?: { facts?: Array<{ id?: string }> };
+      };
+    };
+    expect(checkpointPayload.schema).toBe("roaster.tape.checkpoint.v1");
+    expect(
+      checkpointPayload.state?.task?.items?.some((item) => item.text === "item-1"),
+    ).toBe(true);
+    expect(
+      checkpointPayload.state?.truth?.facts?.some((fact) => fact.id === "truth-1"),
+    ).toBe(true);
+
+    runtime.upsertTruthFact(sessionId, {
+      id: "truth-2",
+      kind: "test",
+      severity: "error",
+      summary: "second fact",
+    });
+    runtime.addTaskItem(sessionId, { text: "item-3", status: "todo" });
+
+    const reloaded = new RoasterRuntime({ cwd: workspace, config });
+    const taskState = reloaded.getTaskState(sessionId);
+    const truthState = reloaded.getTruthState(sessionId);
+    expect(taskState.items.map((item) => item.text)).toEqual([
+      "item-1",
+      "item-2",
+      "item-3",
+    ]);
+    expect(truthState.facts.some((fact) => fact.id === "truth-1")).toBe(true);
+    expect(truthState.facts.some((fact) => fact.id === "truth-2")).toBe(true);
+  });
+});
+
+describe("tape status and search", () => {
+  test("recordTapeHandoff writes anchor and resets entriesSinceAnchor", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "roaster-tape-status-"));
+    const runtime = new RoasterRuntime({ cwd: workspace });
+    const sessionId = "tape-status-1";
+
+    runtime.setTaskSpec(sessionId, {
+      schema: "roaster.task.v1",
+      goal: "status baseline",
+    });
+    runtime.addTaskItem(sessionId, { text: "before anchor" });
+
+    const before = runtime.getTapeStatus(sessionId);
+    expect(before.totalEntries).toBeGreaterThan(0);
+    expect(before.entriesSinceAnchor).toBe(before.totalEntries);
+
+    const handoff = runtime.recordTapeHandoff(sessionId, {
+      name: "investigation-done",
+      summary: "captured findings",
+      nextSteps: "implement changes",
+    });
+    expect(handoff.ok).toBe(true);
+    expect(handoff.eventId).toBeDefined();
+
+    const after = runtime.getTapeStatus(sessionId);
+    expect(after.lastAnchor?.name).toBe("investigation-done");
+    expect(after.entriesSinceAnchor).toBe(0);
+
+    runtime.addTaskItem(sessionId, { text: "after anchor" });
+    const afterMore = runtime.getTapeStatus(sessionId);
+    expect(afterMore.entriesSinceAnchor).toBe(1);
+  });
+
+  test("searchTape scopes current phase by latest anchor", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "roaster-tape-search-"));
+    const runtime = new RoasterRuntime({ cwd: workspace });
+    const sessionId = "tape-search-1";
+
+    runtime.recordTapeHandoff(sessionId, {
+      name: "phase-a",
+      summary: "alpha baseline",
+      nextSteps: "continue",
+    });
+    runtime.addTaskItem(sessionId, { text: "alpha task" });
+
+    runtime.recordTapeHandoff(sessionId, {
+      name: "phase-b",
+      summary: "beta baseline",
+      nextSteps: "continue",
+    });
+    runtime.addTaskItem(sessionId, { text: "beta task" });
+
+    const allPhases = runtime.searchTape(sessionId, {
+      query: "alpha",
+      scope: "all_phases",
+    });
+    expect(allPhases.matches.length).toBeGreaterThan(0);
+
+    const currentPhase = runtime.searchTape(sessionId, {
+      query: "alpha",
+      scope: "current_phase",
+    });
+    expect(currentPhase.matches).toHaveLength(0);
+
+    const anchorOnly = runtime.searchTape(sessionId, {
+      query: "phase-b",
+      scope: "anchors_only",
+    });
+    expect(anchorOnly.matches.length).toBe(1);
+    expect(anchorOnly.matches[0]?.type).toBe("anchor");
   });
 });

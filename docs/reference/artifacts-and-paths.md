@@ -6,7 +6,6 @@
 - Event stream: `.orchestrator/events/<session>.jsonl`
   - includes runtime and tool telemetry events such as `tool_parallel_read`
 - Snapshot state: `.orchestrator/state/<session>.json`
-- Session memory: `.orchestrator/memory/<session>.json`
 - Rollback snapshots: `.orchestrator/snapshots/<session>/*.snap`
 - Rollback patch history: `.orchestrator/snapshots/<session>/patchsets.json`
 - Generated skill index: `.pi-roaster/skills_index.json`

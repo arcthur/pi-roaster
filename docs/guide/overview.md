@@ -15,7 +15,7 @@
 - Evidence ledger recording, digest generation, and query
 - Verification gate evaluation and command-based verification checks
 - Context budget planning and compaction signaling
-- Interrupt recovery via session snapshots
+- Event-first recovery via replayable runtime telemetry
 - Structured event persistence and replay support
 - Cost tracking with session and skill budget alerts
 
