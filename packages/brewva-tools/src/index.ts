@@ -1,9 +1,11 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { createAstGrepTools } from "./ast-grep.js";
 import { createCostViewTool } from "./cost-view.js";
+import { createExecTool } from "./exec.js";
 import { createLedgerQueryTool } from "./ledger-query.js";
 import { createLookAtTool } from "./look-at.js";
 import { createLspTools } from "./lsp.js";
+import { createProcessTool } from "./process.js";
 import { createRollbackLastPatchTool } from "./rollback-last-patch.js";
 import { createSessionCompactTool } from "./session-compact.js";
 import { createSkillCompleteTool } from "./skill-complete.js";
@@ -21,6 +23,8 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
     ...createLspTools({ runtime: options.runtime }),
     ...createAstGrepTools({ runtime: options.runtime }),
     createLookAtTool(),
+    createExecTool(),
+    createProcessTool(),
     createCostViewTool({ runtime: options.runtime }),
     createLedgerQueryTool({ runtime: options.runtime }),
     ...createTapeTools({ runtime: options.runtime }),
@@ -35,6 +39,8 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
 export { createLspTools } from "./lsp.js";
 export { createAstGrepTools } from "./ast-grep.js";
 export { createLookAtTool } from "./look-at.js";
+export { createExecTool } from "./exec.js";
+export { createProcessTool } from "./process.js";
 export { createCostViewTool } from "./cost-view.js";
 export { createLedgerQueryTool } from "./ledger-query.js";
 export { createTapeTools } from "./tape.js";

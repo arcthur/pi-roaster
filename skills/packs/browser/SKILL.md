@@ -7,7 +7,7 @@ tier: pack
 tags: [browser, automation, e2e, screenshot, extraction]
 anti_tags: [backend-only]
 tools:
-  required: [bash, read]
+  required: [exec, read]
   optional: [look_at, ledger_query, skill_complete]
   denied: []
 budget:

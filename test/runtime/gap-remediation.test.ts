@@ -126,7 +126,7 @@ describe("Gap remediation: ledger compaction and redaction", () => {
       runtime.onTurnStart(sessionId, i + 1);
       runtime.recordToolResult({
         sessionId,
-        toolName: "bash",
+        toolName: "exec",
         args: { command: `echo ${i}` },
         outputText: `ok-${i}`,
         success: true,
@@ -447,7 +447,7 @@ describe("Gap remediation: event stream and context budget", () => {
     for (let i = 0; i < 12; i += 1) {
       runtime.recordToolResult({
         sessionId,
-        toolName: "bash",
+        toolName: "exec",
         args: { command: `echo ${"x".repeat(240)} ${i}` },
         outputText: "ok",
         success: true,
@@ -484,7 +484,7 @@ describe("Gap remediation: event stream and context budget", () => {
     for (let i = 0; i < 12; i += 1) {
       runtime.recordToolResult({
         sessionId,
-        toolName: "bash",
+        toolName: "exec",
         args: { command: `echo ${"x".repeat(240)} ${i}` },
         outputText: "ok",
         success: true,
@@ -808,14 +808,14 @@ describe("Gap remediation: event stream and context budget", () => {
     runtime.onTurnStart(sessionId, 7);
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "echo one" },
       outputText: "one",
       success: true,
     });
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "echo two" },
       outputText: "two",
       success: true,
@@ -1080,7 +1080,7 @@ describe("Gap remediation: live event subscription", () => {
     runtime.recordEvent({ sessionId, type: "session_start", payload: { cwd: workspace } });
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "echo ok" },
       outputText: "ok",
       success: true,

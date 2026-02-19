@@ -135,7 +135,7 @@ export function extractEvidenceArtifacts(input: {
   const toolName = input.toolName.trim().toLowerCase();
   const artifacts: EvidenceArtifact[] = [];
 
-  if ((toolName === "bash" || toolName === "shell") && input.isError) {
+  if (toolName === "exec" && input.isError) {
     const command = getCommand(input.args) ?? "";
     const exitCode = extractExitCode(input.details);
 

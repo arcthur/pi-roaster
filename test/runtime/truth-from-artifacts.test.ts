@@ -24,7 +24,7 @@ describe("Truth extraction from evidence artifacts", () => {
 
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "bun test" },
       outputText: failureOutput,
       success: false,
@@ -51,7 +51,7 @@ describe("Truth extraction from evidence artifacts", () => {
 
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "bun test" },
       outputText: "",
       success: true,

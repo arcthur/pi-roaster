@@ -7,7 +7,7 @@ tier: pack
 tags: [bun, runtime, test, scripts]
 anti_tags: [npm-only]
 tools:
-  required: [bash]
+  required: [exec]
   optional: [read, lsp_diagnostics, skill_complete]
   denied: []
 budget:

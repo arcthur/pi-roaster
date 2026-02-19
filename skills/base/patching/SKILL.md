@@ -8,7 +8,7 @@ tags: [patch, edit, fix, implement]
 anti_tags: [research, architecture]
 tools:
   required: [read, edit]
-  optional: [grep, lsp_diagnostics, ledger_query, bash, skill_complete]
+  optional: [grep, lsp_diagnostics, ledger_query, exec, skill_complete]
   denied: [write]
 budget:
   max_tool_calls: 70

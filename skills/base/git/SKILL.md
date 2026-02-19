@@ -7,7 +7,7 @@ tier: base
 tags: [git, branch, commit, rebase, blame, bisect]
 anti_tags: [runtime]
 tools:
-  required: [bash, read]
+  required: [exec, read]
   optional: [grep, ledger_query, skill_complete]
   denied: []
 budget:

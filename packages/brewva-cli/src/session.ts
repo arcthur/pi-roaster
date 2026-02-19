@@ -10,9 +10,12 @@ import {
   AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
+  editTool,
   ModelRegistry,
+  readTool,
   SettingsManager,
   type CreateAgentSessionResult,
+  writeTool,
 } from "@mariozechner/pi-coding-agent";
 import { registerRuntimeCoreEventBridge } from "./session-event-bridge.js";
 
@@ -90,6 +93,7 @@ export async function createBrewvaSession(
     settingsManager,
     resourceLoader,
     model: selectedModel,
+    tools: [readTool, editTool, writeTool],
     customTools,
   });
 

@@ -885,7 +885,7 @@ describe("Extension gaps: ledger writer", () => {
       "tool_result",
       {
         toolCallId: "tc-err",
-        toolName: "bash",
+        toolName: "exec",
         input: { command: "false" },
         isError: true,
         content: [
@@ -904,7 +904,7 @@ describe("Extension gaps: ledger writer", () => {
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0].sessionId).toBe("lw-1");
-    expect(recorded[0].toolName).toBe("bash");
+    expect(recorded[0].toolName).toBe("exec");
     expect(recorded[0].success).toBe(false);
     expect(recorded[0].verdict).toBe("fail");
     expect(recorded[0].outputText).toBe("line-a\nline-b");
@@ -1096,7 +1096,7 @@ describe("Extension integration: observability", () => {
     });
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "echo ok" },
       outputText: "ok",
       success: true,

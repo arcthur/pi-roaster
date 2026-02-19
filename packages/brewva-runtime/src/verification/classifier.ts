@@ -56,7 +56,7 @@ export function classifyEvidence(input: {
     }
   }
 
-  if (toolName === "bash" || toolName === "shell") {
+  if (toolName === "exec") {
     const cmd = getCommand(input.args);
     if (cmd && TEST_PATTERNS.some((pattern) => pattern.test(cmd))) {
       evidence.push({

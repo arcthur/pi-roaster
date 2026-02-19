@@ -6,9 +6,11 @@ function collectToolNames(sourceRoot: string): string[] {
   const files = [
     "ast-grep.ts",
     "cost-view.ts",
+    "exec.ts",
     "ledger-query.ts",
     "look-at.ts",
     "lsp.ts",
+    "process.ts",
     "rollback-last-patch.ts",
     "session-compact.ts",
     "skill-load.ts",

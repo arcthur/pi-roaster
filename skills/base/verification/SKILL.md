@@ -7,7 +7,7 @@ tier: base
 tags: [verify, test, lint, quality]
 anti_tags: [explore]
 tools:
-  required: [bash, lsp_diagnostics, ledger_query]
+  required: [exec, lsp_diagnostics, ledger_query]
   optional: [read, skill_complete]
   denied: []
 budget:

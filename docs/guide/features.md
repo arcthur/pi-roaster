@@ -22,6 +22,8 @@
 - `ast_grep_search`
 - `ast_grep_replace`
 - `look_at`
+- `exec`
+- `process`
 - `cost_view`
 - `ledger_query`
 - `tape_handoff`

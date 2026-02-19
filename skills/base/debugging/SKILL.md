@@ -7,7 +7,7 @@ tier: base
 tags: [debug, bug, failure, regression]
 anti_tags: [feature]
 tools:
-  required: [read, bash, grep]
+  required: [read, exec, grep]
   optional: [lsp_diagnostics, ast_grep_search, edit, ledger_query, skill_complete]
   denied: []
 budget:

@@ -11,7 +11,7 @@ escalation_path:
   all_skills_insufficient: planning
 tools:
   required: [read]
-  optional: [grep, bash, skill_complete]
+  optional: [grep, exec, skill_complete]
   denied: [write, edit]
 budget:
   max_tool_calls: 40

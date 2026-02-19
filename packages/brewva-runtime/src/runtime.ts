@@ -1425,6 +1425,21 @@ export class BrewvaRuntime {
   checkToolAccess(sessionId: string, toolName: string): { allowed: boolean; reason?: string } {
     const skill = this.getActiveSkill(sessionId);
     const normalizedToolName = normalizeToolName(toolName);
+    if (normalizedToolName === "bash" || normalizedToolName === "shell") {
+      const reason = `Tool '${normalizedToolName}' has been removed. Use 'exec' with 'process' for command execution.`;
+      this.recordEvent({
+        sessionId,
+        type: "tool_call_blocked",
+        turn: this.getCurrentTurn(sessionId),
+        payload: {
+          toolName: normalizedToolName,
+          skill: skill?.name ?? null,
+          reason,
+        },
+      });
+      return { allowed: false, reason };
+    }
+
     const access = checkToolAccess(skill?.contract, toolName, {
       enforceDeniedTools: this.config.security.enforceDeniedTools,
       allowedToolsMode: this.config.security.allowedToolsMode,
@@ -1887,7 +1902,7 @@ export class BrewvaRuntime {
     });
     const artifacts = this.dedupeArtifacts([...metadataArtifacts, ...extractedArtifacts]);
 
-    if (normalizedToolName === "bash" || normalizedToolName === "shell") {
+    if (normalizedToolName === "exec") {
       const commandFromArgs = this.extractShellCommandFromArgs(input.args);
       const commandFromArtifact = artifacts.find(
         (artifact) => artifact.kind === "command_failure",

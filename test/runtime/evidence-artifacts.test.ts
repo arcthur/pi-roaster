@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { extractEvidenceArtifacts } from "@brewva/brewva-runtime";
 
 describe("Evidence artifact extraction", () => {
-  test("extracts command_failure artifacts from bash output", () => {
+  test("extracts command_failure artifacts from exec output", () => {
     const outputText = [
       "FAIL src/foo.test.ts",
       "AssertionError: expected 1 to be 2",
@@ -14,7 +14,7 @@ describe("Evidence artifact extraction", () => {
     ].join("\n");
 
     const artifacts = extractEvidenceArtifacts({
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "bun test" },
       outputText,
       isError: true,

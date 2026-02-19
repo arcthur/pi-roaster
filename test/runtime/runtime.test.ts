@@ -48,6 +48,21 @@ describe("S-002 denied tool gate", () => {
     const access = runtime.checkToolAccess(sessionId, "write");
     expect(access.allowed).toBe(true);
   });
+
+  test("blocks removed bash/shell tools with migration hint", () => {
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
+    const sessionId = "s2-removed-tools";
+
+    const bash = runtime.checkToolAccess(sessionId, "bash");
+    expect(bash.allowed).toBe(false);
+    expect(bash.reason?.includes("removed")).toBe(true);
+    expect(bash.reason?.includes("exec")).toBe(true);
+    expect(bash.reason?.includes("process")).toBe(true);
+
+    const shell = runtime.checkToolAccess(sessionId, "shell");
+    expect(shell.allowed).toBe(false);
+    expect(shell.reason?.includes("removed")).toBe(true);
+  });
 });
 
 describe("S-003 ledger write/query", () => {
@@ -57,14 +72,14 @@ describe("S-003 ledger write/query", () => {
 
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "bun test" },
       outputText: "PASS",
       success: true,
     });
 
     const text = runtime.queryLedger(sessionId, { last: 5 });
-    expect(text.includes("bash")).toBe(true);
+    expect(text.includes("exec")).toBe(true);
     expect(text.includes("PASS")).toBe(true);
   });
 });
@@ -89,7 +104,7 @@ describe("S-004/S-005 verification gate", () => {
     });
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "bun test" },
       outputText: "All tests passed",
       success: true,
@@ -132,7 +147,7 @@ describe("S-006 three-layer contract tightening", () => {
       tools: {
         required: [],
         optional: ["write", "edit"],
-        denied: ["bash"],
+        denied: ["exec"],
       },
       budget: {
         maxToolCalls: 10,
@@ -143,7 +158,7 @@ describe("S-006 three-layer contract tightening", () => {
     expect(merged.tools.optional).toContain("edit");
     expect(merged.tools.optional).not.toContain("write");
     expect(merged.tools.denied).toContain("write");
-    expect(merged.tools.denied).toContain("bash");
+    expect(merged.tools.denied).toContain("exec");
     expect(merged.budget.maxToolCalls).toBe(10);
   });
 
@@ -171,14 +186,14 @@ describe("S-006 three-layer contract tightening", () => {
     mkdirSync(join(workspace, ".brewva", "skills", "project", "foo"), { recursive: true });
     writeFileSync(
       join(workspace, ".brewva/skills/project/foo/SKILL.md"),
-      `---\nname: foo\ndescription: project\ntags: [foo]\ntools:\n  required: []\n  optional: [write]\n  denied: [bash]\nbudget:\n  max_tool_calls: 30\n  max_tokens: 8000\n---\nproject`,
+      `---\nname: foo\ndescription: project\ntags: [foo]\ntools:\n  required: []\n  optional: [write]\n  denied: [exec]\nbudget:\n  max_tool_calls: 30\n  max_tokens: 8000\n---\nproject`,
     );
 
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".brewva/brewva.json" });
     const foo = runtime.getSkill("foo");
     expect(foo).toBeDefined();
     expect(foo!.contract.tools.denied).toContain("write");
-    expect(foo!.contract.tools.denied).toContain("bash");
+    expect(foo!.contract.tools.denied).toContain("exec");
     expect(foo!.contract.tools.required).toContain("read");
   });
 });
@@ -269,7 +284,7 @@ describe("cost evidence separation in digest", () => {
 
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "echo hello" },
       outputText: "hello",
       success: true,
@@ -378,7 +393,7 @@ describe("session state cleanup", () => {
     });
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "echo ok" },
       outputText: "ok",
       success: true,

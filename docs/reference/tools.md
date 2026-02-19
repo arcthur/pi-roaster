@@ -23,6 +23,8 @@ Defined in `packages/brewva-tools/src/ast-grep.ts`.
 ## Runtime-Aware Tools
 
 - `look_at`
+- `exec`
+- `process`
 - `cost_view`
 - `ledger_query`
 - `tape_handoff`
@@ -42,6 +44,8 @@ Defined in `packages/brewva-tools/src/ast-grep.ts`.
 Definitions:
 
 - `packages/brewva-tools/src/look-at.ts`
+- `packages/brewva-tools/src/exec.ts`
+- `packages/brewva-tools/src/process.ts`
 - `packages/brewva-tools/src/cost-view.ts`
 - `packages/brewva-tools/src/ledger-query.ts`
 - `packages/brewva-tools/src/tape.ts`

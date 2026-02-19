@@ -60,7 +60,7 @@ describe("S-008 patching e2e loop", () => {
     });
     runtime.recordToolResult({
       sessionId,
-      toolName: "bash",
+      toolName: "exec",
       args: { command: "bun test" },
       outputText: "PASS 3 tests",
       success: true,

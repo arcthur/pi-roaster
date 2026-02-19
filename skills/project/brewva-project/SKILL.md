@@ -8,7 +8,7 @@ tags: [project, migration, runtime, verification, delivery]
 anti_tags: []
 tools:
   required: [read, grep]
-  optional: [bash, ledger_query, lsp_diagnostics, skill_load, skill_complete]
+  optional: [exec, ledger_query, lsp_diagnostics, skill_load, skill_complete]
   denied: []
 budget:
   max_tool_calls: 110
