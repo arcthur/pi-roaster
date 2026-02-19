@@ -4,6 +4,8 @@
 
 1. Parse CLI args and resolve mode/input (`packages/brewva-cli/src/index.ts`)
 2. Create session + runtime (`packages/brewva-cli/src/session.ts`)
+   - runtime config is loaded/normalized first
+   - startup UI settings (`ui.quietStartup`, `ui.collapseChangelog`) are applied from `runtime.config.ui` into session settings overrides
 3. Register extension handlers (`packages/brewva-extensions/src/index.ts`)
 4. Run turn loop with tool execution, ledger/event writes, and verification updates
 5. Emit replayable event timeline and dispose session resources

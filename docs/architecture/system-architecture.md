@@ -42,6 +42,7 @@ flowchart TD
   - Evidence ledger + truth/task event-sourced state.
   - Tape replay (`checkpoint + delta`), context budget, parallel budget, cost tracking.
   - Rollback tracking via file snapshots.
+  - Canonical runtime configuration contract (`BrewvaConfig`), including startup UI policy (`ui.quietStartup`, `ui.collapseChangelog`).
 - **Distribution/build packaging (`distribution/*`, `script/*`)**
   - Platform launcher packages and binary build/verification scripts.
 
@@ -57,6 +58,26 @@ flowchart TD
     assistant usage telemetry.
   - Extension-layer guards/hooks (context contract injection, quality gate,
     completion guard) are intentionally not active.
+
+## Configuration-to-UI Flow
+
+`BrewvaConfig` is the source of truth for startup UI defaults. The flow is:
+
+1. Runtime loads and normalizes config (`loadBrewvaConfig` + `normalizeBrewvaConfig`).
+2. CLI session bootstrap reads `runtime.config.ui`.
+3. CLI applies `runtime.config.ui` into upstream `SettingsManager` overrides.
+4. Interactive mode startup rendering uses those settings (`quietStartup`, `collapseChangelog`).
+
+Key implementation points:
+
+- Runtime types/defaults/normalization:
+  - `packages/brewva-runtime/src/types.ts`
+  - `packages/brewva-runtime/src/config/defaults.ts`
+  - `packages/brewva-runtime/src/config/normalize.ts`
+- Session bootstrap wiring:
+  - `packages/brewva-cli/src/session.ts`
+- Distribution global seed defaults:
+  - `distribution/brewva/postinstall.mjs`
 
 ## Dependency Direction Rules
 

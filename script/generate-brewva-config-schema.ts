@@ -65,17 +65,17 @@ async function main(): Promise<void> {
   const schema = createGenerator({
     tsconfig,
     path: typesPath,
-    type: "BrewvaConfig",
+    type: "BrewvaConfigFile",
     expose: "export",
     jsDoc: "extended",
     additionalProperties: false,
     sortProps: true,
     topRef: true,
     skipTypeCheck: false,
-  }).createSchema("BrewvaConfig") as Schema;
+  }).createSchema("BrewvaConfigFile") as Schema;
 
-  schema.title = "brewva BrewvaConfig";
-  schema.description = "JSON Schema for .brewva/brewva.json (Brewva runtime configuration).";
+  schema.title = "brewva BrewvaConfigFile";
+  schema.description = "JSON Schema for .brewva/brewva.json (Brewva config patch file).";
 
   const parent = dirname(outputPath);
   mkdirSync(parent, { recursive: true });

@@ -9,6 +9,29 @@ import { BrewvaRuntime, parseTaskSpec, type TaskSpec } from "@brewva/brewva-runt
 import { createBrewvaSession, type BrewvaSessionResult } from "./session.js";
 import { JsonLineWriter, writeJsonLine } from "./json-lines.js";
 
+function printConfigDiagnostics(
+  diagnostics: BrewvaRuntime["configDiagnostics"],
+  verbose: boolean,
+): void {
+  if (diagnostics.length === 0) return;
+
+  const errors = diagnostics.filter((diagnostic) => diagnostic.level === "error");
+  const warnings = diagnostics.filter((diagnostic) => diagnostic.level === "warn");
+
+  for (const diagnostic of errors) {
+    console.error(`[config:error] ${diagnostic.configPath}: ${diagnostic.message}`);
+  }
+
+  if (warnings.length === 0) return;
+  const maxWarnings = verbose ? warnings.length : Math.min(3, warnings.length);
+  for (const diagnostic of warnings.slice(0, maxWarnings)) {
+    console.error(`[config:warn] ${diagnostic.configPath}: ${diagnostic.message}`);
+  }
+  if (!verbose && warnings.length > maxWarnings) {
+    console.error(`[config:warn] ${warnings.length - maxWarnings} more warning(s) suppressed (run with --verbose for details).`);
+  }
+}
+
 function printHelp(): void {
   console.log(`Brewva - AI-native coding agent CLI
 
@@ -444,6 +467,7 @@ async function run(): Promise<void> {
     model: parsed.model,
     enableExtensions: parsed.enableExtensions,
   });
+  printConfigDiagnostics(runtime.configDiagnostics, parsed.verbose);
 
   const getSessionId = (): string => session.sessionManager.getSessionId();
   const initialSessionId = getSessionId();

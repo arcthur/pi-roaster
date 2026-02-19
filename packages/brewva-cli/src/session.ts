@@ -32,10 +32,13 @@ function resolveModel(modelText: string | undefined, registry: ModelRegistry): R
   return registry.find(provider, modelId);
 }
 
-function applyDefaultStartupSilence(settingsManager: SettingsManager): void {
+function applyRuntimeUiSettings(
+  settingsManager: SettingsManager,
+  uiConfig: BrewvaRuntime["config"]["ui"],
+): void {
   settingsManager.applyOverrides({
-    quietStartup: true,
-    collapseChangelog: true,
+    quietStartup: uiConfig.quietStartup,
+    collapseChangelog: uiConfig.collapseChangelog,
   });
 }
 
@@ -62,7 +65,7 @@ export async function createBrewvaSession(options: CreateBrewvaSessionOptions = 
   }
 
   const settingsManager = SettingsManager.create(cwd, agentDir);
-  applyDefaultStartupSilence(settingsManager);
+  applyRuntimeUiSettings(settingsManager, runtime.config.ui);
 
   const extensionsEnabled = options.enableExtensions !== false;
   const resourceLoader = new DefaultResourceLoader({

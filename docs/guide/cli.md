@@ -13,7 +13,7 @@ CLI implementation: `packages/brewva-cli/src/index.ts`.
 ## Startup Behavior
 
 - Interactive mode defaults to quiet startup, reducing banner/changelog/version-check noise during initialization.
-- This behavior is enforced by `@brewva/brewva-cli` and does not depend on local `pi-coding-agent` configuration files.
+- Startup UI behavior is controlled by `BrewvaConfig.ui` (`ui.quietStartup`, `ui.collapseChangelog`) and applied by `@brewva/brewva-cli`.
 
 ## Mode and Input Resolution
 

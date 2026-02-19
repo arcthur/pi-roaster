@@ -45,6 +45,7 @@ const PHOTON_WASM_PATH = join(
   dirname(piCodingAgentRequire.resolve("@silvia-odwyer/photon-node/package.json")),
   "photon_rs_bg.wasm",
 );
+const BREWVA_CONFIG_SCHEMA_PATH = join(process.cwd(), "packages", "brewva-runtime", "schema", "brewva.schema.json");
 
 function copyDirectory(source: string, target: string): void {
   if (!existsSync(source)) return;
@@ -76,6 +77,7 @@ function copyRuntimeAssets(outDir: string): void {
   copyFile(join(PI_CODING_AGENT_DIR, "README.md"), join(outDir, "README.md"));
   copyFile(join(PI_CODING_AGENT_DIR, "CHANGELOG.md"), join(outDir, "CHANGELOG.md"));
   copyFile(PHOTON_WASM_PATH, join(outDir, "photon_rs_bg.wasm"));
+  copyFile(BREWVA_CONFIG_SCHEMA_PATH, join(outDir, "brewva.schema.json"));
 
   copyDirectory(join(PI_CODING_AGENT_DIR, "docs"), join(outDir, "docs"));
   copyDirectory(join(PI_CODING_AGENT_DIR, "examples"), join(outDir, "examples"));
