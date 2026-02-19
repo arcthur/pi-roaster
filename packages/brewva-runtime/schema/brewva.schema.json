@@ -1,13 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$ref": "#/definitions/BrewvaConfig",
-  "title": "brewva BrewvaConfig",
-  "description": "JSON Schema for .brewva/brewva.json (Brewva runtime configuration).",
+  "$ref": "#/definitions/BrewvaConfigFile",
+  "title": "brewva BrewvaConfigFile",
+  "description": "JSON Schema for .brewva/brewva.json (Brewva config patch file).",
   "definitions": {
-    "BrewvaConfig": {
+    "BrewvaConfigFile": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "$schema": {
+          "type": "string"
+        },
         "infrastructure": {
           "type": "object",
           "additionalProperties": false,
@@ -48,18 +51,7 @@
                     "tail"
                   ]
                 }
-              },
-              "required": [
-                "enabled",
-                "maxInjectionTokens",
-                "compactionThresholdPercent",
-                "hardLimitPercent",
-                "minTurnsBetweenCompaction",
-                "minSecondsBetweenCompaction",
-                "pressureBypassPercent",
-                "truncationStrategy",
-                "compactionInstructions"
-              ]
+              }
             },
             "costTracking": {
               "type": "object",
@@ -84,14 +76,7 @@
                 "maxCostUsdPerSkill": {
                   "type": "number"
                 }
-              },
-              "required": [
-                "enabled",
-                "maxCostUsdPerSession",
-                "maxCostUsdPerSkill",
-                "alertThresholdRatio",
-                "actionOnExceed"
-              ]
+              }
             },
             "events": {
               "type": "object",
@@ -103,11 +88,7 @@
                 "enabled": {
                   "type": "boolean"
                 }
-              },
-              "required": [
-                "enabled",
-                "dir"
-              ]
+              }
             },
             "interruptRecovery": {
               "type": "object",
@@ -119,19 +100,9 @@
                 "gracefulTimeoutMs": {
                   "type": "number"
                 }
-              },
-              "required": [
-                "enabled",
-                "gracefulTimeoutMs"
-              ]
+              }
             }
-          },
-          "required": [
-            "events",
-            "contextBudget",
-            "interruptRecovery",
-            "costTracking"
-          ]
+          }
         },
         "ledger": {
           "type": "object",
@@ -146,45 +117,7 @@
             "path": {
               "type": "string"
             }
-          },
-          "required": [
-            "path",
-            "digestWindow",
-            "checkpointEveryTurns"
-          ]
-        },
-        "tape": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "checkpointIntervalEntries": {
-              "type": "number"
-            },
-            "tapePressureThresholds": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "high": {
-                  "type": "number"
-                },
-                "low": {
-                  "type": "number"
-                },
-                "medium": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "low",
-                "medium",
-                "high"
-              ]
-            }
-          },
-          "required": [
-            "checkpointIntervalEntries",
-            "tapePressureThresholds"
-          ]
+          }
         },
         "parallel": {
           "type": "object",
@@ -199,12 +132,7 @@
             "maxTotal": {
               "type": "number"
             }
-          },
-          "required": [
-            "enabled",
-            "maxConcurrent",
-            "maxTotal"
-          ]
+          }
         },
         "security": {
           "type": "object",
@@ -243,14 +171,7 @@
                 "enforce"
               ]
             }
-          },
-          "required": [
-            "sanitizeContext",
-            "enforceDeniedTools",
-            "allowedToolsMode",
-            "skillMaxTokensMode",
-            "skillMaxParallelMode"
-          ]
+          }
         },
         "skills": {
           "type": "object",
@@ -400,19 +321,45 @@
                 "maxDigestTokens": {
                   "type": "number"
                 }
-              },
-              "required": [
-                "k",
-                "maxDigestTokens"
-              ]
+              }
             }
-          },
-          "required": [
-            "packs",
-            "disabled",
-            "overrides",
-            "selector"
-          ]
+          }
+        },
+        "tape": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "checkpointIntervalEntries": {
+              "type": "number"
+            },
+            "tapePressureThresholds": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "high": {
+                  "type": "number"
+                },
+                "low": {
+                  "type": "number"
+                },
+                "medium": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "collapseChangelog": {
+              "type": "boolean"
+            },
+            "quietStartup": {
+              "type": "boolean"
+            }
+          }
         },
         "verification": {
           "type": "object",
@@ -440,12 +387,7 @@
                     "type": "string"
                   }
                 }
-              },
-              "required": [
-                "quick",
-                "standard",
-                "strict"
-              ]
+              }
             },
             "commands": {
               "type": "object",
@@ -456,23 +398,9 @@
             "defaultLevel": {
               "$ref": "#/definitions/VerificationLevel"
             }
-          },
-          "required": [
-            "defaultLevel",
-            "checks",
-            "commands"
-          ]
+          }
         }
-      },
-      "required": [
-        "skills",
-        "verification",
-        "ledger",
-        "tape",
-        "security",
-        "parallel",
-        "infrastructure"
-      ]
+      }
     },
     "SkillCostHint": {
       "type": "string",

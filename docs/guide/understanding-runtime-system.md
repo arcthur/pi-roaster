@@ -38,3 +38,13 @@ All core contracts are defined in `packages/brewva-runtime/src/types.ts`, includ
 - Defaults: `packages/brewva-runtime/src/config/defaults.ts`
 - Loader: `packages/brewva-runtime/src/config/loader.ts`
 - Merge: `packages/brewva-runtime/src/config/merge.ts`
+
+`BrewvaConfig` now includes startup UI policy under `ui`:
+
+- `ui.quietStartup`
+- `ui.collapseChangelog`
+
+Runtime remains the canonical source for these values. During session bootstrap,
+`@brewva/brewva-cli` reads `runtime.config.ui` and applies it into upstream
+`SettingsManager` overrides, so interactive startup output is controlled by
+runtime config rather than hardcoded CLI constants.

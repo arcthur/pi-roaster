@@ -1,12 +1,16 @@
 import { createRequire } from "node:module";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getBinaryPath, getPlatformPackage } from "./bin/platform.js";
 
 const require = createRequire(import.meta.url);
 
 const DEFAULT_GLOBAL_BREWVA_CONFIG = {
+  ui: {
+    quietStartup: true,
+    collapseChangelog: true,
+  },
   skills: {
     roots: [],
     packs: ["typescript", "react", "bun"],
@@ -127,6 +131,51 @@ function copyDirectoryContents(sourceDir, targetDir) {
   }
 }
 
+function toPortableRelPath(pathText) {
+  return pathText.split(sep).join("/");
+}
+
+function listBundledSkillFiles(sourceSkillsDir) {
+  const out = [];
+  const walk = (dir) => {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      out.push(toPortableRelPath(relative(sourceSkillsDir, full)));
+    }
+  };
+  walk(sourceSkillsDir);
+  return out.sort();
+}
+
+function readSkillsManifest(manifestPath) {
+  if (!existsSync(manifestPath)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const files = parsed.files;
+    if (!Array.isArray(files)) return undefined;
+    return files.filter((entry) => typeof entry === "string" && entry.length > 0);
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSkillsManifest(manifestPath, files) {
+  const payload = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    files,
+  };
+  writeFileSync(manifestPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
 function seedGlobalSkills(globalRoot, runtimeBinaryPath) {
   const sourceSkillsDir = join(dirname(runtimeBinaryPath), "skills");
   if (!existsSync(sourceSkillsDir)) {
@@ -134,7 +183,19 @@ function seedGlobalSkills(globalRoot, runtimeBinaryPath) {
     return;
   }
   const targetSkillsDir = join(globalRoot, "skills");
+  const manifestPath = join(targetSkillsDir, ".brewva-manifest.json");
+
+  const nextFiles = listBundledSkillFiles(sourceSkillsDir);
+  const previousFiles = readSkillsManifest(manifestPath) ?? [];
+  const nextFileSet = new Set(nextFiles);
+
+  for (const entry of previousFiles) {
+    if (nextFileSet.has(entry)) continue;
+    rmSync(join(targetSkillsDir, entry), { recursive: true, force: true });
+  }
+
   copyDirectoryContents(sourceSkillsDir, targetSkillsDir);
+  writeSkillsManifest(manifestPath, nextFiles);
   console.log(`brewva: renewed global skills at ${targetSkillsDir}`);
 }
 

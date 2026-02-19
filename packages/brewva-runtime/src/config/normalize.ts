@@ -1,8 +1,15 @@
-import type { BrewvaConfig } from "../types.js";
+import type { BrewvaConfig, VerificationLevel } from "../types.js";
 
 const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "summarize", "tail"]);
 const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
 const VALID_ALLOWED_TOOLS_MODES = new Set(["off", "warn", "enforce"]);
+const VALID_VERIFICATION_LEVELS = new Set<VerificationLevel>(["quick", "standard", "strict"]);
+
+type AnyRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is AnyRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
@@ -65,131 +72,178 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-export function normalizeBrewvaConfig(config: BrewvaConfig, defaults: BrewvaConfig): BrewvaConfig {
+function normalizeVerificationLevel(
+  value: unknown,
+  fallback: VerificationLevel,
+): VerificationLevel {
+  return VALID_VERIFICATION_LEVELS.has(value as VerificationLevel) ? (value as VerificationLevel) : fallback;
+}
+
+function normalizeStringRecord(value: unknown, fallback: Record<string, string>): Record<string, string> {
+  if (!isRecord(value)) return { ...fallback };
+  const out: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    out[key] = entry;
+  }
+  return out;
+}
+
+function normalizeSkillOverrides(value: unknown, fallback: BrewvaConfig["skills"]["overrides"]): BrewvaConfig["skills"]["overrides"] {
+  if (!isRecord(value)) return structuredClone(fallback);
+  const out: BrewvaConfig["skills"]["overrides"] = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) continue;
+    out[key] = entry as BrewvaConfig["skills"]["overrides"][string];
+  }
+  return out;
+}
+
+export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): BrewvaConfig {
+  const input = isRecord(config) ? config : {};
+  const uiInput = isRecord(input.ui) ? input.ui : {};
+  const skillsInput = isRecord(input.skills) ? input.skills : {};
+  const skillsSelectorInput = isRecord(skillsInput.selector) ? skillsInput.selector : {};
+  const verificationInput = isRecord(input.verification) ? input.verification : {};
+  const verificationChecksInput = isRecord(verificationInput.checks) ? verificationInput.checks : {};
+  const ledgerInput = isRecord(input.ledger) ? input.ledger : {};
+  const tapeInput = isRecord(input.tape) ? input.tape : {};
+  const securityInput = isRecord(input.security) ? input.security : {};
+  const parallelInput = isRecord(input.parallel) ? input.parallel : {};
+  const infrastructureInput = isRecord(input.infrastructure) ? input.infrastructure : {};
+  const infrastructureEventsInput = isRecord(infrastructureInput.events) ? infrastructureInput.events : {};
+  const contextBudgetInput = isRecord(infrastructureInput.contextBudget) ? infrastructureInput.contextBudget : {};
+  const interruptRecoveryInput = isRecord(infrastructureInput.interruptRecovery) ? infrastructureInput.interruptRecovery : {};
+  const costTrackingInput = isRecord(infrastructureInput.costTracking) ? infrastructureInput.costTracking : {};
+
   const defaultContextBudget = defaults.infrastructure.contextBudget;
-  const contextBudget = config.infrastructure.contextBudget;
-  const normalizedHardLimitPercent = normalizeUnitInterval(contextBudget.hardLimitPercent, defaultContextBudget.hardLimitPercent);
+  const normalizedHardLimitPercent = normalizeUnitInterval(contextBudgetInput.hardLimitPercent, defaultContextBudget.hardLimitPercent);
   const normalizedCompactionThresholdPercent = Math.min(
-    normalizeUnitInterval(contextBudget.compactionThresholdPercent, defaultContextBudget.compactionThresholdPercent),
+    normalizeUnitInterval(contextBudgetInput.compactionThresholdPercent, defaultContextBudget.compactionThresholdPercent),
     normalizedHardLimitPercent,
   );
 
   return {
-    ...config,
+    ui: {
+      quietStartup: normalizeBoolean(uiInput.quietStartup, defaults.ui.quietStartup),
+      collapseChangelog: normalizeBoolean(uiInput.collapseChangelog, defaults.ui.collapseChangelog),
+    },
     skills: {
-      ...config.skills,
-      roots: normalizeStringArray(config.skills.roots, defaults.skills.roots ?? []),
-      packs: normalizeStringArray(config.skills.packs, defaults.skills.packs),
-      disabled: normalizeStringArray(config.skills.disabled, defaults.skills.disabled),
+      roots: normalizeStringArray(skillsInput.roots, defaults.skills.roots ?? []),
+      packs: normalizeStringArray(skillsInput.packs, defaults.skills.packs),
+      disabled: normalizeStringArray(skillsInput.disabled, defaults.skills.disabled),
+      overrides: normalizeSkillOverrides(skillsInput.overrides, defaults.skills.overrides),
       selector: {
-        ...config.skills.selector,
-        k: normalizePositiveInteger(config.skills.selector.k, defaults.skills.selector.k),
+        k: normalizePositiveInteger(skillsSelectorInput.k, defaults.skills.selector.k),
         maxDigestTokens: normalizePositiveInteger(
-          config.skills.selector.maxDigestTokens,
+          skillsSelectorInput.maxDigestTokens,
           defaults.skills.selector.maxDigestTokens,
         ),
       },
     },
+    verification: {
+      defaultLevel: normalizeVerificationLevel(verificationInput.defaultLevel, defaults.verification.defaultLevel),
+      checks: {
+        quick: normalizeStringArray(verificationChecksInput.quick, defaults.verification.checks.quick),
+        standard: normalizeStringArray(verificationChecksInput.standard, defaults.verification.checks.standard),
+        strict: normalizeStringArray(verificationChecksInput.strict, defaults.verification.checks.strict),
+      },
+      commands: normalizeStringRecord(verificationInput.commands, defaults.verification.commands),
+    },
     ledger: {
-      ...config.ledger,
-      path: normalizeNonEmptyString(config.ledger.path, defaults.ledger.path),
-      digestWindow: normalizePositiveInteger(config.ledger.digestWindow, defaults.ledger.digestWindow),
+      path: normalizeNonEmptyString(ledgerInput.path, defaults.ledger.path),
+      digestWindow: normalizePositiveInteger(ledgerInput.digestWindow, defaults.ledger.digestWindow),
       checkpointEveryTurns: normalizeNonNegativeInteger(
-        config.ledger.checkpointEveryTurns,
+        ledgerInput.checkpointEveryTurns,
         defaults.ledger.checkpointEveryTurns,
       ),
     },
     tape: {
-      ...config.tape,
       checkpointIntervalEntries: normalizeNonNegativeInteger(
-        config.tape.checkpointIntervalEntries,
+        tapeInput.checkpointIntervalEntries,
         defaults.tape.checkpointIntervalEntries,
       ),
       tapePressureThresholds: normalizeTapePressureThresholds(
-        config.tape.tapePressureThresholds,
+        tapeInput.tapePressureThresholds,
         defaults.tape.tapePressureThresholds,
       ),
     },
     security: {
-      ...config.security,
-      sanitizeContext: normalizeBoolean(config.security.sanitizeContext, defaults.security.sanitizeContext),
-      enforceDeniedTools: normalizeBoolean(config.security.enforceDeniedTools, defaults.security.enforceDeniedTools),
-      allowedToolsMode: VALID_ALLOWED_TOOLS_MODES.has(config.security.allowedToolsMode)
-        ? config.security.allowedToolsMode
+      sanitizeContext: normalizeBoolean(securityInput.sanitizeContext, defaults.security.sanitizeContext),
+      enforceDeniedTools: normalizeBoolean(securityInput.enforceDeniedTools, defaults.security.enforceDeniedTools),
+      allowedToolsMode: VALID_ALLOWED_TOOLS_MODES.has(securityInput.allowedToolsMode as string)
+        ? (securityInput.allowedToolsMode as BrewvaConfig["security"]["allowedToolsMode"])
         : defaults.security.allowedToolsMode,
-      skillMaxTokensMode: VALID_ALLOWED_TOOLS_MODES.has(config.security.skillMaxTokensMode)
-        ? config.security.skillMaxTokensMode
+      skillMaxTokensMode: VALID_ALLOWED_TOOLS_MODES.has(securityInput.skillMaxTokensMode as string)
+        ? (securityInput.skillMaxTokensMode as BrewvaConfig["security"]["skillMaxTokensMode"])
         : defaults.security.skillMaxTokensMode,
-      skillMaxParallelMode: VALID_ALLOWED_TOOLS_MODES.has(config.security.skillMaxParallelMode)
-        ? config.security.skillMaxParallelMode
+      skillMaxParallelMode: VALID_ALLOWED_TOOLS_MODES.has(securityInput.skillMaxParallelMode as string)
+        ? (securityInput.skillMaxParallelMode as BrewvaConfig["security"]["skillMaxParallelMode"])
         : defaults.security.skillMaxParallelMode,
     },
     parallel: {
-      ...config.parallel,
-      enabled: normalizeBoolean(config.parallel.enabled, defaults.parallel.enabled),
-      maxConcurrent: normalizePositiveInteger(config.parallel.maxConcurrent, defaults.parallel.maxConcurrent),
-      maxTotal: normalizePositiveInteger(config.parallel.maxTotal, defaults.parallel.maxTotal),
+      enabled: normalizeBoolean(parallelInput.enabled, defaults.parallel.enabled),
+      maxConcurrent: normalizePositiveInteger(parallelInput.maxConcurrent, defaults.parallel.maxConcurrent),
+      maxTotal: normalizePositiveInteger(parallelInput.maxTotal, defaults.parallel.maxTotal),
     },
     infrastructure: {
-      ...config.infrastructure,
       events: {
-        ...config.infrastructure.events,
-        enabled: normalizeBoolean(config.infrastructure.events.enabled, defaults.infrastructure.events.enabled),
-        dir: normalizeNonEmptyString(config.infrastructure.events.dir, defaults.infrastructure.events.dir),
+        enabled: normalizeBoolean(infrastructureEventsInput.enabled, defaults.infrastructure.events.enabled),
+        dir: normalizeNonEmptyString(infrastructureEventsInput.dir, defaults.infrastructure.events.dir),
       },
       contextBudget: {
-        ...contextBudget,
-        enabled: normalizeBoolean(contextBudget.enabled, defaultContextBudget.enabled),
-        maxInjectionTokens: normalizePositiveInteger(contextBudget.maxInjectionTokens, defaultContextBudget.maxInjectionTokens),
+        enabled: normalizeBoolean(contextBudgetInput.enabled, defaultContextBudget.enabled),
+        maxInjectionTokens: normalizePositiveInteger(contextBudgetInput.maxInjectionTokens, defaultContextBudget.maxInjectionTokens),
         compactionThresholdPercent: normalizedCompactionThresholdPercent,
         hardLimitPercent: normalizedHardLimitPercent,
         minTurnsBetweenCompaction: normalizeNonNegativeInteger(
-          contextBudget.minTurnsBetweenCompaction,
+          contextBudgetInput.minTurnsBetweenCompaction,
           defaultContextBudget.minTurnsBetweenCompaction,
         ),
         minSecondsBetweenCompaction: normalizeNonNegativeNumber(
-          contextBudget.minSecondsBetweenCompaction,
+          contextBudgetInput.minSecondsBetweenCompaction,
           defaultContextBudget.minSecondsBetweenCompaction,
         ),
         pressureBypassPercent: normalizeUnitInterval(
-          contextBudget.pressureBypassPercent,
+          contextBudgetInput.pressureBypassPercent,
           defaultContextBudget.pressureBypassPercent,
         ),
-        truncationStrategy: VALID_TRUNCATION_STRATEGIES.has(contextBudget.truncationStrategy)
-          ? contextBudget.truncationStrategy
+        truncationStrategy: VALID_TRUNCATION_STRATEGIES.has(contextBudgetInput.truncationStrategy as string)
+          ? (contextBudgetInput.truncationStrategy as BrewvaConfig["infrastructure"]["contextBudget"]["truncationStrategy"])
           : defaultContextBudget.truncationStrategy,
         compactionInstructions: normalizeNonEmptyString(
-          contextBudget.compactionInstructions,
+          contextBudgetInput.compactionInstructions,
           defaultContextBudget.compactionInstructions,
         ),
       },
       interruptRecovery: {
         enabled: normalizeBoolean(
-          config.infrastructure.interruptRecovery.enabled,
+          interruptRecoveryInput.enabled,
           defaults.infrastructure.interruptRecovery.enabled,
         ),
         gracefulTimeoutMs: normalizePositiveInteger(
-          config.infrastructure.interruptRecovery.gracefulTimeoutMs,
+          interruptRecoveryInput.gracefulTimeoutMs,
           defaults.infrastructure.interruptRecovery.gracefulTimeoutMs,
         ),
       },
       costTracking: {
-        ...config.infrastructure.costTracking,
-        enabled: normalizeBoolean(config.infrastructure.costTracking.enabled, defaults.infrastructure.costTracking.enabled),
+        enabled: normalizeBoolean(costTrackingInput.enabled, defaults.infrastructure.costTracking.enabled),
         maxCostUsdPerSession: normalizeNonNegativeNumber(
-          config.infrastructure.costTracking.maxCostUsdPerSession,
+          costTrackingInput.maxCostUsdPerSession,
           defaults.infrastructure.costTracking.maxCostUsdPerSession,
         ),
         maxCostUsdPerSkill: normalizeNonNegativeNumber(
-          config.infrastructure.costTracking.maxCostUsdPerSkill,
+          costTrackingInput.maxCostUsdPerSkill,
           defaults.infrastructure.costTracking.maxCostUsdPerSkill,
         ),
         alertThresholdRatio: normalizeUnitInterval(
-          config.infrastructure.costTracking.alertThresholdRatio,
+          costTrackingInput.alertThresholdRatio,
           defaults.infrastructure.costTracking.alertThresholdRatio,
         ),
-        actionOnExceed: VALID_COST_ACTIONS.has(config.infrastructure.costTracking.actionOnExceed)
-          ? config.infrastructure.costTracking.actionOnExceed
+        actionOnExceed: VALID_COST_ACTIONS.has(costTrackingInput.actionOnExceed as string)
+          ? (costTrackingInput.actionOnExceed as BrewvaConfig["infrastructure"]["costTracking"]["actionOnExceed"])
           : defaults.infrastructure.costTracking.actionOnExceed,
       },
     },

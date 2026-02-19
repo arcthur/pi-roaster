@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_BREWVA_CONFIG,
   loadBrewvaConfig,
+  loadBrewvaConfigWithDiagnostics,
   resolveGlobalBrewvaConfigPath,
 } from "@brewva/brewva-runtime";
 
@@ -18,6 +19,10 @@ describe("Brewva config loader normalization", () => {
   test("normalizes malformed values and preserves hierarchy invariants", () => {
     const workspace = createWorkspace("normalize");
     const rawConfig = {
+      ui: {
+        quietStartup: "yes",
+        collapseChangelog: 1,
+      },
       tape: {
         checkpointIntervalEntries: -9,
         tapePressureThresholds: {
@@ -50,6 +55,8 @@ describe("Brewva config loader normalization", () => {
     const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
     const defaults = DEFAULT_BREWVA_CONFIG;
 
+    expect(loaded.ui.quietStartup).toBe(defaults.ui.quietStartup);
+    expect(loaded.ui.collapseChangelog).toBe(defaults.ui.collapseChangelog);
     expect(loaded.tape.checkpointIntervalEntries).toBe(0);
     expect(loaded.tape.tapePressureThresholds.low).toBe(20);
     expect(loaded.tape.tapePressureThresholds.medium).toBe(20);
@@ -106,6 +113,83 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.skills.disabled).toEqual(["review"]);
     expect(loaded.skills.selector.k).toBe(DEFAULT_BREWVA_CONFIG.skills.selector.k);
     expect(loaded.skills.selector.maxDigestTokens).toBe(DEFAULT_BREWVA_CONFIG.skills.selector.maxDigestTokens);
+  });
+
+  test("loads explicit ui startup overrides", () => {
+    const workspace = createWorkspace("ui-overrides");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          ui: {
+            quietStartup: false,
+            collapseChangelog: false,
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect(loaded.ui.quietStartup).toBe(false);
+    expect(loaded.ui.collapseChangelog).toBe(false);
+  });
+
+  test("tolerates $schema meta field in config files", () => {
+    const workspace = createWorkspace("schema-meta");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          $schema: "../../node_modules/@brewva/brewva-runtime/schema/brewva.schema.json",
+          ui: {
+            quietStartup: false,
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect(loaded.ui.quietStartup).toBe(false);
+    expect(loaded.ui.collapseChangelog).toBe(DEFAULT_BREWVA_CONFIG.ui.collapseChangelog);
+  });
+
+  test("tolerates invalid JSON config and reports diagnostics", () => {
+    const workspace = createWorkspace("invalid-json");
+    writeFileSync(join(workspace, ".brewva/brewva.json"), "{", "utf8");
+
+    const loaded = loadBrewvaConfigWithDiagnostics({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect(loaded.config.ui.quietStartup).toBe(DEFAULT_BREWVA_CONFIG.ui.quietStartup);
+    expect(loaded.diagnostics.some((diagnostic) => diagnostic.code === "config_parse_error")).toBe(true);
+  });
+
+  test("drops unknown keys and tolerates invalid object shapes", () => {
+    const workspace = createWorkspace("invalid-shapes");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          foo: 1,
+          ui: null,
+          verification: "nope",
+          skills: "oops",
+          infrastructure: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect((loaded as unknown as Record<string, unknown>).foo).toBeUndefined();
+    expect(loaded.ui).toEqual(DEFAULT_BREWVA_CONFIG.ui);
+    expect(loaded.verification.defaultLevel).toBe(DEFAULT_BREWVA_CONFIG.verification.defaultLevel);
   });
 
   test("loads global and project configs with project override precedence", () => {

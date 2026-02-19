@@ -17,6 +17,9 @@ Configuration contract sources:
 - `security`
 - `parallel`
 - `infrastructure`
+- `ui`
+
+配置文件是 patch/overlay：你只需要写要覆盖的字段；未写的字段会从 defaults 和更低优先级的配置层继承。
 
 ## Key Defaults
 
@@ -81,6 +84,11 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 - `infrastructure.costTracking.alertThresholdRatio`: `0.8`
 - `infrastructure.costTracking.actionOnExceed`: `warn`
 
+### UI
+
+- `ui.quietStartup`: `true`
+- `ui.collapseChangelog`: `true`
+
 ## Skill Discovery
 
 Skill loading is root-aware and merges from multiple sources (lowest to highest
@@ -131,6 +139,11 @@ To enable editor completion and validation for `.brewva/brewva.json`, set `$sche
 ```
 
 If you store the config file elsewhere (for example via `--config`), adjust the relative path accordingly.
+
+## 校验与诊断
+
+- 启动时会对配置文件做 schema 校验；发现未知字段或类型不匹配时，会输出 warning（默认最多 3 条；`--verbose` 输出全部）。
+- `$schema` 仅用于编辑器补全与校验提示，运行时会忽略该字段。
 
 ## Security
 

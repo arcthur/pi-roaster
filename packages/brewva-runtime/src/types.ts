@@ -178,6 +178,10 @@ export type TaskLedgerEventPayload =
     };
 
 export interface BrewvaConfig {
+  ui: {
+    quietStartup: boolean;
+    collapseChangelog: boolean;
+  };
   skills: {
     roots?: string[];
     packs: string[];
@@ -252,6 +256,32 @@ export interface BrewvaConfig {
       alertThresholdRatio: number;
       actionOnExceed: "warn" | "block_tools";
     };
+  };
+}
+
+// JSON file schema for `.brewva/brewva.json` (and global `$XDG_CONFIG_HOME/brewva/brewva.json`).
+// This is a patch/overlay file: all fields are optional and merged on top of defaults.
+export interface BrewvaConfigFile {
+  $schema?: string;
+  ui?: Partial<BrewvaConfig["ui"]>;
+  skills?: Partial<Omit<BrewvaConfig["skills"], "selector">> & {
+    selector?: Partial<BrewvaConfig["skills"]["selector"]>;
+  };
+  verification?: Partial<Omit<BrewvaConfig["verification"], "checks" | "commands">> & {
+    checks?: Partial<BrewvaConfig["verification"]["checks"]>;
+    commands?: BrewvaConfig["verification"]["commands"];
+  };
+  ledger?: Partial<BrewvaConfig["ledger"]>;
+  tape?: Partial<Omit<BrewvaConfig["tape"], "tapePressureThresholds">> & {
+    tapePressureThresholds?: Partial<BrewvaConfig["tape"]["tapePressureThresholds"]>;
+  };
+  security?: Partial<BrewvaConfig["security"]>;
+  parallel?: Partial<BrewvaConfig["parallel"]>;
+  infrastructure?: Partial<Omit<BrewvaConfig["infrastructure"], "events" | "contextBudget" | "interruptRecovery" | "costTracking">> & {
+    events?: Partial<BrewvaConfig["infrastructure"]["events"]>;
+    contextBudget?: Partial<BrewvaConfig["infrastructure"]["contextBudget"]>;
+    interruptRecovery?: Partial<BrewvaConfig["infrastructure"]["interruptRecovery"]>;
+    costTracking?: Partial<BrewvaConfig["infrastructure"]["costTracking"]>;
   };
 }
 

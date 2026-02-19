@@ -37,7 +37,7 @@ import type {
   TruthFactStatus,
   TruthState,
 } from "./types.js";
-import { loadBrewvaConfig } from "./config/loader.js";
+import { loadBrewvaConfigWithDiagnostics, type BrewvaConfigDiagnostic } from "./config/loader.js";
 import { SkillRegistry } from "./skills/registry.js";
 import { selectTopKSkills } from "./skills/selector.js";
 import { EvidenceLedger } from "./ledger/evidence-ledger.js";
@@ -238,6 +238,7 @@ function buildContextSourceTokenLimits(
 export class BrewvaRuntime {
   readonly cwd: string;
   readonly config: BrewvaConfig;
+  readonly configDiagnostics: BrewvaConfigDiagnostic[];
   readonly skills: SkillRegistry;
   readonly ledger: EvidenceLedger;
   readonly verification: VerificationGate;
@@ -281,9 +282,17 @@ export class BrewvaRuntime {
 
   constructor(options: BrewvaRuntimeOptions = {}) {
     this.cwd = resolve(options.cwd ?? process.cwd());
-    this.config =
-      options.config ??
-      loadBrewvaConfig({ cwd: this.cwd, configPath: options.configPath });
+    if (options.config) {
+      this.config = options.config;
+      this.configDiagnostics = [];
+    } else {
+      const loaded = loadBrewvaConfigWithDiagnostics({
+        cwd: this.cwd,
+        configPath: options.configPath,
+      });
+      this.config = loaded.config;
+      this.configDiagnostics = loaded.diagnostics;
+    }
 
     this.skills = new SkillRegistry({
       rootDir: this.cwd,

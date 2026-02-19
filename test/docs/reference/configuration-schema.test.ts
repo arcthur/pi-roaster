@@ -22,7 +22,7 @@ describe("brewva config schema", () => {
     const definitions = getObject(schema.definitions);
     expect(definitions).toBeDefined();
 
-    const brewvaConfig = getObject(definitions?.BrewvaConfig);
+    const brewvaConfig = getObject(definitions?.BrewvaConfigFile) ?? getObject(definitions?.BrewvaConfig);
     expect(brewvaConfig).toBeDefined();
 
     const properties = getObject(brewvaConfig?.properties);
@@ -36,4 +36,3 @@ describe("brewva config schema", () => {
     );
   });
 });
-

@@ -1,6 +1,10 @@
 import type { BrewvaConfig } from "../types.js";
 
 export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
+  ui: {
+    quietStartup: true,
+    collapseChangelog: true,
+  },
   skills: {
     roots: [],
     packs: ["typescript", "react", "bun"],
