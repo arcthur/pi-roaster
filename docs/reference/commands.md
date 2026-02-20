@@ -36,6 +36,10 @@ Short aliases:
 - `-i` for `--interactive`
 - `-h` for `--help`
 
+`--no-extensions` disables presentation-oriented extension handlers. Runtime
+core bridge hooks remain active for tool policy, compaction gate, and
+ledger/patch tracking.
+
 ## Input Resolution Rules
 
 - `--task` and `--task-file` are mutually exclusive; providing both returns an error.

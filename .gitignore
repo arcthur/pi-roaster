@@ -12,6 +12,7 @@ distribution/brewva-*/bin/package.json
 distribution/brewva-*/bin/README.md
 distribution/brewva-*/bin/CHANGELOG.md
 distribution/brewva-*/bin/photon_rs_bg.wasm
+distribution/brewva-*/bin/brewva.schema.json
 distribution/brewva-*/bin/docs
 distribution/brewva-*/bin/examples
 distribution/brewva-*/bin/theme

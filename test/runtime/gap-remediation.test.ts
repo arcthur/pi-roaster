@@ -1173,6 +1173,8 @@ describe("Gap remediation: cost view and budget linkage", () => {
 
     const access = runtime.checkToolAccess(sessionId, "read");
     expect(access.allowed).toBe(false);
+    expect(runtime.checkToolAccess(sessionId, "skill_complete").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "session_compact").allowed).toBe(true);
   });
 
   test("enforces global skill budget status consistently with tool access checks", () => {
@@ -1231,5 +1233,72 @@ patching`,
 
     const access = runtime.checkToolAccess(sessionId, "read");
     expect(access.allowed).toBe(false);
+    expect(runtime.checkToolAccess(sessionId, "skill_complete").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "session_compact").allowed).toBe(true);
+  });
+});
+
+describe("Gap remediation: runtime core compaction gate", () => {
+  test("blocks non-session_compact tools at critical pressure and unblocks after compaction", () => {
+    const workspace = createWorkspace("core-compaction-gate");
+    const config = createConfig({});
+    config.infrastructure = {
+      ...config.infrastructure,
+      contextBudget: {
+        ...config.infrastructure.contextBudget,
+        enabled: true,
+        compactionThresholdPercent: 0.8,
+        hardLimitPercent: 0.9,
+        minTurnsBetweenCompaction: 2,
+      },
+    };
+    writeConfig(workspace, config);
+
+    const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".config/brewva/brewva.json" });
+    const sessionId = "core-compaction-gate-1";
+    runtime.onTurnStart(sessionId, 3);
+
+    const usage = {
+      tokens: 95,
+      contextWindow: 100,
+      percent: 0.95,
+    };
+    runtime.observeContextUsage(sessionId, usage);
+
+    const blocked = runtime.startToolCall({
+      sessionId,
+      toolCallId: "tc-blocked",
+      toolName: "exec",
+      args: { command: "echo blocked" },
+      usage,
+    });
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.reason?.includes("session_compact")).toBe(true);
+    expect(
+      runtime.queryEvents(sessionId, { type: "context_compaction_gate_blocked_tool" }),
+    ).toHaveLength(1);
+
+    const compactAllowed = runtime.startToolCall({
+      sessionId,
+      toolCallId: "tc-compact",
+      toolName: "session_compact",
+      args: { reason: "critical" },
+      usage,
+    });
+    expect(compactAllowed.allowed).toBe(true);
+
+    runtime.markContextCompacted(sessionId, {
+      fromTokens: usage.tokens,
+      toTokens: 40,
+    });
+
+    const unblocked = runtime.startToolCall({
+      sessionId,
+      toolCallId: "tc-after-compact",
+      toolName: "exec",
+      args: { command: "echo ok" },
+      usage,
+    });
+    expect(unblocked.allowed).toBe(true);
   });
 });

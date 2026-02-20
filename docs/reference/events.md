@@ -25,7 +25,7 @@ fields as forward-compatible.
 - `turn_start`
 - `turn_end`
 - `tool_call`
-- `tool_result`
+- `tool_result_recorded`
 - `tool_parallel_read`
 - `task_event`
 - `truth_event`
@@ -45,9 +45,18 @@ fields as forward-compatible.
 - `session_compact_request_failed`
 - `cost_update`
 - `budget_alert`
+- `skill_budget_warning`
 - `ledger_compacted`
 - `viewport_built`
 - `viewport_policy_evaluated`
+
+## Raw vs Semantic Tool Events
+
+- `tool_call` is the raw lifecycle event recorded by `event-stream`.
+- Tool results are persisted as semantic runtime events (`tool_result_recorded`)
+  through `ledger-writer -> runtime.recordToolResult()`.
+- `tool_result` itself is treated as an SDK hook boundary, not a persisted tape
+  event, to avoid duplicate result records in long sessions.
 
 ## Viewport Events
 

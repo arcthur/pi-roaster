@@ -196,4 +196,40 @@ describe("session event bridge", () => {
     expect(usage[0]?.totalTokens).toBe(8);
     expect(usage[0]?.costUsd).toBe(0.02);
   });
+
+  test("records tool_execution lifecycle events", () => {
+    const { runtime, events } = createRuntimeMock();
+    const sessionMock = createSessionMock("tool-events-session");
+
+    registerRuntimeCoreEventBridge(runtime, sessionMock.session);
+
+    sessionMock.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc-1",
+      toolName: "exec",
+      args: { command: "echo start" },
+    } as AgentSessionEvent);
+    sessionMock.emit({
+      type: "tool_execution_update",
+      toolCallId: "tc-1",
+      toolName: "exec",
+      args: { command: "echo start" },
+      partialResult: "running",
+    } as AgentSessionEvent);
+    sessionMock.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc-1",
+      toolName: "exec",
+      result: "done",
+      isError: false,
+    } as AgentSessionEvent);
+
+    const toolEvents = events.filter((event) => event.type.startsWith("tool_execution_"));
+    expect(toolEvents).toHaveLength(3);
+    expect(toolEvents[0]?.type).toBe("tool_execution_start");
+    expect(toolEvents[1]?.type).toBe("tool_execution_update");
+    expect(toolEvents[2]?.type).toBe("tool_execution_end");
+    expect(toolEvents[0]?.payload?.toolCallId).toBe("tc-1");
+    expect(toolEvents[2]?.payload?.isError).toBe(false);
+  });
 });

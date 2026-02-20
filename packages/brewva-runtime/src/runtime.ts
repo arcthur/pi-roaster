@@ -1,30 +1,17 @@
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { loadBrewvaConfigWithDiagnostics, type BrewvaConfigDiagnostic } from "./config/loader.js";
+import { resolveWorkspaceRootDir } from "./config/paths.js";
 import { ContextBudgetManager } from "./context/budget.js";
+import { buildContextInjection as buildContextInjectionOrchestrated } from "./context/injection-orchestrator.js";
 import { ContextInjectionCollector, type ContextInjectionPriority } from "./context/injection.js";
-import { buildTruthFactsBlock } from "./context/truth-facts.js";
-import { buildTruthLedgerBlock } from "./context/truth.js";
-import {
-  buildViewportContext,
-  type ViewportContextResult,
-  type ViewportMetrics,
-} from "./context/viewport.js";
 import { SessionCostTracker } from "./cost/tracker.js";
 import { BrewvaEventStore } from "./events/store.js";
-import { extractEvidenceArtifacts, type EvidenceArtifact } from "./evidence/artifacts.js";
-import { parseTscDiagnostics } from "./evidence/tsc.js";
 import { buildLedgerDigest } from "./ledger/digest.js";
 import { EvidenceLedger } from "./ledger/evidence-ledger.js";
 import { formatLedgerRows } from "./ledger/query.js";
 import { ParallelBudgetManager } from "./parallel/budget.js";
 import { ParallelResultStore } from "./parallel/results.js";
-import {
-  classifyViewportQuality,
-  computeViewportSignalScore,
-  shouldSkipViewportInjection,
-  type ViewportQuality,
-} from "./policy/viewport-policy.js";
-import { redactSecrets } from "./security/redact.js";
+import type { ViewportQuality } from "./policy/viewport-policy.js";
 import { sanitizeContextText } from "./security/sanitize.js";
 import { checkToolAccess } from "./security/tool-policy.js";
 import { SkillRegistry } from "./skills/registry.js";
@@ -53,9 +40,11 @@ import {
   buildTruthFactResolvedEvent,
   buildTruthFactUpsertedEvent,
 } from "./truth/ledger.js";
+import { syncTruthFromToolResult } from "./truth/sync.js";
 import type {
   ContextPressureLevel,
   ContextPressureStatus,
+  ContextCompactionGateStatus,
   ContextBudgetUsage,
   EvidenceQuery,
   ParallelAcquireResult,
@@ -87,10 +76,10 @@ import type { TaskItemStatus } from "./types.js";
 import type { TaskHealth, TaskPhase, TaskStatus } from "./types.js";
 import type { TruthFact, TruthFactSeverity, TruthFactStatus, TruthState } from "./types.js";
 import { runShellCommand } from "./utils/exec.js";
-import { sha256 } from "./utils/hash.js";
 import { normalizeJsonRecord } from "./utils/json.js";
 import { normalizePercent } from "./utils/token.js";
 import { estimateTokenCount, truncateTextToTokenBudget } from "./utils/token.js";
+import { normalizeToolName } from "./utils/tool-name.js";
 import { classifyEvidence, isMutationTool } from "./verification/classifier.js";
 import { VerificationGate } from "./verification/gate.js";
 
@@ -107,11 +96,6 @@ const ALWAYS_ALLOWED_TOOLS = [
 ];
 const ALWAYS_ALLOWED_TOOL_SET = new Set(ALWAYS_ALLOWED_TOOLS);
 const OUTPUT_HEALTH_GUARD_LOOKBACK_EVENTS = 32;
-const OUTPUT_HEALTH_GUARD_SCORE_THRESHOLD = 0.4;
-
-function normalizeToolName(name: string): string {
-  return name.trim().toLowerCase();
-}
 
 const VERIFIER_BLOCKER_PREFIX = "verifier:" as const;
 
@@ -196,6 +180,7 @@ function buildContextSourceTokenLimits(maxInjectionTokens: number): Record<strin
 
 export class BrewvaRuntime {
   readonly cwd: string;
+  readonly workspaceRoot: string;
   readonly config: BrewvaConfig;
   readonly configDiagnostics: BrewvaConfigDiagnostic[];
   readonly skills: SkillRegistry;
@@ -238,6 +223,7 @@ export class BrewvaRuntime {
 
   constructor(options: BrewvaRuntimeOptions = {}) {
     this.cwd = resolve(options.cwd ?? process.cwd());
+    this.workspaceRoot = resolveWorkspaceRootDir(this.cwd);
     if (options.config) {
       this.config = options.config;
       this.configDiagnostics = [];
@@ -257,12 +243,12 @@ export class BrewvaRuntime {
     this.skills.load();
     this.skills.writeIndex();
 
-    const ledgerPath = resolve(this.cwd, this.config.ledger.path);
+    const ledgerPath = resolve(this.workspaceRoot, this.config.ledger.path);
     this.ledger = new EvidenceLedger(ledgerPath);
     this.verification = new VerificationGate(this.config);
     this.parallel = new ParallelBudgetManager(this.config.parallel);
     this.parallelResults = new ParallelResultStore();
-    this.events = new BrewvaEventStore(this.config.infrastructure.events, this.cwd);
+    this.events = new BrewvaEventStore(this.config.infrastructure.events, this.workspaceRoot);
     this.contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
     this.contextInjection = new ContextInjectionCollector({
       sourceTokenLimits: this.isContextBudgetEnabled()
@@ -274,7 +260,9 @@ export class BrewvaRuntime {
       listEvents: (sessionId) => this.queryEvents(sessionId),
       getTurn: (sessionId) => this.getCurrentTurn(sessionId),
     });
-    this.fileChanges = new FileChangeTracker(this.cwd);
+    this.fileChanges = new FileChangeTracker(this.cwd, {
+      artifactsBaseDir: this.workspaceRoot,
+    });
     this.costTracker = new SessionCostTracker(this.config.infrastructure.costTracking);
   }
 
@@ -405,6 +393,78 @@ export class BrewvaRuntime {
 
   getContextPressureLevel(sessionId: string, usage?: ContextBudgetUsage): ContextPressureLevel {
     return this.getContextPressureStatus(sessionId, usage).level;
+  }
+
+  private resolveRecentCompactionWindowTurns(): number {
+    const raw = this.config.infrastructure.contextBudget.minTurnsBetweenCompaction;
+    if (!Number.isFinite(raw)) return 1;
+    return Math.max(1, Math.floor(raw));
+  }
+
+  getContextCompactionGateStatus(
+    sessionId: string,
+    usage?: ContextBudgetUsage,
+  ): ContextCompactionGateStatus {
+    const pressure = this.getContextPressureStatus(sessionId, usage);
+    const windowTurns = this.resolveRecentCompactionWindowTurns();
+
+    const snapshot = this.contextBudget.snapshotSession(sessionId);
+    const lastCompactionTurn =
+      snapshot && Number.isFinite(snapshot.lastCompactionTurn)
+        ? Math.floor(snapshot.lastCompactionTurn)
+        : null;
+    const turnsSinceCompaction =
+      lastCompactionTurn === null
+        ? null
+        : Math.max(0, this.getCurrentTurn(sessionId) - lastCompactionTurn);
+    const recentCompaction =
+      turnsSinceCompaction !== null && Number.isFinite(turnsSinceCompaction)
+        ? turnsSinceCompaction < windowTurns
+        : false;
+    const required =
+      this.config.infrastructure.contextBudget.enabled &&
+      pressure.level === "critical" &&
+      !recentCompaction;
+
+    return {
+      required,
+      pressure,
+      recentCompaction,
+      windowTurns,
+      lastCompactionTurn,
+      turnsSinceCompaction,
+    };
+  }
+
+  checkContextCompactionGate(
+    sessionId: string,
+    toolName: string,
+    usage?: ContextBudgetUsage,
+  ): { allowed: boolean; reason?: string } {
+    const normalizedToolName = normalizeToolName(toolName);
+    if (normalizedToolName === "session_compact") {
+      return { allowed: true };
+    }
+
+    const gate = this.getContextCompactionGateStatus(sessionId, usage);
+    if (!gate.required) {
+      return { allowed: true };
+    }
+
+    const reason =
+      "Context usage is critical. Call tool 'session_compact' first, then continue with other tools.";
+    this.recordEvent({
+      sessionId,
+      type: "context_compaction_gate_blocked_tool",
+      turn: this.getCurrentTurn(sessionId),
+      payload: {
+        blockedTool: toolName,
+        reason: "critical_context_pressure_without_compaction",
+        usagePercent: gate.pressure.usageRatio,
+        hardLimitPercent: gate.pressure.hardLimitRatio,
+      },
+    });
+    return { allowed: false, reason };
   }
 
   private isSameTaskStatus(left: TaskStatus | undefined, right: TaskStatus): boolean {
@@ -557,262 +617,6 @@ export class BrewvaRuntime {
     return null;
   }
 
-  private buildOutputHealthGuardBlock(health: { score: number; flags: string[] }): string {
-    const score = Math.max(0, Math.min(1, health.score));
-    const flags = health.flags.length > 0 ? health.flags.join(",") : "none";
-    return [
-      "[OutputHealthGuard]",
-      `score=${score.toFixed(2)} flags=${flags}`,
-      "- Keep sentences short and concrete.",
-      "- Do not repeat the same reasoning. If stuck, stop and verify or ask for missing info.",
-      "- Prefer tool-based verification over speculation.",
-    ].join("\n");
-  }
-
-  private buildViewportPolicyGuardBlock(input: {
-    quality: ViewportQuality;
-    variant: string;
-    score: number | null;
-    snr: number | null;
-    effectiveSnr: number | null;
-    reason: string;
-    metrics: ViewportMetrics;
-  }): string {
-    const format = (value: number | null): string => (value === null ? "null" : value.toFixed(2));
-    const included =
-      input.metrics.includedFiles.length > 0 ? input.metrics.includedFiles.join(", ") : "(none)";
-    const unavailable =
-      input.metrics.unavailableFiles.length > 0
-        ? input.metrics.unavailableFiles
-            .slice(0, 3)
-            .map((entry) => `${entry.file}:${entry.reason}`)
-            .join(", ")
-        : "none";
-
-    return [
-      "[ViewportPolicy]",
-      `quality=${input.quality} variant=${input.variant} reason=${input.reason}`,
-      `score=${format(input.score)} snr=${format(input.snr)} effectiveSnr=${format(input.effectiveSnr)}`,
-      `includedFiles=${included}`,
-      `unavailableFiles=${unavailable}`,
-      "",
-      "Policy:",
-      "- Treat low-signal viewport as unreliable; do not start editing yet.",
-      "- Refine TaskSpec targets.files/targets.symbols, or gather evidence (lsp_symbols, lsp_diagnostics).",
-      "- Re-run diagnostics/verification before applying patches.",
-    ].join("\n");
-  }
-
-  private decideViewportPolicy(input: {
-    sessionId: string;
-    goal: string;
-    targetFiles: string[];
-    targetSymbols: string[];
-  }): {
-    selected: ViewportContextResult;
-    injected: boolean;
-    variant: "full" | "no_neighborhood" | "minimal" | "skipped";
-    quality: ViewportQuality;
-    score: number | null;
-    snr: number | null;
-    effectiveSnr: number | null;
-    reason: string;
-    guardBlock?: string;
-    evaluated: Array<{
-      variant: string;
-      metrics: ViewportMetrics;
-      score: number | null;
-      snr: number | null;
-      effectiveSnr: number | null;
-    }>;
-  } {
-    const build = (
-      options: Partial<Parameters<typeof buildViewportContext>[0]>,
-    ): ViewportContextResult => {
-      return buildViewportContext({
-        cwd: this.cwd,
-        goal: input.goal,
-        targetFiles: input.targetFiles,
-        targetSymbols: input.targetSymbols,
-        ...options,
-      });
-    };
-
-    const evaluated: Array<{
-      variant: string;
-      result: ViewportContextResult;
-      metrics: ViewportMetrics;
-      score: ReturnType<typeof computeViewportSignalScore>;
-    }> = [];
-
-    const full = build({});
-    const fullScore = computeViewportSignalScore(full.metrics);
-    evaluated.push({
-      variant: "full",
-      result: full,
-      metrics: full.metrics,
-      score: fullScore,
-    });
-
-    const skipDecision = shouldSkipViewportInjection({
-      metrics: full.metrics,
-      score: fullScore,
-    });
-
-    if (skipDecision.skip) {
-      const reason = skipDecision.reason ?? "viewport_policy_skip";
-      const guardBlock = this.buildViewportPolicyGuardBlock({
-        quality: "low",
-        variant: "skipped",
-        score: fullScore.score,
-        snr: fullScore.snr,
-        effectiveSnr: fullScore.effectiveSnr,
-        reason,
-        metrics: full.metrics,
-      });
-      return {
-        selected: full,
-        injected: false,
-        variant: "skipped",
-        quality: "low",
-        score: fullScore.score,
-        snr: fullScore.snr,
-        effectiveSnr: fullScore.effectiveSnr,
-        reason,
-        guardBlock,
-        evaluated: evaluated.map((entry) => ({
-          variant: entry.variant,
-          metrics: entry.metrics,
-          score: entry.score.score,
-          snr: entry.score.snr,
-          effectiveSnr: entry.score.effectiveSnr,
-        })),
-      };
-    }
-
-    const isBetter = (
-      current: {
-        result: ViewportContextResult;
-        score: ReturnType<typeof computeViewportSignalScore>;
-      },
-      candidate: {
-        result: ViewportContextResult;
-        score: ReturnType<typeof computeViewportSignalScore>;
-      },
-    ): boolean => {
-      const currentScore = current.score.score ?? -1;
-      const candidateScore = candidate.score.score ?? -1;
-      const improvement = candidateScore - currentScore;
-      if (improvement > 0.04) return true;
-
-      if (current.result.metrics.truncated && !candidate.result.metrics.truncated) {
-        if (improvement >= -0.01) return true;
-      }
-
-      if (improvement > 0.01) {
-        const candidateChars = candidate.result.metrics.totalChars;
-        const currentChars = current.result.metrics.totalChars;
-        if (candidateChars <= currentChars) return true;
-      }
-
-      return false;
-    };
-
-    let selectedVariant: "full" | "no_neighborhood" | "minimal" = "full";
-    let selectedResult = full;
-    let selectedScore = fullScore;
-    let selectedQuality = classifyViewportQuality(selectedScore.score);
-
-    const shouldTryNoNeighborhood =
-      selectedQuality === "low" ||
-      selectedResult.metrics.truncated ||
-      ((selectedScore.score ?? 1) < 0.16 && selectedResult.metrics.neighborhoodLines > 12);
-
-    if (shouldTryNoNeighborhood) {
-      const noNeighborhood = build({ maxNeighborImports: 0 });
-      const score = computeViewportSignalScore(noNeighborhood.metrics);
-      evaluated.push({
-        variant: "no_neighborhood",
-        result: noNeighborhood,
-        metrics: noNeighborhood.metrics,
-        score,
-      });
-
-      if (
-        isBetter(
-          { result: selectedResult, score: selectedScore },
-          { result: noNeighborhood, score },
-        )
-      ) {
-        selectedVariant = "no_neighborhood";
-        selectedResult = noNeighborhood;
-        selectedScore = score;
-        selectedQuality = classifyViewportQuality(selectedScore.score);
-      }
-    }
-
-    const shouldTryMinimal = selectedQuality === "low" || selectedResult.metrics.truncated;
-    if (shouldTryMinimal) {
-      const minimal = build({
-        maxNeighborImports: 0,
-        maxImportsPerFile: 0,
-      });
-      const score = computeViewportSignalScore(minimal.metrics);
-      evaluated.push({
-        variant: "minimal",
-        result: minimal,
-        metrics: minimal.metrics,
-        score,
-      });
-
-      if (isBetter({ result: selectedResult, score: selectedScore }, { result: minimal, score })) {
-        selectedVariant = "minimal";
-        selectedResult = minimal;
-        selectedScore = score;
-        selectedQuality = classifyViewportQuality(selectedScore.score);
-      }
-    }
-
-    const reason =
-      selectedVariant !== "full"
-        ? "viewport_policy_variant_selected"
-        : selectedQuality === "low"
-          ? "viewport_policy_low_quality"
-          : "viewport_policy_ok";
-
-    const guardBlock =
-      selectedQuality === "low"
-        ? this.buildViewportPolicyGuardBlock({
-            quality: selectedQuality,
-            variant: selectedVariant,
-            score: selectedScore.score,
-            snr: selectedScore.snr,
-            effectiveSnr: selectedScore.effectiveSnr,
-            reason,
-            metrics: selectedResult.metrics,
-          })
-        : undefined;
-
-    return {
-      selected: selectedResult,
-      injected: Boolean(selectedResult.text),
-      variant: selectedVariant,
-      quality: selectedQuality,
-      score: selectedScore.score,
-      snr: selectedScore.snr,
-      effectiveSnr: selectedScore.effectiveSnr,
-      reason,
-      guardBlock,
-      evaluated: evaluated.map((entry) => ({
-        variant: entry.variant,
-        metrics: entry.metrics,
-        score: entry.score.score,
-        snr: entry.score.snr,
-        effectiveSnr: entry.score.effectiveSnr,
-      })),
-    };
-  }
-
   buildContextInjection(
     sessionId: string,
     prompt: string,
@@ -825,260 +629,49 @@ export class BrewvaRuntime {
     finalTokens: number;
     truncated: boolean;
   } {
-    const promptText = this.sanitizeInput(prompt);
-    const truthBlock = buildTruthLedgerBlock({ cwd: this.cwd });
-    if (truthBlock) {
-      this.registerContextInjection(sessionId, {
-        source: "brewva.truth",
-        id: "truth-ledger",
-        priority: "critical",
-        oncePerSession: true,
-        content: truthBlock,
-      });
-    }
-    const truthState = this.getTruthState(sessionId);
-    if (truthState.facts.some((fact) => fact.status === "active")) {
-      this.registerContextInjection(sessionId, {
-        source: "brewva.truth-facts",
-        id: "truth-facts",
-        priority: "critical",
-        content: buildTruthFactsBlock({ state: truthState }),
-      });
-    }
-    this.maybeAlignTaskStatus({ sessionId, promptText, truthState, usage });
-
-    const outputHealth = this.getLatestOutputHealth(sessionId);
-    if (
-      outputHealth &&
-      (outputHealth.drunk || outputHealth.score < OUTPUT_HEALTH_GUARD_SCORE_THRESHOLD)
-    ) {
-      this.registerContextInjection(sessionId, {
-        source: "brewva.output-guard",
-        id: "output-health",
-        priority: "high",
-        content: this.buildOutputHealthGuardBlock(outputHealth),
-      });
-    }
-
-    const selected = this.selectSkills(promptText);
-    const digest = this.getLedgerDigest(sessionId);
-    this.registerContextInjection(sessionId, {
-      source: "brewva.skill-candidates",
-      id: "top-k-skills",
-      priority: "high",
-      content: buildSkillCandidateBlock(selected),
-    });
-    this.registerContextInjection(sessionId, {
-      source: "brewva.ledger-digest",
-      id: "ledger-digest",
-      priority: "normal",
-      content: digest,
-    });
-
-    const latestCompaction = this.latestCompactionSummaryBySession.get(sessionId);
-    if (latestCompaction?.summary) {
-      this.registerContextInjection(sessionId, {
-        source: "brewva.compaction-summary",
-        id: latestCompaction.entryId ?? "latest",
-        priority: "high",
-        oncePerSession: true,
-        content: `[CompactionSummary]\n${latestCompaction.summary}`,
-      });
-    }
-
-    const taskState = this.getTaskState(sessionId);
-    if (
-      taskState.spec ||
-      taskState.status ||
-      taskState.items.length > 0 ||
-      taskState.blockers.length > 0
-    ) {
-      const taskBlock = buildTaskStateBlock(taskState);
-      if (taskBlock) {
-        this.registerContextInjection(sessionId, {
-          source: "brewva.task-state",
-          id: "task-state",
-          priority: "critical",
-          content: taskBlock,
-        });
-      }
-    }
-
-    const taskSpec = taskState?.spec;
-    const explicitFiles = taskSpec?.targets?.files ?? [];
-    const fallbackFiles =
-      explicitFiles.length === 0 ? this.fileChanges.recentFiles(sessionId, 3) : [];
-    const viewportFiles = explicitFiles.length > 0 ? explicitFiles : fallbackFiles;
-    const viewportSymbols = taskSpec?.targets?.symbols ?? [];
-    if (viewportFiles.length > 0) {
-      const viewportPolicy = this.decideViewportPolicy({
-        sessionId,
-        goal: taskSpec?.goal || promptText,
-        targetFiles: viewportFiles,
-        targetSymbols: viewportSymbols,
-      });
-
-      this.viewportPolicyBySession.set(sessionId, {
-        quality: viewportPolicy.quality,
-        score: viewportPolicy.score,
-        variant: viewportPolicy.variant,
-        updatedAt: Date.now(),
-      });
-
-      if (viewportPolicy.guardBlock) {
-        this.registerContextInjection(sessionId, {
-          source: "brewva.viewport-policy",
-          id: "viewport-policy",
-          priority: viewportPolicy.variant === "skipped" ? "critical" : "high",
-          content: viewportPolicy.guardBlock,
-        });
-      }
-
-      if (viewportPolicy.selected.text) {
-        this.recordEvent({
-          sessionId,
-          type: "viewport_built",
-          turn: this.getCurrentTurn(sessionId),
-          payload: {
-            goal: taskSpec?.goal || promptText,
-            variant: viewportPolicy.variant,
-            quality: viewportPolicy.quality,
-            score: viewportPolicy.score,
-            snr: viewportPolicy.snr,
-            effectiveSnr: viewportPolicy.effectiveSnr,
-            policyReason: viewportPolicy.reason,
-            injected: viewportPolicy.variant !== "skipped",
-            requestedFiles: viewportPolicy.selected.metrics.requestedFiles,
-            includedFiles: viewportPolicy.selected.metrics.includedFiles,
-            unavailableFiles: viewportPolicy.selected.metrics.unavailableFiles,
-            importsExportsLines: viewportPolicy.selected.metrics.importsExportsLines,
-            relevantTotalLines: viewportPolicy.selected.metrics.relevantTotalLines,
-            relevantHitLines: viewportPolicy.selected.metrics.relevantHitLines,
-            symbolLines: viewportPolicy.selected.metrics.symbolLines,
-            neighborhoodLines: viewportPolicy.selected.metrics.neighborhoodLines,
-            totalChars: viewportPolicy.selected.metrics.totalChars,
-            truncated: viewportPolicy.selected.metrics.truncated,
-          },
-        });
-
-        if (viewportPolicy.variant !== "skipped") {
-          this.registerContextInjection(sessionId, {
-            source: "brewva.viewport",
-            id: "viewport",
-            priority: "high",
-            content: viewportPolicy.selected.text,
-          });
-        }
-      }
-
-      if (viewportPolicy.variant !== "full" || viewportPolicy.quality === "low") {
-        this.recordEvent({
-          sessionId,
-          type: "viewport_policy_evaluated",
-          turn: this.getCurrentTurn(sessionId),
-          payload: {
-            goal: taskSpec?.goal || promptText,
-            variant: viewportPolicy.variant,
-            quality: viewportPolicy.quality,
-            score: viewportPolicy.score,
-            snr: viewportPolicy.snr,
-            effectiveSnr: viewportPolicy.effectiveSnr,
-            reason: viewportPolicy.reason,
-            evaluated: viewportPolicy.evaluated.map((entry) => ({
-              variant: entry.variant,
-              score: entry.score,
-              snr: entry.snr,
-              effectiveSnr: entry.effectiveSnr,
-              truncated: entry.metrics.truncated,
-              totalChars: entry.metrics.totalChars,
-              importsExportsLines: entry.metrics.importsExportsLines,
-              relevantTotalLines: entry.metrics.relevantTotalLines,
-              relevantHitLines: entry.metrics.relevantHitLines,
-              symbolLines: entry.metrics.symbolLines,
-              neighborhoodLines: entry.metrics.neighborhoodLines,
-            })),
-          },
-        });
-      }
-    }
-
-    const merged = this.contextInjection.plan(
-      sessionId,
-      this.isContextBudgetEnabled()
-        ? this.config.infrastructure.contextBudget.maxInjectionTokens
-        : Number.MAX_SAFE_INTEGER,
-    );
-    const raw = merged.text;
-    const decision = this.contextBudget.planInjection(sessionId, raw, usage);
-    const wasTruncated = decision.truncated || merged.truncated;
-    if (decision.accepted) {
-      const fingerprint = sha256(decision.finalText);
-      const scopeKey = this.buildInjectionScopeKey(sessionId, injectionScopeId);
-      const previous = this.lastInjectedContextFingerprintBySession.get(scopeKey);
-      if (previous === fingerprint) {
-        this.reservedContextInjectionTokensByScope.set(scopeKey, 0);
-        this.contextInjection.commit(sessionId, merged.consumedKeys);
-        this.recordEvent({
-          sessionId,
-          type: "context_injection_dropped",
-          payload: {
-            reason: "duplicate_content",
-            originalTokens: decision.originalTokens,
-          },
-        });
-        return {
-          text: "",
-          accepted: false,
-          originalTokens: decision.originalTokens,
-          finalTokens: 0,
-          truncated: false,
-        };
-      }
-
-      this.contextInjection.commit(sessionId, merged.consumedKeys);
-      this.reservedContextInjectionTokensByScope.set(
-        scopeKey,
-        this.isContextBudgetEnabled() ? decision.finalTokens : 0,
-      );
-      this.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint);
-      this.recordEvent({
-        sessionId,
-        type: "context_injected",
-        payload: {
-          originalTokens: decision.originalTokens,
-          finalTokens: decision.finalTokens,
-          truncated: wasTruncated,
-          usagePercent: usage?.percent ?? null,
-          sourceCount: merged.entries.length,
-          sourceTokens: merged.estimatedTokens,
-        },
-      });
-      return {
-        text: decision.finalText,
-        accepted: true,
-        originalTokens: decision.originalTokens,
-        finalTokens: decision.finalTokens,
-        truncated: wasTruncated,
-      };
-    }
-
-    const rejectedScopeKey = this.buildInjectionScopeKey(sessionId, injectionScopeId);
-    this.reservedContextInjectionTokensByScope.set(rejectedScopeKey, 0);
-    this.recordEvent({
-      sessionId,
-      type: "context_injection_dropped",
-      payload: {
-        reason: decision.droppedReason ?? "unknown",
-        originalTokens: decision.originalTokens,
+    return buildContextInjectionOrchestrated(
+      {
+        cwd: this.cwd,
+        maxInjectionTokens: this.config.infrastructure.contextBudget.maxInjectionTokens,
+        isContextBudgetEnabled: () => this.isContextBudgetEnabled(),
+        sanitizeInput: (text) => this.sanitizeInput(text),
+        getTruthState: (id) => this.getTruthState(id),
+        maybeAlignTaskStatus: (orchestrationInput) => this.maybeAlignTaskStatus(orchestrationInput),
+        getLatestOutputHealth: (id) => this.getLatestOutputHealth(id),
+        selectSkills: (text) => this.selectSkills(text),
+        buildSkillCandidateBlock: (selected) => buildSkillCandidateBlock(selected),
+        getLedgerDigest: (id) => this.getLedgerDigest(id),
+        getLatestCompactionSummary: (id) => this.latestCompactionSummaryBySession.get(id),
+        getTaskState: (id) => this.getTaskState(id),
+        buildTaskStateBlock: (state) => buildTaskStateBlock(state),
+        recentFiles: (id, limit) => this.fileChanges.recentFiles(id, limit),
+        setViewportPolicy: (id, policy) => this.viewportPolicyBySession.set(id, policy),
+        registerContextInjection: (id, registerInput) =>
+          this.registerContextInjection(id, registerInput),
+        getCurrentTurn: (id) => this.getCurrentTurn(id),
+        recordEvent: (eventInput) => this.recordEvent(eventInput),
+        planContextInjection: (id, tokenBudget) => this.contextInjection.plan(id, tokenBudget),
+        commitContextInjection: (id, consumedKeys) =>
+          this.contextInjection.commit(id, consumedKeys),
+        planBudgetInjection: (id, inputText, budgetUsage) =>
+          this.contextBudget.planInjection(id, inputText, budgetUsage),
+        buildInjectionScopeKey: (id, scopeId) => this.buildInjectionScopeKey(id, scopeId),
+        getReservedTokens: (scopeKey) =>
+          this.reservedContextInjectionTokensByScope.get(scopeKey) ?? 0,
+        setReservedTokens: (scopeKey, tokens) =>
+          this.reservedContextInjectionTokensByScope.set(scopeKey, tokens),
+        getLastInjectedFingerprint: (scopeKey) =>
+          this.lastInjectedContextFingerprintBySession.get(scopeKey),
+        setLastInjectedFingerprint: (scopeKey, fingerprint) =>
+          this.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint),
       },
-    });
-    return {
-      text: "",
-      accepted: false,
-      originalTokens: decision.originalTokens,
-      finalTokens: 0,
-      truncated: false,
-    };
+      {
+        sessionId,
+        prompt,
+        usage,
+        injectionScopeId,
+      },
+    );
   }
 
   planSupplementalContextInjection(
@@ -1481,7 +1074,7 @@ export class BrewvaRuntime {
     }
 
     const budget = this.costTracker.getBudgetStatus(sessionId);
-    if (budget.blocked) {
+    if (budget.blocked && !ALWAYS_ALLOWED_TOOL_SET.has(normalizedToolName)) {
       this.recordEvent({
         sessionId,
         type: "tool_call_blocked",
@@ -1524,6 +1117,7 @@ export class BrewvaRuntime {
                 skill: skill.name,
                 usedTokens,
                 maxTokens,
+                budget: "tokens",
                 mode: this.config.security.skillMaxTokensMode,
               },
             });
@@ -1544,25 +1138,122 @@ export class BrewvaRuntime {
       }
     }
 
-    const usedCalls = this.toolCallsBySession.get(sessionId) ?? 0;
-    if (usedCalls >= skill.contract.budget.maxToolCalls) {
-      this.recordEvent({
-        sessionId,
-        type: "tool_call_blocked",
-        turn: this.getCurrentTurn(sessionId),
-        payload: {
-          toolName: normalizedToolName,
-          skill: skill.name,
-          reason: `Skill '${skill.name}' exceeded maxToolCalls=${skill.contract.budget.maxToolCalls}.`,
-        },
-      });
-      return {
-        allowed: false,
-        reason: `Skill '${skill.name}' exceeded maxToolCalls=${skill.contract.budget.maxToolCalls}.`,
-      };
+    if (
+      this.config.security.skillMaxToolCallsMode !== "off" &&
+      !ALWAYS_ALLOWED_TOOL_SET.has(normalizedToolName)
+    ) {
+      const maxToolCalls = skill.contract.budget.maxToolCalls;
+      const usedCalls = this.toolCallsBySession.get(sessionId) ?? 0;
+      if (usedCalls >= maxToolCalls) {
+        const reason = `Skill '${skill.name}' exceeded maxToolCalls=${maxToolCalls} (used=${usedCalls}).`;
+        if (this.config.security.skillMaxToolCallsMode === "warn") {
+          const key = `maxToolCalls:${skill.name}`;
+          const seen = this.skillBudgetWarningsBySession.get(sessionId) ?? new Set<string>();
+          if (!seen.has(key)) {
+            seen.add(key);
+            this.skillBudgetWarningsBySession.set(sessionId, seen);
+            this.recordEvent({
+              sessionId,
+              type: "skill_budget_warning",
+              turn: this.getCurrentTurn(sessionId),
+              payload: {
+                skill: skill.name,
+                usedToolCalls: usedCalls,
+                maxToolCalls,
+                budget: "tool_calls",
+                mode: this.config.security.skillMaxToolCallsMode,
+              },
+            });
+          }
+        } else if (this.config.security.skillMaxToolCallsMode === "enforce") {
+          this.recordEvent({
+            sessionId,
+            type: "tool_call_blocked",
+            turn: this.getCurrentTurn(sessionId),
+            payload: {
+              toolName: normalizedToolName,
+              skill: skill.name,
+              reason,
+            },
+          });
+          return { allowed: false, reason };
+        }
+      }
     }
 
     return access;
+  }
+
+  startToolCall(input: {
+    sessionId: string;
+    toolCallId: string;
+    toolName: string;
+    args?: Record<string, unknown>;
+    usage?: ContextBudgetUsage;
+    recordLifecycleEvent?: boolean;
+  }): { allowed: boolean; reason?: string } {
+    if (input.usage) {
+      this.observeContextUsage(input.sessionId, input.usage);
+    }
+
+    if (input.recordLifecycleEvent) {
+      this.recordEvent({
+        sessionId: input.sessionId,
+        type: "tool_call",
+        turn: this.getCurrentTurn(input.sessionId),
+        payload: {
+          toolCallId: input.toolCallId,
+          toolName: input.toolName,
+        },
+      });
+    }
+
+    const access = this.checkToolAccess(input.sessionId, input.toolName);
+    if (!access.allowed) return access;
+
+    const compaction = this.checkContextCompactionGate(
+      input.sessionId,
+      input.toolName,
+      input.usage,
+    );
+    if (!compaction.allowed) return compaction;
+
+    this.markToolCall(input.sessionId, input.toolName);
+    this.trackToolCallStart({
+      sessionId: input.sessionId,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      args: input.args,
+    });
+    return { allowed: true };
+  }
+
+  finishToolCall(input: {
+    sessionId: string;
+    toolCallId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    outputText: string;
+    success: boolean;
+    verdict?: "pass" | "fail" | "inconclusive";
+    metadata?: Record<string, unknown>;
+  }): string {
+    const ledgerId = this.recordToolResult({
+      sessionId: input.sessionId,
+      toolName: input.toolName,
+      args: input.args,
+      outputText: input.outputText,
+      success: input.success,
+      verdict: input.verdict,
+      metadata: input.metadata,
+    });
+    this.trackToolCallEnd({
+      sessionId: input.sessionId,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      success: input.success,
+    });
+    return ledgerId;
   }
 
   acquireParallelSlot(sessionId: string, runId: string): ParallelAcquireResult {
@@ -1766,405 +1457,6 @@ export class BrewvaRuntime {
     return this.fileChanges.latestSessionWithHistory();
   }
 
-  private extractShellCommandFromArgs(args: Record<string, unknown>): string | undefined {
-    const candidate = args.command ?? args.cmd ?? args.script;
-    if (typeof candidate !== "string") return undefined;
-    const trimmed = candidate.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-
-  private truthFactIdForCommand(command: string): string {
-    const normalized = redactSecrets(command).trim().toLowerCase();
-    const digest = sha256(normalized).slice(0, 16);
-    return `truth:command:${digest}`;
-  }
-
-  private normalizeTruthFilePath(filePath: string): string {
-    return resolve(this.cwd, filePath).replace(/\\/g, "/");
-  }
-
-  private displayFilePath(filePath: string): string {
-    const normalized = resolve(this.cwd, filePath);
-    const rel = relative(this.cwd, normalized);
-    if (!rel || rel.startsWith("..")) return filePath;
-    return rel;
-  }
-
-  private truthFactPrefixForDiagnosticFile(filePath: string): string {
-    const digest = sha256(this.normalizeTruthFilePath(filePath)).slice(0, 16);
-    return `truth:diagnostic:${digest}:`;
-  }
-
-  private truthFactIdForDiagnostic(filePath: string, code: string): string {
-    const prefix = this.truthFactPrefixForDiagnosticFile(filePath);
-    const normalizedCode = code
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "");
-    return `${prefix}${normalizedCode || "unknown"}`;
-  }
-
-  private redactAndClamp(text: string, maxChars: number): string {
-    const redacted = redactSecrets(text);
-    const trimmed = redacted.trim();
-    if (trimmed.length <= maxChars) return trimmed;
-    const keep = Math.max(0, Math.floor(maxChars) - 3);
-    return `${trimmed.slice(0, keep)}...`;
-  }
-
-  private coerceEvidenceArtifacts(raw: unknown): EvidenceArtifact[] {
-    if (!Array.isArray(raw)) return [];
-    const out: EvidenceArtifact[] = [];
-    for (const entry of raw.slice(0, 24)) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-      const kind = (entry as { kind?: unknown }).kind;
-      if (typeof kind !== "string" || kind.trim().length === 0) continue;
-      out.push(entry as EvidenceArtifact);
-    }
-    return out;
-  }
-
-  private dedupeArtifacts(artifacts: EvidenceArtifact[]): EvidenceArtifact[] {
-    const out: EvidenceArtifact[] = [];
-    const seen = new Set<string>();
-    for (const artifact of artifacts) {
-      let key = "";
-      try {
-        key = sha256(JSON.stringify(artifact)).slice(0, 16);
-      } catch {
-        key = `fallback_${Math.random().toString(36).slice(2, 10)}`;
-      }
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(artifact);
-    }
-    return out;
-  }
-
-  private recordTruthBackedBlocker(
-    sessionId: string,
-    input: {
-      blockerId: string;
-      truthFactId: string;
-      message: string;
-      source: string;
-    },
-  ): void {
-    const current = this.getTaskState(sessionId);
-    const existing = current.blockers.find((blocker) => blocker.id === input.blockerId);
-    if (
-      existing &&
-      existing.message === input.message &&
-      (existing.source ?? "") === input.source &&
-      (existing.truthFactId ?? "") === input.truthFactId
-    ) {
-      return;
-    }
-    this.recordTaskBlocker(sessionId, {
-      id: input.blockerId,
-      message: input.message,
-      source: input.source,
-      truthFactId: input.truthFactId,
-    });
-  }
-
-  private resolveTruthBackedBlocker(sessionId: string, blockerId: string): void {
-    const current = this.getTaskState(sessionId);
-    if (!current.blockers.some((blocker) => blocker.id === blockerId)) {
-      return;
-    }
-    this.resolveTaskBlocker(sessionId, blockerId);
-  }
-
-  private syncTruthFromToolResult(input: {
-    sessionId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    outputText: string;
-    success: boolean;
-    ledgerRow: {
-      id: string;
-      outputHash: string;
-      argsSummary: string;
-      outputSummary: string;
-    };
-    metadata?: Record<string, unknown>;
-  }): void {
-    const normalizedToolName = normalizeToolName(input.toolName);
-
-    const metadataArtifacts = this.coerceEvidenceArtifacts(input.metadata?.artifacts);
-    const extractedArtifacts = extractEvidenceArtifacts({
-      toolName: input.toolName,
-      args: input.args,
-      outputText: input.outputText,
-      isError: !input.success,
-      details: input.metadata?.details,
-    });
-    const artifacts = this.dedupeArtifacts([...metadataArtifacts, ...extractedArtifacts]);
-
-    if (normalizedToolName === "exec") {
-      const commandFromArgs = this.extractShellCommandFromArgs(input.args);
-      const commandFromArtifact = artifacts.find(
-        (artifact) => artifact.kind === "command_failure",
-      )?.command;
-      const command =
-        typeof commandFromArtifact === "string" && commandFromArtifact.trim().length > 0
-          ? commandFromArtifact.trim()
-          : commandFromArgs;
-      if (!command) return;
-
-      const commandSummary = this.redactAndClamp(command, 160);
-      const commandDetail = this.redactAndClamp(command, 480);
-      const truthFactId = this.truthFactIdForCommand(command);
-
-      if (input.success) {
-        const truthState = this.getTruthState(input.sessionId);
-        const active = truthState.facts.find(
-          (fact) => fact.id === truthFactId && fact.status === "active",
-        );
-        if (active) {
-          this.resolveTruthFact(input.sessionId, truthFactId);
-        }
-        this.resolveTruthBackedBlocker(input.sessionId, truthFactId);
-        return;
-      }
-
-      const failure = artifacts.find((artifact) => artifact.kind === "command_failure");
-      const exitCodeRaw = failure?.exitCode;
-      const exitCode =
-        typeof exitCodeRaw === "number" && Number.isFinite(exitCodeRaw) ? exitCodeRaw : null;
-      const summary =
-        exitCode === null
-          ? `command failed: ${commandSummary}`
-          : `command failed: ${commandSummary} (exitCode=${exitCode})`;
-
-      this.upsertTruthFact(input.sessionId, {
-        id: truthFactId,
-        kind: "command_failure",
-        severity: "error",
-        summary,
-        evidenceIds: [input.ledgerRow.id],
-        details: {
-          tool: input.toolName,
-          command: commandDetail,
-          exitCode,
-          outputHash: input.ledgerRow.outputHash,
-          argsSummary: input.ledgerRow.argsSummary,
-          outputSummary: input.ledgerRow.outputSummary,
-          failingTests: Array.isArray(failure?.failingTests) ? failure?.failingTests : [],
-          failedAssertions: Array.isArray(failure?.failedAssertions)
-            ? failure?.failedAssertions
-            : [],
-          stackTrace: Array.isArray(failure?.stackTrace) ? failure?.stackTrace : [],
-        },
-      });
-
-      this.recordTruthBackedBlocker(input.sessionId, {
-        blockerId: truthFactId,
-        truthFactId,
-        message: summary,
-        source: "truth_extractor",
-      });
-    }
-
-    if (normalizedToolName === "lsp_diagnostics") {
-      const rawSeverity = input.args.severity;
-      const severityFilter = typeof rawSeverity === "string" ? rawSeverity.trim() : "";
-      const unfiltered = severityFilter === "" || severityFilter.toLowerCase() === "all";
-
-      const rawFilePath = input.args.filePath;
-      const targetFilePath = typeof rawFilePath === "string" ? rawFilePath.trim() : "";
-      if (!targetFilePath) return;
-      const targetFileKey = this.normalizeTruthFilePath(targetFilePath);
-      const targetPrefix = this.truthFactPrefixForDiagnosticFile(targetFileKey);
-
-      const trimmedOutput = input.outputText.trim();
-      const outputLower = trimmedOutput.toLowerCase();
-
-      if (unfiltered && outputLower.includes("no diagnostics found")) {
-        const truthState = this.getTruthState(input.sessionId);
-        for (const fact of truthState.facts) {
-          if (fact.status !== "active") continue;
-          if (!fact.id.startsWith(targetPrefix)) continue;
-          this.resolveTruthFact(input.sessionId, fact.id);
-          this.resolveTruthBackedBlocker(input.sessionId, fact.id);
-        }
-        return;
-      }
-
-      if (outputLower.startsWith("error:") || trimmedOutput.length === 0) {
-        return;
-      }
-
-      type ToolDiagnostic = {
-        file: string;
-        line: number;
-        column: number;
-        severity: string;
-        code: string;
-        message: string;
-      };
-
-      const detailsDiagnostics = (() => {
-        const details = input.metadata?.details;
-        if (!details || typeof details !== "object" || Array.isArray(details)) {
-          return null;
-        }
-        const record = details as Record<string, unknown>;
-        if (!Array.isArray(record.diagnostics)) return null;
-
-        const out: ToolDiagnostic[] = [];
-
-        for (const entry of record.diagnostics.slice(0, 240)) {
-          if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-            continue;
-          }
-          const diag = entry as Record<string, unknown>;
-          const file = typeof diag.file === "string" ? diag.file.trim() : "";
-          const line = typeof diag.line === "number" ? diag.line : NaN;
-          const column = typeof diag.column === "number" ? diag.column : NaN;
-          const severity = typeof diag.severity === "string" ? diag.severity.trim() : "";
-          const code = typeof diag.code === "string" ? diag.code.trim() : "";
-          const message = typeof diag.message === "string" ? diag.message.trim() : "";
-
-          if (!file || !Number.isFinite(line) || !Number.isFinite(column) || !code || !message) {
-            continue;
-          }
-          out.push({
-            file,
-            line,
-            column,
-            severity: severity || "unknown",
-            code,
-            message,
-          });
-        }
-
-        return {
-          diagnostics: out,
-          truncated: Boolean(record.truncated),
-        };
-      })();
-
-      let diagnostics: ToolDiagnostic[] = [];
-      let diagnosticsTruncated = false;
-      if (detailsDiagnostics) {
-        diagnostics = detailsDiagnostics.diagnostics;
-        diagnosticsTruncated = detailsDiagnostics.truncated;
-      } else {
-        const parsed = parseTscDiagnostics(input.outputText, 240);
-        diagnostics = parsed.diagnostics;
-        diagnosticsTruncated = parsed.truncated;
-      }
-
-      diagnostics = diagnostics.filter(
-        (diagnostic) => this.normalizeTruthFilePath(diagnostic.file) === targetFileKey,
-      );
-      if (diagnostics.length === 0) {
-        return;
-      }
-
-      type TruthDiagnosticSample = {
-        line: number;
-        column: number;
-        message: string;
-      };
-      type CodeAggregate = {
-        count: number;
-        severity: TruthFactSeverity;
-        samples: TruthDiagnosticSample[];
-      };
-
-      const aggregates = new Map<string, CodeAggregate>();
-      for (const diagnostic of diagnostics) {
-        const code = diagnostic.code.trim();
-        if (!code) continue;
-
-        const truthSeverity: TruthFactSeverity =
-          diagnostic.severity === "error"
-            ? "error"
-            : diagnostic.severity === "warning"
-              ? "warn"
-              : "info";
-
-        const bucket = aggregates.get(code) ?? {
-          count: 0,
-          severity: truthSeverity,
-          samples: [],
-        };
-
-        bucket.count += 1;
-        if (bucket.severity !== "error" && truthSeverity === "error") {
-          bucket.severity = "error";
-        }
-        if (bucket.severity === "info" && truthSeverity === "warn") {
-          bucket.severity = "warn";
-        }
-
-        if (bucket.samples.length < 3) {
-          bucket.samples.push({
-            line: diagnostic.line,
-            column: diagnostic.column,
-            message: diagnostic.message,
-          });
-        }
-
-        aggregates.set(code, bucket);
-      }
-
-      if (aggregates.size === 0) return;
-
-      const fileDisplay = this.displayFilePath(targetFileKey);
-      const currentFactIds = new Set<string>();
-
-      for (const [code, aggregate] of aggregates.entries()) {
-        const truthFactId = this.truthFactIdForDiagnostic(targetFileKey, code);
-        currentFactIds.add(truthFactId);
-
-        const summary = `diagnostic: ${fileDisplay} ${code} x${aggregate.count}`;
-
-        this.upsertTruthFact(input.sessionId, {
-          id: truthFactId,
-          kind: "diagnostic",
-          severity: aggregate.severity,
-          summary,
-          evidenceIds: [input.ledgerRow.id],
-          details: {
-            tool: input.toolName,
-            compiler: "tsc",
-            severityFilter: severityFilter || null,
-            file: fileDisplay,
-            code,
-            count: aggregate.count,
-            samples: aggregate.samples,
-            outputHash: input.ledgerRow.outputHash,
-            argsSummary: input.ledgerRow.argsSummary,
-            outputSummary: input.ledgerRow.outputSummary,
-            truncated: diagnosticsTruncated,
-          },
-        });
-
-        this.recordTruthBackedBlocker(input.sessionId, {
-          blockerId: truthFactId,
-          truthFactId,
-          message: summary,
-          source: "truth_extractor",
-        });
-      }
-
-      if (unfiltered) {
-        const truthState = this.getTruthState(input.sessionId);
-        for (const fact of truthState.facts) {
-          if (fact.status !== "active") continue;
-          if (!fact.id.startsWith(targetPrefix)) continue;
-          if (currentFactIds.has(fact.id)) continue;
-          this.resolveTruthFact(input.sessionId, fact.id);
-          this.resolveTruthBackedBlocker(input.sessionId, fact.id);
-        }
-      }
-    }
-  }
-
   recordToolResult(input: {
     sessionId: string;
     toolName: string;
@@ -2190,7 +1482,7 @@ export class BrewvaRuntime {
       metadata: input.metadata,
     });
 
-    this.syncTruthFromToolResult({
+    syncTruthFromToolResult(this, {
       sessionId: input.sessionId,
       toolName: input.toolName,
       args: input.args,

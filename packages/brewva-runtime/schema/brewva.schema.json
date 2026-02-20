@@ -151,6 +151,11 @@
               "description": "Controls how per-skill budget.maxTokens is applied.\n- off: no enforcement.\n- warn: allow but emit a warning event when a skill exceeds its token budget.\n- enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.",
               "type": "string",
               "enum": ["off", "warn", "enforce"]
+            },
+            "skillMaxToolCallsMode": {
+              "description": "Controls how per-skill budget.maxToolCalls is applied.\n- off: no enforcement.\n- warn: allow but emit a warning event when a skill exceeds its tool-call budget.\n- enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.",
+              "type": "string",
+              "enum": ["off", "warn", "enforce"]
             }
           }
         },
@@ -167,106 +172,7 @@
             "overrides": {
               "type": "object",
               "additionalProperties": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "description": {
-                    "type": "string"
-                  },
-                  "antiTags": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "budget": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "maxTokens": {
-                        "type": "number"
-                      },
-                      "maxToolCalls": {
-                        "type": "number"
-                      }
-                    },
-                    "required": ["maxToolCalls", "maxTokens"]
-                  },
-                  "composableWith": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "consumes": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "costHint": {
-                    "$ref": "#/definitions/SkillCostHint"
-                  },
-                  "escalationPath": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "string"
-                    }
-                  },
-                  "maxParallel": {
-                    "type": "number"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "outputs": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "stability": {
-                    "type": "string",
-                    "enum": ["experimental", "stable", "deprecated"]
-                  },
-                  "tags": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "tier": {
-                    "$ref": "#/definitions/SkillTier"
-                  },
-                  "tools": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "required": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "denied": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "optional": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "required": ["required", "optional", "denied"]
-                  },
-                  "version": {
-                    "type": "string"
-                  }
-                }
+                "$ref": "#/definitions/SkillContractOverride"
               }
             },
             "packs": {
@@ -369,6 +275,106 @@
               "$ref": "#/definitions/VerificationLevel"
             }
           }
+        }
+      }
+    },
+    "SkillContractOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "antiTags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxTokens": {
+              "type": "number"
+            },
+            "maxToolCalls": {
+              "type": "number"
+            }
+          }
+        },
+        "composableWith": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "consumes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "costHint": {
+          "$ref": "#/definitions/SkillCostHint"
+        },
+        "escalationPath": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "maxParallel": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stability": {
+          "type": "string",
+          "enum": ["experimental", "stable", "deprecated"]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tier": {
+          "$ref": "#/definitions/SkillTier"
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "denied": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "optional": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "version": {
+          "type": "string"
         }
       }
     },

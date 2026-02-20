@@ -47,6 +47,10 @@ Short aliases:
 - `-i` for `--interactive`
 - `-h` for `--help`
 
+`--no-extensions` disables presentation-oriented extension stack. CLI still
+installs runtime core bridge hooks, so tool policy, compaction gate, and
+ledger/patch tracking remain enforced.
+
 `--verbose` overrides quiet startup and emits the full startup output.
 
 To temporarily restore upstream version-check notifications (this is an upstream `pi-coding-agent` environment variable), launch with an empty override:

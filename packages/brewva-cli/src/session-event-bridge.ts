@@ -1,4 +1,4 @@
-import type { BrewvaRuntime } from "@brewva/brewva-runtime";
+import { recordAssistantUsageFromMessage, type BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 
 type SessionLike = {
@@ -7,43 +7,6 @@ type SessionLike = {
   };
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function numberOrZero(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function maybeRecordAssistantUsage(
-  runtime: BrewvaRuntime,
-  sessionId: string,
-  message: unknown,
-): void {
-  if (!isRecord(message)) return;
-  if (message.role !== "assistant") return;
-
-  const usage = message.usage;
-  if (!isRecord(usage)) return;
-
-  const provider = typeof message.provider === "string" ? message.provider : undefined;
-  const modelName = typeof message.model === "string" ? message.model : undefined;
-  const model = provider && modelName ? `${provider}/${modelName}` : (modelName ?? "unknown");
-  const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
-
-  runtime.recordAssistantUsage({
-    sessionId,
-    model,
-    inputTokens: numberOrZero(usage.input),
-    outputTokens: numberOrZero(usage.output),
-    cacheReadTokens: numberOrZero(usage.cacheRead),
-    cacheWriteTokens: numberOrZero(usage.cacheWrite),
-    totalTokens: numberOrZero(usage.totalTokens),
-    costUsd: isRecord(usage.cost) ? numberOrZero(usage.cost.total) : 0,
-    stopReason,
-  });
-}
 
 export function registerRuntimeCoreEventBridge(
   runtime: BrewvaRuntime,
@@ -84,7 +47,42 @@ export function registerRuntimeCoreEventBridge(
         break;
       }
       case "message_end":
-        maybeRecordAssistantUsage(runtime, sessionId, (event as { message?: unknown }).message);
+        recordAssistantUsageFromMessage(
+          runtime,
+          sessionId,
+          (event as { message?: unknown }).message,
+        );
+        break;
+      case "tool_execution_start":
+        runtime.recordEvent({
+          sessionId,
+          type: "tool_execution_start",
+          payload: {
+            toolCallId: (event as { toolCallId?: unknown }).toolCallId,
+            toolName: (event as { toolName?: unknown }).toolName,
+          },
+        });
+        break;
+      case "tool_execution_update":
+        runtime.recordEvent({
+          sessionId,
+          type: "tool_execution_update",
+          payload: {
+            toolCallId: (event as { toolCallId?: unknown }).toolCallId,
+            toolName: (event as { toolName?: unknown }).toolName,
+          },
+        });
+        break;
+      case "tool_execution_end":
+        runtime.recordEvent({
+          sessionId,
+          type: "tool_execution_end",
+          payload: {
+            toolCallId: (event as { toolCallId?: unknown }).toolCallId,
+            toolName: (event as { toolName?: unknown }).toolName,
+            isError: (event as { isError?: unknown }).isError === true,
+          },
+        });
         break;
       case "agent_end": {
         const messages = (event as { messages?: unknown }).messages;

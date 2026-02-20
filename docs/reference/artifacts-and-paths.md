@@ -2,6 +2,8 @@
 
 ## Runtime Artifacts
 
+Runtime artifact paths are resolved from the workspace root (`nearest .brewva/brewva.json` or `.git` ancestor), not the leaf execution subdirectory.
+
 - Evidence ledger: `.orchestrator/ledger/evidence.jsonl`
 - Event stream: `.orchestrator/events/<session>.jsonl`
   - includes runtime and tool telemetry events such as `tool_parallel_read`

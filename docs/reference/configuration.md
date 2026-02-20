@@ -128,6 +128,8 @@ By default, runtime merges global config from `$XDG_CONFIG_HOME/brewva/brewva.js
 
 Loading behavior is implemented in `packages/brewva-runtime/src/config/loader.ts`.
 
+Relative runtime artifact paths (for example `ledger.path`, `infrastructure.events.dir`, and rollback snapshots under `.orchestrator`) are resolved from the workspace root selected by runtime path discovery (`nearest .brewva/brewva.json` or `.git` ancestor), not from a nested package subdirectory.
+
 Global root resolution can be overridden via `BREWVA_CODING_AGENT_DIR`. See `packages/brewva-runtime/src/config/paths.ts`.
 
 ## JSON Schema
@@ -164,6 +166,10 @@ If you store the config file elsewhere (for example via `--config`), adjust the 
   - `off`: Do not apply the per-skill `budget.maxTokens` contract at runtime.
   - `warn`: Once a skill reaches/exceeds `maxTokens`, allow tool calls but emit a `skill_budget_warning` event once per (session, skill).
   - `enforce`: Once a skill reaches/exceeds `maxTokens`, block tool calls (except always-allowed lifecycle tools).
+- `security.skillMaxToolCallsMode`: `off` | `warn` | `enforce` (default `warn`).
+  - `off`: Do not apply the per-skill `budget.maxToolCalls` contract at runtime.
+  - `warn`: Once a skill reaches/exceeds `maxToolCalls`, allow tool calls but emit a `skill_budget_warning` event once per (session, skill).
+  - `enforce`: Once a skill reaches/exceeds `maxToolCalls`, block non-lifecycle tools while still allowing always-allowed lifecycle tools.
 - `security.skillMaxParallelMode`: `off` | `warn` | `enforce` (default `warn`).
   - `off`: Do not apply the per-skill `maxParallel` contract; only the global `parallel.*` limits apply.
   - `warn`: When a skill reaches/exceeds `maxParallel` active runs, allow acquisitions but emit a `skill_parallel_warning` event once per (session, skill).

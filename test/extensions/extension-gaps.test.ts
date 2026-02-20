@@ -242,7 +242,7 @@ describe("Extension gaps: context transform", () => {
     expect(handlers.has("context")).toBe(true);
     expect(handlers.has("turn_start")).toBe(true);
     expect(handlers.has("before_agent_start")).toBe(true);
-    expect(handlers.has("tool_call")).toBe(true);
+    expect(handlers.has("tool_call")).toBe(false);
     expect(handlers.has("session_compact")).toBe(true);
     expect(handlers.has("turn_end")).toBe(false);
     expect(handlers.has("agent_end")).toBe(false);
@@ -469,39 +469,6 @@ describe("Extension gaps: context transform", () => {
     expect(eventTypes).toContain("context_compaction_gate_armed");
     expect(eventTypes).toContain("critical_without_compact");
 
-    const blocked = invokeHandler<{ block?: boolean; reason?: string }>(
-      handlers,
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "tc-blocked",
-        toolName: "lsp_symbols",
-        input: {},
-      },
-      {
-        sessionManager,
-      },
-    );
-
-    expect(blocked.block).toBe(true);
-    expect(blocked.reason?.includes("session_compact")).toBe(true);
-
-    const allowedCompact = invokeHandler(
-      handlers,
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "tc-compact",
-        toolName: "session_compact",
-        input: {},
-      },
-      {
-        sessionManager,
-      },
-    );
-
-    expect(allowedCompact).toBeUndefined();
-
     invokeHandler(
       handlers,
       "turn_start",
@@ -530,23 +497,8 @@ describe("Extension gaps: context transform", () => {
     expect(capturedCompactions[0]?.entryId).toBe("cmp-entry-1");
     expect(capturedCompactions[0]?.summary).toBe("Keep active goals only.");
     expect(capturedCompactions[0]?.toTokens).toBe(1200);
+    expect(eventTypes).toContain("session_compact");
     expect(eventTypes).toContain("context_compaction_gate_cleared");
-
-    const afterCompact = invokeHandler(
-      handlers,
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "tc-after",
-        toolName: "lsp_symbols",
-        input: {},
-      },
-      {
-        sessionManager,
-      },
-    );
-
-    expect(afterCompact).toBeUndefined();
   });
 
   test("does not arm gate when critical usage has recent compaction", () => {
@@ -627,21 +579,6 @@ describe("Extension gaps: context transform", () => {
     expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
     expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
-
-    const access = invokeHandler(
-      handlers,
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "tc-open",
-        toolName: "lsp_symbols",
-        input: {},
-      },
-      {
-        sessionManager,
-      },
-    );
-    expect(access).toBeUndefined();
   });
 
   test("treats compaction as recent for configured N-turn window", () => {
@@ -812,9 +749,7 @@ describe("Extension gaps: quality gate", () => {
     const { api, handlers } = createMockExtensionAPI();
 
     const runtime = withRuntimeConfig({
-      checkToolAccess: () => ({ allowed: true }),
-      markToolCall: () => undefined,
-      trackToolCallStart: () => undefined,
+      startToolCall: () => ({ allowed: true }),
       sanitizeInput: (text: string) => `sanitized:${text}`,
     } as any);
 
@@ -840,9 +775,7 @@ describe("Extension gaps: quality gate", () => {
     const { api, handlers } = createMockExtensionAPI();
 
     const runtime = withRuntimeConfig({
-      checkToolAccess: () => ({ allowed: true }),
-      markToolCall: () => undefined,
-      trackToolCallStart: () => undefined,
+      startToolCall: () => ({ allowed: true }),
       sanitizeInput: (text: string) => text,
     } as any);
 
@@ -861,20 +794,83 @@ describe("Extension gaps: quality gate", () => {
 
     expect(result.action).toBe("continue");
   });
+
+  test("delegates tool_call gate to runtime.startToolCall with normalized usage", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const calls: any[] = [];
+    const runtime = withRuntimeConfig({
+      startToolCall: (input: any) => {
+        calls.push(input);
+        return { allowed: true };
+      },
+      sanitizeInput: (text: string) => text,
+    } as any);
+
+    registerQualityGate(api, runtime);
+
+    const result = invokeHandler(
+      handlers,
+      "tool_call",
+      {
+        toolCallId: "tc-quality",
+        toolName: "exec",
+        input: { command: "echo hi" },
+      },
+      {
+        sessionManager: { getSessionId: () => "qg-1" },
+        getContextUsage: () => ({ tokens: 123, contextWindow: 4096, percent: 0.03 }),
+      },
+    );
+
+    expect(result).toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sessionId).toBe("qg-1");
+    expect(calls[0].toolCallId).toBe("tc-quality");
+    expect(calls[0].toolName).toBe("exec");
+    expect(calls[0].args).toEqual({ command: "echo hi" });
+    expect(calls[0].usage.tokens).toBe(123);
+    expect(calls[0].usage.contextWindow).toBe(4096);
+  });
+
+  test("blocks tool_call when runtime.startToolCall rejects", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = withRuntimeConfig({
+      startToolCall: () => ({
+        allowed: false,
+        reason: "blocked-by-runtime",
+      }),
+      sanitizeInput: (text: string) => text,
+    } as any);
+
+    registerQualityGate(api, runtime);
+
+    const result = invokeHandler<{ block?: boolean; reason?: string }>(
+      handlers,
+      "tool_call",
+      {
+        toolCallId: "tc-block",
+        toolName: "exec",
+        input: { command: "false" },
+      },
+      {
+        sessionManager: { getSessionId: () => "qg-2" },
+        getContextUsage: () => ({ tokens: 980, contextWindow: 1000, percent: 0.98 }),
+      },
+    );
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe("blocked-by-runtime");
+  });
 });
 
 describe("Extension gaps: ledger writer", () => {
   test("records tool_result with extracted text and fail verdict when isError=true", () => {
     const { api, handlers } = createMockExtensionAPI();
 
-    const recorded: any[] = [];
-    const ended: any[] = [];
+    const finished: any[] = [];
     const runtime = withRuntimeConfig({
-      recordToolResult: (input: any) => {
-        recorded.push(input);
-      },
-      trackToolCallEnd: (input: any) => {
-        ended.push(input);
+      finishToolCall: (input: any) => {
+        finished.push(input);
       },
     } as any);
 
@@ -902,17 +898,13 @@ describe("Extension gaps: ledger writer", () => {
       },
     );
 
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0].sessionId).toBe("lw-1");
-    expect(recorded[0].toolName).toBe("exec");
-    expect(recorded[0].success).toBe(false);
-    expect(recorded[0].verdict).toBe("fail");
-    expect(recorded[0].outputText).toBe("line-a\nline-b");
-    expect(recorded[0].metadata.toolCallId).toBe("tc-err");
-
-    expect(ended).toHaveLength(1);
-    expect(ended[0].success).toBe(false);
-    expect(ended[0].toolCallId).toBe("tc-err");
+    expect(finished).toHaveLength(1);
+    expect(finished[0].sessionId).toBe("lw-1");
+    expect(finished[0].toolName).toBe("exec");
+    expect(finished[0].success).toBe(false);
+    expect(finished[0].verdict).toBe("fail");
+    expect(finished[0].outputText).toBe("line-a\nline-b");
+    expect(finished[0].metadata.toolCallId).toBe("tc-err");
   });
 });
 
@@ -1064,6 +1056,7 @@ describe("Extension integration: observability", () => {
     expect(recorded).toBeDefined();
     const payload = recorded?.payload as { ledgerId?: string } | undefined;
     expect(payload?.ledgerId).toBe(ledgerRows[0]?.id);
+    expect(runtime.queryEvents(sessionId, { type: "tool_result", last: 1 })).toHaveLength(0);
 
     const snapshot = runtime.queryEvents(sessionId, { type: "file_snapshot_captured", last: 1 })[0];
     expect(snapshot).toBeDefined();
@@ -1183,6 +1176,88 @@ patching`,
     expect(
       runtime.queryEvents(sessionId, { type: "file_snapshot_captured", last: 1 }),
     ).toHaveLength(0);
+  });
+
+  test("skill max_tool_calls enforce blocks normal tools but allows skill_complete in extension chain", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-max-tool-calls-"));
+    mkdirSync(join(workspace, ".brewva/skills/base/maxcalls"), { recursive: true });
+    writeFileSync(
+      join(workspace, ".brewva/skills/base/maxcalls/SKILL.md"),
+      `---
+name: maxcalls
+description: maxcalls skill
+tier: base
+tags: [maxcalls]
+tools:
+  required: [read]
+  optional: [edit]
+  denied: [write]
+budget:
+  max_tool_calls: 1
+  max_tokens: 10000
+---
+maxcalls`,
+      "utf8",
+    );
+
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.security.allowedToolsMode = "off";
+    config.security.skillMaxToolCallsMode = "enforce";
+
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
+    const sessionId = "ext-max-tool-calls-1";
+    expect(runtime.activateSkill(sessionId, "maxcalls").ok).toBe(true);
+    expect(runtime.getActiveSkill(sessionId)?.contract.budget.maxToolCalls).toBe(1);
+
+    const { api, handlers } = createMockExtensionAPI();
+    registerEventStream(api, runtime);
+    registerQualityGate(api, runtime);
+
+    const ctx = {
+      cwd: workspace,
+      sessionManager: {
+        getSessionId: () => sessionId,
+      },
+    };
+
+    runtime.markToolCall(sessionId, "read");
+
+    const blocked = invokeHandlers(
+      handlers,
+      "tool_call",
+      {
+        toolCallId: "tc-grep-1",
+        toolName: "grep",
+        input: { pattern: "x", include: "*.ts" },
+      },
+      ctx,
+      { stopOnBlock: true },
+    );
+    expect(blocked.some((result) => (result as { block?: boolean })?.block === true)).toBe(true);
+
+    const lifecycle = invokeHandlers(
+      handlers,
+      "tool_call",
+      {
+        toolCallId: "tc-complete-2",
+        toolName: "skill_complete",
+        input: { outputs: {} },
+      },
+      ctx,
+      { stopOnBlock: true },
+    );
+    expect(lifecycle.some((result) => (result as { block?: boolean })?.block === true)).toBe(false);
+
+    expect(runtime.queryEvents(sessionId, { type: "tool_call" })).toHaveLength(2);
+    expect(runtime.queryEvents(sessionId, { type: "tool_call_marked" })).toHaveLength(2);
+    const blockedEvents = runtime.queryEvents(sessionId, { type: "tool_call_blocked" });
+    expect(
+      blockedEvents.some(
+        (event) =>
+          typeof event.payload?.reason === "string" &&
+          event.payload.reason.includes("maxToolCalls"),
+      ),
+    ).toBe(true);
   });
 
   test("persists throttled message_update events", () => {

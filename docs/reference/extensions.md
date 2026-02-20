@@ -30,3 +30,4 @@ Extension factory entrypoint: `packages/brewva-extensions/src/index.ts`.
 - `registerContextTransform` appends a system-level `[Brewva Context Contract]` in `before_agent_start`.
 - The contract separates state tape actions (`tape_handoff` / `tape_info` / `tape_search`) from message-buffer compaction (`session_compact`).
 - Runtime gate remains fail-closed on critical context pressure when recent compaction is missing.
+- `session_compact` lifecycle bookkeeping is handled only in `registerContextTransform` to avoid duplicate event paths.

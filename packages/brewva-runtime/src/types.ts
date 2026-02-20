@@ -29,6 +29,11 @@ export interface SkillContract {
   costHint?: SkillCostHint;
 }
 
+export interface SkillContractOverride extends Omit<Partial<SkillContract>, "tools" | "budget"> {
+  tools?: Partial<SkillContract["tools"]>;
+  budget?: Partial<SkillContract["budget"]>;
+}
+
 export interface SkillDocument {
   name: string;
   description: string;
@@ -192,7 +197,7 @@ export interface BrewvaConfig {
     roots?: string[];
     packs: string[];
     disabled: string[];
-    overrides: Record<string, Partial<SkillContract>>;
+    overrides: Record<string, SkillContractOverride>;
     selector: { k: number; maxDigestTokens: number };
   };
   verification: {
@@ -226,6 +231,13 @@ export interface BrewvaConfig {
      * - enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.
      */
     skillMaxTokensMode: "off" | "warn" | "enforce";
+    /**
+     * Controls how per-skill budget.maxToolCalls is applied.
+     * - off: no enforcement.
+     * - warn: allow but emit a warning event when a skill exceeds its tool-call budget.
+     * - enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.
+     */
+    skillMaxToolCallsMode: "off" | "warn" | "enforce";
     /**
      * Controls how per-skill maxParallel is applied when acquiring parallel slots.
      * - off: use global parallel config only.
@@ -426,6 +438,15 @@ export interface ContextPressureStatus {
   usageRatio: number | null;
   hardLimitRatio: number;
   compactionThresholdRatio: number;
+}
+
+export interface ContextCompactionGateStatus {
+  required: boolean;
+  pressure: ContextPressureStatus;
+  recentCompaction: boolean;
+  windowTurns: number;
+  lastCompactionTurn: number | null;
+  turnsSinceCompaction: number | null;
 }
 
 export interface TapeAnchorState {

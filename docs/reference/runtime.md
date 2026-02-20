@@ -16,6 +16,7 @@ Primary class: `packages/brewva-runtime/src/runtime.ts`.
 - `getContextCompactionThresholdRatio`
 - `getContextPressureStatus`
 - `getContextPressureLevel`
+- `getContextCompactionGateStatus`
 - `buildContextInjection`
 - `planSupplementalContextInjection`
 - `commitSupplementalContextInjection`
@@ -30,6 +31,9 @@ Primary class: `packages/brewva-runtime/src/runtime.ts`.
 - `getAvailableConsumedOutputs`
 - `validateComposePlan`
 - `checkToolAccess`
+- `checkContextCompactionGate`
+- `startToolCall`
+- `finishToolCall`
 - `markToolCall`
 - `trackToolCallStart`
 - `trackToolCallEnd`

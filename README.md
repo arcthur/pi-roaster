@@ -167,7 +167,6 @@ bun run build:binaries     # Compile platform binaries
 | Architecture    | `docs/architecture/`    | System layers, control flow, invariants                                 |
 | Journeys        | `docs/journeys/`        | End-to-end cross-module workflows                                       |
 | Reference       | `docs/reference/`       | Contract-level definitions (config, tools, skills, events, runtime API) |
-| Plans           | `docs/plans/`           | Design documents for major architectural decisions                      |
 | Research        | `docs/research/`        | Roadmap priorities and design notes                                     |
 | Troubleshooting | `docs/troubleshooting/` | Failure patterns and remediation                                        |
 

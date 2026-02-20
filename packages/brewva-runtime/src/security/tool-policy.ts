@@ -1,13 +1,10 @@
 import type { SkillContract, ToolAccessResult } from "../types.js";
+import { normalizeToolName } from "../utils/tool-name.js";
 
 export interface ToolPolicyOptions {
   enforceDeniedTools: boolean;
   allowedToolsMode: "off" | "warn" | "enforce";
   alwaysAllowedTools?: string[];
-}
-
-function normalizeToolName(name: string): string {
-  return name.trim().toLowerCase();
 }
 
 function normalizeToolList(tools: string[]): string[] {

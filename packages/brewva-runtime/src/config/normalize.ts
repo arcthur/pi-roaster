@@ -215,6 +215,11 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
       skillMaxTokensMode: VALID_ALLOWED_TOOLS_MODES.has(securityInput.skillMaxTokensMode as string)
         ? (securityInput.skillMaxTokensMode as BrewvaConfig["security"]["skillMaxTokensMode"])
         : defaults.security.skillMaxTokensMode,
+      skillMaxToolCallsMode: VALID_ALLOWED_TOOLS_MODES.has(
+        securityInput.skillMaxToolCallsMode as string,
+      )
+        ? (securityInput.skillMaxToolCallsMode as BrewvaConfig["security"]["skillMaxToolCallsMode"])
+        : defaults.security.skillMaxToolCallsMode,
       skillMaxParallelMode: VALID_ALLOWED_TOOLS_MODES.has(
         securityInput.skillMaxParallelMode as string,
       )

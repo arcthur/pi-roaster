@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { SkillContract, SkillDocument, SkillTier } from "../types.js";
+import type { SkillContract, SkillContractOverride, SkillDocument, SkillTier } from "../types.js";
+import { normalizeToolName } from "../utils/tool-name.js";
 
 interface ParsedFrontmatter {
   body: string;
@@ -30,10 +31,6 @@ function toStringArray(value: unknown): string[] {
     return value.filter((item): item is string => typeof item === "string");
   }
   return [];
-}
-
-function normalizeToolName(name: string): string {
-  return name.trim().toLowerCase();
 }
 
 function toToolNameArray(value: unknown): string[] {
@@ -127,7 +124,7 @@ function normalizeContract(
 
 export function tightenContract(
   base: SkillContract,
-  override: Partial<SkillContract>,
+  override: SkillContractOverride,
 ): SkillContract {
   const baseDenied = new Set([...base.tools.denied].map((tool) => normalizeToolName(tool)));
   const baseAllowed = new Set(
@@ -165,12 +162,18 @@ export function tightenContract(
     optional.add(normalized);
   }
 
-  const maxToolCalls = override.budget?.maxToolCalls
-    ? Math.min(base.budget.maxToolCalls, override.budget.maxToolCalls)
-    : base.budget.maxToolCalls;
-  const maxTokens = override.budget?.maxTokens
-    ? Math.min(base.budget.maxTokens, override.budget.maxTokens)
-    : base.budget.maxTokens;
+  const maxToolCalls =
+    typeof override.budget?.maxToolCalls === "number"
+      ? Math.min(base.budget.maxToolCalls, override.budget.maxToolCalls)
+      : base.budget.maxToolCalls;
+  const maxTokens =
+    typeof override.budget?.maxTokens === "number"
+      ? Math.min(base.budget.maxTokens, override.budget.maxTokens)
+      : base.budget.maxTokens;
+  const maxParallel =
+    typeof override.maxParallel === "number"
+      ? Math.min(base.maxParallel ?? override.maxParallel, override.maxParallel)
+      : base.maxParallel;
 
   return {
     ...base,
@@ -180,9 +183,7 @@ export function tightenContract(
     composableWith: override.composableWith ?? base.composableWith,
     consumes: override.consumes ?? base.consumes,
     escalationPath: override.escalationPath ?? base.escalationPath,
-    maxParallel: override.maxParallel
-      ? Math.min(base.maxParallel ?? override.maxParallel, override.maxParallel)
-      : base.maxParallel,
+    maxParallel,
     tools: {
       required: [...required],
       optional: [...optional],

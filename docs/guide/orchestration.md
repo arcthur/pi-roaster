@@ -11,17 +11,18 @@ Orchestration is driven by runtime state management plus extension lifecycle han
 2. Extensions are registered (`packages/brewva-extensions/src/index.ts`)
 3. `before_agent_start` injects context contract + tape status + replay context (`context-transform`)
 4. `tool_call` passes quality/security/budget gates (`quality-gate`)
-5. `tool_result` updates ledger, truth/verification evidence, and tool-call tracking (`ledger-writer`)
+5. SDK `tool_result` hook updates ledger/truth/verification and tool-call tracking (`ledger-writer`); persisted semantic event is `tool_result_recorded`
 6. `agent_end` records summary events and runs completion guard / notification hooks
 
 ## Direct-Tool Profile (`--no-extensions`)
 
-1. CLI registers runtime-aware tools directly (`buildBrewvaTools`)
-2. CLI installs `registerRuntimeCoreEventBridge` for core lifecycle/cost telemetry
-3. Session can execute tools and runtime APIs without extension hook chain
-
-This profile is intentionally reduced: extension-layer context transform and
-guard behaviors are not active.
+1. CLI registers tools directly (`buildBrewvaTools`)
+2. CLI installs `createRuntimeCoreBridgeExtension` (quality gate + ledger writer + compact lifecycle bridge)
+3. Runtime core bridge enforces `startToolCall`/`finishToolCall` semantics:
+   tool policy + critical compaction gate + tool-call accounting + patch tracking + ledger write
+4. CLI installs `registerRuntimeCoreEventBridge` for lifecycle and assistant-usage telemetry
+5. Extension-only presentation hooks remain disabled (`before_agent_start` context injection,
+   completion guard, notification, streaming message-health events)
 
 ## Runtime Subsystems
 

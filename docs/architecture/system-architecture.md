@@ -52,12 +52,20 @@ flowchart TD
   - `createBrewvaExtension()` registers tools and all lifecycle handlers.
   - Runtime behavior is mediated through extension hooks (`before_agent_start`,
     `tool_call`, `tool_result`, `agent_end`, etc.).
+  - Event tape keeps raw and semantic layers separated: raw lifecycle signals
+    come from `event-stream`, while derived tool-result semantics are persisted
+    as `tool_result_recorded` by runtime/ledger writer.
 - **Direct-tool profile (`--no-extensions`)**
   - Tools are registered directly from `buildBrewvaTools()`.
-  - CLI installs `registerRuntimeCoreEventBridge()` for minimal lifecycle and
-    assistant usage telemetry.
-  - Extension-layer guards/hooks (context contract injection, quality gate,
-    completion guard) are intentionally not active.
+  - CLI installs `createRuntimeCoreBridgeExtension()` to run core tool hooks
+    (`quality-gate`, `ledger-writer`, compact lifecycle bridge) without full extension stack.
+  - Runtime core path (`startToolCall`/`finishToolCall`) enforces tool policy,
+    critical context-compaction gate, tool-call accounting, patch tracking, and
+    tool-result ledger persistence.
+  - CLI installs `registerRuntimeCoreEventBridge()` for lifecycle and
+    assistant-usage telemetry.
+  - Extension-only presentation hooks (context-injection message, completion
+    guard, notification) remain disabled by design.
 
 ## Configuration-to-UI Flow
 

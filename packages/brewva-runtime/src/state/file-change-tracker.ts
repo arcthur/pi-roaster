@@ -63,6 +63,11 @@ interface PersistedPatchHistory {
   patchSets: PersistedPatchSet[];
 }
 
+interface FileChangeTrackerOptions {
+  snapshotsDir?: string;
+  artifactsBaseDir?: string;
+}
+
 function sanitizeSessionId(sessionId: string): string {
   return sessionId.replaceAll(/[^\w.-]+/g, "_");
 }
@@ -135,9 +140,13 @@ export class FileChangeTracker {
   private readonly historyBySession = new Map<string, AppliedMutation[]>();
   private readonly loadedSessions = new Set<string>();
 
-  constructor(cwd: string, snapshotsDir = ".orchestrator/snapshots") {
+  constructor(cwd: string, options: string | FileChangeTrackerOptions = ".orchestrator/snapshots") {
+    const normalizedOptions: FileChangeTrackerOptions =
+      typeof options === "string" ? { snapshotsDir: options } : options;
+    const snapshotsDir = normalizedOptions.snapshotsDir ?? ".orchestrator/snapshots";
+    const artifactsBaseDir = resolve(normalizedOptions.artifactsBaseDir ?? cwd);
     this.cwd = resolve(cwd);
-    this.snapshotsDir = resolve(this.cwd, snapshotsDir);
+    this.snapshotsDir = resolve(artifactsBaseDir, snapshotsDir);
     ensureDir(this.snapshotsDir);
   }
 

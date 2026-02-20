@@ -8,9 +8,9 @@
 
 ## `tool_call` Is Blocked
 
-- Cause: denied tool by active contract, allowlist enforcement, token budget enforcement, or cost budget violation.
+- Cause: denied tool by active contract, allowlist enforcement, token/tool-call budget enforcement, or cost budget violation.
 - Check: `packages/brewva-runtime/src/runtime.ts`
-- Action: switch active skill, adjust `security.allowedToolsMode` / `security.skillMaxTokensMode`, or resolve budget policy constraints.
+- Action: switch active skill, adjust `security.allowedToolsMode` / `security.skillMaxTokensMode` / `security.skillMaxToolCallsMode`, or resolve budget policy constraints.
 
 ## `--replay` Returns No Session
 

@@ -47,6 +47,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     enforceDeniedTools: true,
     allowedToolsMode: "warn",
     skillMaxTokensMode: "warn",
+    skillMaxToolCallsMode: "warn",
     skillMaxParallelMode: "warn",
   },
   parallel: {

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { format } from "node:util";
+import { format, parseArgs as parseNodeArgs } from "node:util";
 import { BrewvaRuntime, parseTaskSpec, type TaskSpec } from "@brewva/brewva-runtime";
 import { InteractiveMode, runPrintMode } from "@mariozechner/pi-coding-agent";
 import { JsonLineWriter, writeJsonLine } from "./json-lines.js";
@@ -103,7 +103,7 @@ Options:
   --model <provider/id> Model override
   --task <json>         TaskSpec JSON (schema: brewva.task.v1)
   --task-file <path>    TaskSpec JSON file
-  --no-extensions       Disable extensions, register tools directly
+  --no-extensions       Disable extension hooks (runtime core safety chain remains active)
   --print, -p           Run one-shot mode
   --interactive, -i     Force interactive TUI mode
   --mode <text|json>    One-shot output mode
@@ -142,168 +142,96 @@ interface CliArgs {
   prompt?: string;
 }
 
-function parseOptionValue(argv: string[], index: number, flag: string): string | null {
-  const value = argv[index + 1];
-  if (typeof value === "string" && value.length > 0) {
-    return value;
-  }
+const CLI_PARSE_OPTIONS = {
+  help: { type: "boolean", short: "h" },
+  cwd: { type: "string" },
+  config: { type: "string" },
+  model: { type: "string" },
+  task: { type: "string" },
+  "task-file": { type: "string" },
+  "no-extensions": { type: "boolean" },
+  print: { type: "boolean", short: "p" },
+  interactive: { type: "boolean", short: "i" },
+  mode: { type: "string" },
+  json: { type: "boolean" },
+  undo: { type: "boolean" },
+  replay: { type: "boolean" },
+  session: { type: "string" },
+  verbose: { type: "boolean" },
+} as const;
 
-  console.error(`Error: ${flag} requires a value.`);
-  printHelp();
+function resolveModeFromFlag(value: string): CliMode | null {
+  if (value === "text") return "print-text";
+  if (value === "json") return "print-json";
+  console.error(`Error: --mode must be "text" or "json" (received "${value}").`);
   return null;
 }
 
 function parseArgs(argv: string[]): CliArgs | null {
-  let cwd: string | undefined;
-  let configPath: string | undefined;
-  let model: string | undefined;
-  let taskJson: string | undefined;
-  let taskFile: string | undefined;
-  let enableExtensions = true;
-  let undo = false;
-  let replay = false;
-  let sessionId: string | undefined;
+  let parsed: ReturnType<typeof parseNodeArgs>;
+  try {
+    parsed = parseNodeArgs({
+      args: argv,
+      options: CLI_PARSE_OPTIONS,
+      allowPositionals: true,
+      strict: true,
+      tokens: true,
+    });
+  } catch (error) {
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    printHelp();
+    return null;
+  }
+
+  if (parsed.values.help === true) {
+    printHelp();
+    return null;
+  }
+
   let mode: CliMode = "interactive";
   let modeExplicit = false;
-  let verbose = false;
-
-  const promptParts: string[] = [];
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (typeof arg !== "string") continue;
-
-    if (arg === "-h" || arg === "--help") {
-      printHelp();
-      return null;
-    }
-
-    if (arg === "--cwd") {
-      const value = parseOptionValue(argv, i, "--cwd");
-      if (!value) return null;
-      cwd = value;
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--config") {
-      const value = parseOptionValue(argv, i, "--config");
-      if (!value) return null;
-      configPath = value;
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--model") {
-      const value = parseOptionValue(argv, i, "--model");
-      if (!value) return null;
-      model = value;
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--task") {
-      const value = parseOptionValue(argv, i, "--task");
-      if (!value) return null;
-      taskJson = value;
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--task-file") {
-      const value = parseOptionValue(argv, i, "--task-file");
-      if (!value) return null;
-      taskFile = value;
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--no-extensions") {
-      enableExtensions = false;
-      continue;
-    }
-
-    if (arg === "--undo") {
-      undo = true;
-      continue;
-    }
-
-    if (arg === "--replay") {
-      replay = true;
-      continue;
-    }
-
-    if (arg === "--session") {
-      const value = parseOptionValue(argv, i, "--session");
-      if (!value) return null;
-      sessionId = value;
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--print" || arg === "-p") {
+  for (const token of parsed.tokens ?? []) {
+    if (token.kind !== "option") continue;
+    if (token.name === "print") {
       mode = "print-text";
       modeExplicit = true;
       continue;
     }
-
-    if (arg === "--interactive" || arg === "-i") {
+    if (token.name === "interactive") {
       mode = "interactive";
       modeExplicit = true;
       continue;
     }
-
-    if (arg === "--json") {
+    if (token.name === "json") {
       mode = "print-json";
       modeExplicit = true;
       continue;
     }
-
-    if (arg === "--mode") {
-      const value = parseOptionValue(argv, i, "--mode");
-      if (!value) return null;
-      if (value === "text") {
-        mode = "print-text";
-      } else if (value === "json") {
-        mode = "print-json";
-      } else {
-        console.error(`Error: --mode must be "text" or "json" (received "${value}").`);
-        return null;
-      }
+    if (token.name === "mode") {
+      if (typeof token.value !== "string") continue;
+      const resolved = resolveModeFromFlag(token.value);
+      if (!resolved) return null;
+      mode = resolved;
       modeExplicit = true;
-      i += 1;
-      continue;
     }
-
-    if (arg === "--verbose") {
-      verbose = true;
-      continue;
-    }
-
-    if (arg.startsWith("-")) {
-      console.error(`Error: unknown option "${arg}".`);
-      printHelp();
-      return null;
-    }
-
-    promptParts.push(arg);
   }
 
-  const prompt = promptParts.join(" ").trim() || undefined;
+  const prompt = parsed.positionals.join(" ").trim() || undefined;
 
   return {
-    cwd,
-    configPath,
-    model,
-    taskJson,
-    taskFile,
-    enableExtensions,
-    undo,
-    replay,
-    sessionId,
+    cwd: typeof parsed.values.cwd === "string" ? parsed.values.cwd : undefined,
+    configPath: typeof parsed.values.config === "string" ? parsed.values.config : undefined,
+    model: typeof parsed.values.model === "string" ? parsed.values.model : undefined,
+    taskJson: typeof parsed.values.task === "string" ? parsed.values.task : undefined,
+    taskFile:
+      typeof parsed.values["task-file"] === "string" ? parsed.values["task-file"] : undefined,
+    enableExtensions: parsed.values["no-extensions"] !== true,
+    undo: parsed.values.undo === true,
+    replay: parsed.values.replay === true,
+    sessionId: typeof parsed.values.session === "string" ? parsed.values.session : undefined,
     mode,
     modeExplicit,
-    verbose,
+    verbose: parsed.values.verbose === true,
     prompt,
   };
 }

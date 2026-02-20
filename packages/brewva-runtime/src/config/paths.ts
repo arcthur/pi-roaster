@@ -1,5 +1,6 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export const BREWVA_CONFIG_DIR_RELATIVE = ".brewva";
 export const BREWVA_CONFIG_FILE_NAME = "brewva.json";
@@ -61,4 +62,31 @@ export function resolveProjectBrewvaConfigPath(cwd: string): string {
 
 export function resolveBrewvaAgentDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(resolveGlobalBrewvaRootDir(env), "agent");
+}
+
+function findAncestor(startDir: string, predicate: (dir: string) => boolean): string | undefined {
+  let current = resolve(startDir);
+  while (true) {
+    if (predicate(current)) return current;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return undefined;
+}
+
+function hasBrewvaConfigRoot(dir: string): boolean {
+  return existsSync(resolveBrewvaConfigPathForRoot(resolveProjectBrewvaRootDir(dir)));
+}
+
+function hasGitRootMarker(dir: string): boolean {
+  return existsSync(join(dir, ".git"));
+}
+
+export function resolveWorkspaceRootDir(cwd: string): string {
+  const resolvedCwd = resolve(cwd);
+  return (
+    findAncestor(resolvedCwd, (dir) => hasBrewvaConfigRoot(dir) || hasGitRootMarker(dir)) ??
+    resolvedCwd
+  );
 }

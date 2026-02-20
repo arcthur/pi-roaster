@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime, type SkillContract } from "@brewva/brewva-runtime";
+import {
+  DEFAULT_BREWVA_CONFIG,
+  BrewvaRuntime,
+  type SkillContractOverride,
+} from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
   const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
@@ -17,7 +21,7 @@ function createRuntime(
   workspace: string,
   options: {
     security?: Partial<BrewvaRuntime["config"]["security"]>;
-    skillOverrides?: Record<string, Partial<SkillContract>>;
+    skillOverrides?: Record<string, SkillContractOverride>;
   } = {},
 ): BrewvaRuntime {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
@@ -137,6 +141,57 @@ describe("skill maxTokens contract modes", () => {
     expect(runtime.checkToolAccess(sessionId, "tape_info").allowed).toBe(true);
     expect(runtime.checkToolAccess(sessionId, "tape_search").allowed).toBe(true);
     expect(runtime.checkToolAccess(sessionId, "session_compact").allowed).toBe(true);
+  });
+});
+
+describe("skill maxToolCalls contract modes", () => {
+  test("warn mode allows tools after tool-call budget is exceeded but emits deduped warning", () => {
+    const workspace = createWorkspace("skill-max-tool-calls-warn");
+    const runtime = createRuntime(workspace, {
+      security: { skillMaxToolCallsMode: "warn", allowedToolsMode: "off" },
+      skillOverrides: { patching: { budget: { maxToolCalls: 1 } } },
+    });
+    const sessionId = "skill-max-tool-calls-warn-1";
+
+    expect(runtime.activateSkill(sessionId, "patching").ok).toBe(true);
+    runtime.markToolCall(sessionId, "read");
+
+    expect(runtime.checkToolAccess(sessionId, "grep").allowed).toBe(true);
+    expect(runtime.queryEvents(sessionId, { type: "skill_budget_warning" })).toHaveLength(1);
+
+    expect(runtime.checkToolAccess(sessionId, "grep").allowed).toBe(true);
+    expect(runtime.queryEvents(sessionId, { type: "skill_budget_warning" })).toHaveLength(1);
+  });
+
+  test("enforce mode blocks non-lifecycle tools after tool-call budget is exceeded", () => {
+    const workspace = createWorkspace("skill-max-tool-calls-enforce");
+    const runtime = createRuntime(workspace, {
+      security: { skillMaxToolCallsMode: "enforce", allowedToolsMode: "off" },
+      skillOverrides: { patching: { budget: { maxToolCalls: 1 } } },
+    });
+    const sessionId = "skill-max-tool-calls-enforce-1";
+
+    expect(runtime.activateSkill(sessionId, "patching").ok).toBe(true);
+    runtime.markToolCall(sessionId, "read");
+
+    const blocked = runtime.checkToolAccess(sessionId, "grep");
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.reason?.includes("exceeded maxToolCalls")).toBe(true);
+  });
+
+  test("enforce mode still allows lifecycle completion tools after tool-call budget is exceeded", () => {
+    const workspace = createWorkspace("skill-max-tool-calls-lifecycle");
+    const runtime = createRuntime(workspace, {
+      security: { skillMaxToolCallsMode: "enforce", allowedToolsMode: "off" },
+      skillOverrides: { patching: { budget: { maxToolCalls: 1 } } },
+    });
+    const sessionId = "skill-max-tool-calls-lifecycle-1";
+
+    expect(runtime.activateSkill(sessionId, "patching").ok).toBe(true);
+    runtime.markToolCall(sessionId, "read");
+
+    expect(runtime.checkToolAccess(sessionId, "skill_complete").allowed).toBe(true);
+    expect(runtime.checkToolAccess(sessionId, "skill_load").allowed).toBe(true);
   });
 });
 

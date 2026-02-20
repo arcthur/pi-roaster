@@ -19,7 +19,7 @@ function registerAllHandlers(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
   registerQualityGate(pi, runtime);
   registerLedgerWriter(pi, runtime);
   registerCompletionGuard(pi, runtime);
-  registerNotification(pi);
+  registerNotification(pi, runtime);
 }
 
 export function createBrewvaExtension(
@@ -43,6 +43,10 @@ export function brewvaExtension(options: CreateBrewvaExtensionOptions = {}): Ext
   return createBrewvaExtension(options);
 }
 
+export {
+  createRuntimeCoreBridgeExtension,
+  registerRuntimeCoreBridge,
+} from "./runtime-core-bridge.js";
 export { registerContextTransform } from "./context-transform.js";
 export { registerEventStream } from "./event-stream.js";
 export { registerQualityGate } from "./quality-gate.js";

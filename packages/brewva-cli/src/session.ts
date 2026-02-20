@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { createBrewvaExtension } from "@brewva/brewva-extensions";
+import { createBrewvaExtension, createRuntimeCoreBridgeExtension } from "@brewva/brewva-extensions";
 import {
   BrewvaRuntime,
   resolveBrewvaAgentDir,
@@ -79,7 +79,7 @@ export async function createBrewvaSession(
     settingsManager,
     extensionFactories: extensionsEnabled
       ? [createBrewvaExtension({ runtime, registerTools: true })]
-      : [],
+      : [createRuntimeCoreBridgeExtension({ runtime })],
   });
   await resourceLoader.reload();
 

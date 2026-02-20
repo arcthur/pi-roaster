@@ -26,24 +26,26 @@ sequenceDiagram
   CLI->>EXT: tool_call
   EXT->>RT: checkToolAccess() + trackToolCallStart()
   CLI->>TOOLS: execute tool
-  TOOLS-->>EXT: tool_result
+  TOOLS-->>EXT: tool_result (raw hook)
   EXT->>RT: recordToolResult() + trackToolCallEnd()
-  RT->>STORES: append ledger/events
+  RT->>STORES: append ledger + semantic events (e.g. tool_result_recorded)
   CLI->>EXT: agent_end
 ```
 
-## `--no-extensions` Flow (Reduced Orchestration)
+## `--no-extensions` Flow (Core-Enforced Profile)
 
 ```mermaid
 flowchart TD
-  A["createBrewvaSession(enableExtensions=false)"] --> B["register custom tools directly"]
-  B --> C["registerRuntimeCoreEventBridge()"]
-  C --> D["record core lifecycle + assistant usage events"]
-  D --> E["runtime/tools continue without extension hooks"]
+  A["createBrewvaSession(enableExtensions=false)"] --> B["register built-in + custom tools"]
+  B --> C["register createRuntimeCoreBridgeExtension()"]
+  C --> D["tool_call => runtime.startToolCall(): policy + compaction gate + call tracking"]
+  D --> E["tool execute"]
+  E --> F["tool_result => runtime.finishToolCall(): ledger write + patch tracking"]
+  F --> G["registerRuntimeCoreEventBridge(): lifecycle + usage telemetry"]
 ```
 
-This mode keeps runtime/tool execution available, but extension-layer gates and
-transforms are intentionally bypassed.
+This mode disables extension presentation hooks, but runtime safety and evidence
+chain enforcement stay active through the runtime core bridge hooks.
 
 ## Persistence Data Flow
 

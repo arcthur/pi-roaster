@@ -1,4 +1,4 @@
-import type { BrewvaRuntime } from "@brewva/brewva-runtime";
+import { recordAssistantUsageFromMessage, type BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 type MessageHealth = {
@@ -196,46 +196,6 @@ function computeMessageHealth(windowText: string, windowChars: number): MessageH
   };
 }
 
-function maybeRecordAssistantUsage(
-  runtime: BrewvaRuntime,
-  sessionId: string,
-  message: unknown,
-): void {
-  if (!message || typeof message !== "object") return;
-
-  const value = message as {
-    role?: string;
-    model?: string;
-    provider?: string;
-    stopReason?: string;
-    usage?: {
-      input?: number;
-      output?: number;
-      cacheRead?: number;
-      cacheWrite?: number;
-      totalTokens?: number;
-      cost?: {
-        total?: number;
-      };
-    };
-  };
-  if (value.role !== "assistant" || !value.usage) return;
-
-  const model =
-    value.provider && value.model ? `${value.provider}/${value.model}` : (value.model ?? "unknown");
-  runtime.recordAssistantUsage({
-    sessionId,
-    model,
-    inputTokens: value.usage.input ?? 0,
-    outputTokens: value.usage.output ?? 0,
-    cacheReadTokens: value.usage.cacheRead ?? 0,
-    cacheWriteTokens: value.usage.cacheWrite ?? 0,
-    totalTokens: value.usage.totalTokens ?? 0,
-    costUsd: value.usage.cost?.total ?? 0,
-    stopReason: value.stopReason,
-  });
-}
-
 const MESSAGE_UPDATE_MIN_INTERVAL_MS = 250;
 const MESSAGE_HEALTH_WINDOW_MAX_CHARS = 2400;
 
@@ -383,7 +343,7 @@ export function registerEventStream(pi: ExtensionAPI, runtime: BrewvaRuntime): v
       type: "message_end",
       payload: summarizeMessage(event.message),
     });
-    maybeRecordAssistantUsage(runtime, sessionId, event.message);
+    recordAssistantUsageFromMessage(runtime, sessionId, event.message);
     return undefined;
   });
 
@@ -436,38 +396,12 @@ export function registerEventStream(pi: ExtensionAPI, runtime: BrewvaRuntime): v
     return undefined;
   });
 
-  pi.on("tool_result", (event, ctx) => {
-    runtime.recordEvent({
-      sessionId: ctx.sessionManager.getSessionId(),
-      type: "tool_result",
-      payload: {
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        isError: event.isError,
-        content: summarizeContent(event.content),
-      },
-    });
-    return undefined;
-  });
-
   pi.on("session_before_compact", (event, ctx) => {
     runtime.recordEvent({
       sessionId: ctx.sessionManager.getSessionId(),
       type: "session_before_compact",
       payload: {
         branchEntries: event.branchEntries.length,
-      },
-    });
-    return undefined;
-  });
-
-  pi.on("session_compact", (event, ctx) => {
-    runtime.recordEvent({
-      sessionId: ctx.sessionManager.getSessionId(),
-      type: "session_compact",
-      payload: {
-        entryId: event.compactionEntry.id,
-        fromExtension: event.fromExtension,
       },
     });
     return undefined;

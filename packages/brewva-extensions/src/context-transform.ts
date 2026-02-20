@@ -1,5 +1,5 @@
 import {
-  type ContextBudgetUsage,
+  coerceContextBudgetUsage,
   type ContextPressureStatus,
   type BrewvaRuntime,
 } from "@brewva/brewva-runtime";
@@ -44,20 +44,6 @@ function emitRuntimeEvent(
     type: input.type,
     payload: input.payload,
   });
-}
-
-function toBudgetUsage(input: unknown): ContextBudgetUsage | undefined {
-  const usage = input as
-    | { tokens: number | null; contextWindow: number; percent: number | null }
-    | undefined;
-  if (!usage || typeof usage.contextWindow !== "number" || usage.contextWindow <= 0) {
-    return undefined;
-  }
-  return {
-    tokens: typeof usage.tokens === "number" ? usage.tokens : null,
-    contextWindow: usage.contextWindow,
-    percent: typeof usage.percent === "number" ? usage.percent : null,
-  };
 }
 
 function formatPercent(ratio: number | null): string {
@@ -188,10 +174,6 @@ function buildTapeStatusBlock(input: {
   ].join("\n");
 }
 
-function normalizeToolName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
 function buildContextContractBlock(runtime: BrewvaRuntime): string {
   const tapeThresholds = runtime.config.tape.tapePressureThresholds;
   const hardLimitPercent = formatPercent(runtime.getContextHardLimitRatio());
@@ -240,7 +222,7 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
   pi.on("context", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
-    const usage = toBudgetUsage(ctx.getContextUsage());
+    const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     runtime.observeContextUsage(sessionId, usage);
 
     if (!runtime.shouldRequestCompaction(sessionId, usage)) {
@@ -261,39 +243,10 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
     return undefined;
   });
 
-  pi.on("tool_call", (event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    const state = getOrCreateGateState(gateStateBySession, sessionId);
-    hydrateLastCompactionTurnFromTape(runtime, sessionId, state);
-    if (!state.compactionRequired) {
-      return undefined;
-    }
-
-    if (normalizeToolName(event.toolName) === "session_compact") {
-      return undefined;
-    }
-
-    emitRuntimeEvent(runtime, {
-      sessionId,
-      turn: state.turnIndex,
-      type: "context_compaction_gate_blocked_tool",
-      payload: {
-        blockedTool: event.toolName,
-        reason: "critical_context_pressure_without_compaction",
-      },
-    });
-
-    return {
-      block: true,
-      reason:
-        "Context usage is critical. Call tool 'session_compact' first, then continue with other tools.",
-    };
-  });
-
   pi.on("session_compact", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
-    const usage = toBudgetUsage(ctx.getContextUsage());
+    const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     const wasGated = state.compactionRequired;
     state.lastCompactionTurn = state.turnIndex;
     state.compactionRequired = false;
@@ -303,6 +256,15 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
       toTokens: usage?.tokens ?? null,
       summary: extractCompactionSummary(event),
       entryId: extractCompactionEntryId(event),
+    });
+    emitRuntimeEvent(runtime, {
+      sessionId,
+      turn: state.turnIndex,
+      type: "session_compact",
+      payload: {
+        entryId: event.compactionEntry.id,
+        fromExtension: event.fromExtension,
+      },
     });
 
     if (wasGated) {
@@ -329,7 +291,7 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
     const state = getOrCreateGateState(gateStateBySession, sessionId);
     hydrateLastCompactionTurnFromTape(runtime, sessionId, state);
     const injectionScopeId = resolveInjectionScopeId(ctx.sessionManager);
-    const usage = toBudgetUsage(ctx.getContextUsage());
+    const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     runtime.observeContextUsage(sessionId, usage);
     const pressure = runtime.getContextPressureStatus(sessionId, usage);
 
