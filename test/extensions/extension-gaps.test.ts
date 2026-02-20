@@ -6,6 +6,7 @@ import {
   registerContextTransform,
   registerEventStream,
   registerLedgerWriter,
+  registerMemoryBridge,
   registerQualityGate,
 } from "@brewva/brewva-extensions";
 import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime, type BrewvaConfig } from "@brewva/brewva-runtime";
@@ -740,6 +741,55 @@ describe("Extension gaps: context transform", () => {
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
   });
 });
+
+describe("Extension gaps: memory bridge", () => {
+  test("refreshes memory on agent_end and clears cache on session_shutdown", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const calls: Array<{ kind: "refresh" | "clear"; sessionId: string }> = [];
+    const runtime = withRuntimeConfig({
+      memory: {
+        refreshIfNeeded: ({ sessionId }: { sessionId: string }) => {
+          calls.push({ kind: "refresh", sessionId });
+          return undefined;
+        },
+        clearSessionCache: (sessionId: string) => {
+          calls.push({ kind: "clear", sessionId });
+        },
+      },
+    } as any);
+
+    registerMemoryBridge(api, runtime);
+
+    expect(handlers.has("agent_end")).toBe(true);
+    expect(handlers.has("session_shutdown")).toBe(true);
+
+    invokeHandler(
+      handlers,
+      "agent_end",
+      { type: "agent_end", messages: [] },
+      {
+        sessionManager: {
+          getSessionId: () => "s-memory-bridge",
+        },
+      },
+    );
+    invokeHandler(
+      handlers,
+      "session_shutdown",
+      { type: "session_shutdown" },
+      {
+        sessionManager: {
+          getSessionId: () => "s-memory-bridge",
+        },
+      },
+    );
+
+    expect(calls).toEqual([
+      { kind: "refresh", sessionId: "s-memory-bridge" },
+      { kind: "clear", sessionId: "s-memory-bridge" },
+    ]);
+  });
+});
 describe("Extension gaps: event stream", () => {
   // Covered by "Extension integration: observability > persists throttled message_update events"
 });
@@ -912,6 +962,20 @@ describe("Extension integration: observability", () => {
   test("emits context injection on before_agent_start via SDK runner contract", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-dual-injection-"));
     mkdirSync(join(workspace, ".orchestrator"), { recursive: true });
+    mkdirSync(join(workspace, ".brewva"), { recursive: true });
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          memory: {
+            dailyRefreshHourLocal: 0,
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
 
     const agentDir = join(workspace, ".brewva-agent-test-dual-injection");
 
@@ -986,9 +1050,13 @@ describe("Extension integration: observability", () => {
       "base",
     );
     const messageTypes = (result?.messages ?? []).map((message) => message.customType);
+    const mergedContent = (result?.messages ?? [])
+      .map((message) => (typeof message.content === "string" ? message.content : ""))
+      .join("\n");
 
     expect(result?.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
     expect(messageTypes).toEqual(["brewva-context-injection"]);
+    expect(mergedContent.includes("[WorkingMemory]")).toBe(true);
   });
 
   test("tool call + tool result produces correlated events, ledger row, and patch record", () => {

@@ -48,6 +48,10 @@ Primary class: `packages/brewva-runtime/src/runtime.ts`.
 - `searchTape`
 - `getTaskState`
 - `getTruthState`
+- `getWorkingMemory`
+- `searchMemory`
+- `dismissMemoryInsight`
+- `reviewMemoryEvolvesEdge`
 - `addTaskItem`
 - `updateTaskItem`
 - `recordTaskBlocker`

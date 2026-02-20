@@ -39,6 +39,8 @@
 - `task_record_blocker`
 - `task_resolve_blocker`
 - `task_view_state`
+- `memory_dismiss_insight`
+- `memory_review_evolves_edge`
 
 Tool registry source: `packages/brewva-tools/src/index.ts`
 

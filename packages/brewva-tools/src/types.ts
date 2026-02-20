@@ -73,6 +73,14 @@ export interface BrewvaToolRuntime {
     input: { id?: string; message: string; source?: string; truthFactId?: string },
   ): { ok: boolean; blockerId?: string; error?: string };
   resolveTaskBlocker(sessionId: string, blockerId: string): { ok: boolean; error?: string };
+  dismissMemoryInsight(
+    sessionId: string,
+    insightId: string,
+  ): { ok: boolean; error?: "missing_id" | "not_found" };
+  reviewMemoryEvolvesEdge(
+    sessionId: string,
+    input: { edgeId: string; decision: "accept" | "reject" },
+  ): { ok: boolean; error?: "missing_id" | "not_found" | "already_set" };
   recordEvent?(input: {
     sessionId: string;
     type: string;

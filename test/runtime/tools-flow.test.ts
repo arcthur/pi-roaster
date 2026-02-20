@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BrewvaRuntime } from "@brewva/brewva-runtime";
+import { BrewvaRuntime, DEFAULT_BREWVA_CONFIG } from "@brewva/brewva-runtime";
 import {
   createCostViewTool,
   createRollbackLastPatchTool,
@@ -10,6 +10,7 @@ import {
   createSkillCompleteTool,
   createSkillLoadTool,
   createTapeTools,
+  createTaskLedgerTools,
 } from "@brewva/brewva-tools";
 
 function extractTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -306,5 +307,123 @@ describe("S-012 tape tools flow", () => {
     expect(text.includes("[TapeSearch]")).toBe(true);
     expect(text.includes("matches:")).toBe(true);
     expect(text.toLowerCase().includes("flaky")).toBe(true);
+  });
+});
+
+describe("S-013 memory insight tool flow", () => {
+  test("memory_dismiss_insight dismisses open insights", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-dismiss-tool-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "s13";
+
+    runtime.setTaskSpec(sessionId, {
+      schema: "brewva.task.v1",
+      goal: "Dismiss noisy insight",
+    });
+    runtime.recordTaskBlocker(sessionId, {
+      message: "verification may fail because fixtures are missing",
+      source: "test",
+    });
+    runtime.recordTaskBlocker(sessionId, {
+      message: "verification may fail because network is flaky",
+      source: "test",
+    });
+    runtime.buildContextInjection(sessionId, "continue implementation");
+
+    const insightsPath = join(workspace, ".orchestrator/memory/insights.jsonl");
+    const insightRows = readFileSync(insightsPath, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { id: string; status: string; updatedAt: number });
+    const latestById = new Map<string, { id: string; status: string; updatedAt: number }>();
+    for (const row of insightRows) {
+      const existing = latestById.get(row.id);
+      if (!existing || row.updatedAt >= existing.updatedAt) {
+        latestById.set(row.id, row);
+      }
+    }
+    const openInsight = [...latestById.values()].find((row) => row.status === "open");
+    expect(openInsight).toBeDefined();
+    if (!openInsight) return;
+
+    const tools = createTaskLedgerTools({ runtime });
+    const dismissTool = tools.find((tool) => tool.name === "memory_dismiss_insight");
+    expect(dismissTool).toBeDefined();
+    if (!dismissTool) return;
+
+    const result = await dismissTool.execute(
+      "tc-memory-dismiss",
+      { insightId: openInsight.id },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    const text = extractTextContent(result);
+    expect(text.includes("Insight dismissed.")).toBe(true);
+  });
+
+  test("memory_review_evolves_edge reviews proposed edges", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-review-edge-tool-"));
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.memory.evolvesMode = "shadow";
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
+    const sessionId = "s13e";
+
+    runtime.setTaskSpec(sessionId, {
+      schema: "brewva.task.v1",
+      goal: "Use sqlite for current task.",
+    });
+    runtime.setTaskSpec(sessionId, {
+      schema: "brewva.task.v1",
+      goal: "Use postgres instead of sqlite for current task.",
+    });
+    runtime.buildContextInjection(sessionId, "continue implementation");
+
+    const evolvesPath = join(workspace, ".orchestrator/memory/evolves.jsonl");
+    const rows = readFileSync(evolvesPath, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { id: string; status: string; updatedAt: number });
+    const latestById = new Map<string, { id: string; status: string; updatedAt: number }>();
+    for (const row of rows) {
+      const existing = latestById.get(row.id);
+      if (!existing || row.updatedAt >= existing.updatedAt) {
+        latestById.set(row.id, row);
+      }
+    }
+    const proposed = [...latestById.values()].find((edge) => edge.status === "proposed");
+    expect(proposed).toBeDefined();
+    if (!proposed) return;
+
+    const tools = createTaskLedgerTools({ runtime });
+    const reviewTool = tools.find((tool) => tool.name === "memory_review_evolves_edge");
+    expect(reviewTool).toBeDefined();
+    if (!reviewTool) return;
+
+    const result = await reviewTool.execute(
+      "tc-memory-review-edge",
+      { edgeId: proposed.id, decision: "accept" },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    const text = extractTextContent(result);
+    expect(text.includes("Evolves edge reviewed.")).toBe(true);
+
+    const afterRows = readFileSync(evolvesPath, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { id: string; status: string; updatedAt: number });
+    const afterLatest = new Map<string, { id: string; status: string; updatedAt: number }>();
+    for (const row of afterRows) {
+      const existing = afterLatest.get(row.id);
+      if (!existing || row.updatedAt >= existing.updatedAt) {
+        afterLatest.set(row.id, row);
+      }
+    }
+    expect(afterLatest.get(proposed.id)?.status).toBe("accepted");
   });
 });

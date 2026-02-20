@@ -14,6 +14,7 @@ Configuration contract sources:
 - `verification`
 - `ledger`
 - `tape`
+- `memory`
 - `security`
 - `parallel`
 - `infrastructure`
@@ -59,6 +60,20 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 - `tape.tapePressureThresholds.low`: `80`
 - `tape.tapePressureThresholds.medium`: `160`
 - `tape.tapePressureThresholds.high`: `280`
+
+### Memory
+
+- `memory.enabled`: `true`
+- `memory.dir`: `.orchestrator/memory`
+- `memory.workingFile`: `working.md`
+- `memory.maxWorkingChars`: `2400`
+- `memory.dailyRefreshHourLocal`: `8`
+- `memory.crystalMinUnits`: `4`
+- `memory.retrievalTopK`: `8`
+- `memory.retrievalWeights.lexical`: `0.55`
+- `memory.retrievalWeights.recency`: `0.25`
+- `memory.retrievalWeights.confidence`: `0.20` (weights are normalized to sum=1 during config loading)
+- `memory.evolvesMode`: `off`
 
 ### Parallel
 

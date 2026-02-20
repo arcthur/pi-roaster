@@ -5,6 +5,7 @@ import { registerCompletionGuard } from "./completion-guard.js";
 import { registerContextTransform } from "./context-transform.js";
 import { registerEventStream } from "./event-stream.js";
 import { registerLedgerWriter } from "./ledger-writer.js";
+import { registerMemoryBridge } from "./memory-bridge.js";
 import { registerNotification } from "./notification.js";
 import { registerQualityGate } from "./quality-gate.js";
 
@@ -20,6 +21,7 @@ function registerAllHandlers(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
   registerLedgerWriter(pi, runtime);
   registerCompletionGuard(pi, runtime);
   registerNotification(pi, runtime);
+  registerMemoryBridge(pi, runtime);
 }
 
 export function createBrewvaExtension(
@@ -52,4 +54,5 @@ export { registerEventStream } from "./event-stream.js";
 export { registerQualityGate } from "./quality-gate.js";
 export { registerLedgerWriter } from "./ledger-writer.js";
 export { registerCompletionGuard } from "./completion-guard.js";
+export { registerMemoryBridge } from "./memory-bridge.js";
 export { registerNotification } from "./notification.js";

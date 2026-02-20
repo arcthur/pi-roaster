@@ -42,6 +42,21 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       high: 280,
     },
   },
+  memory: {
+    enabled: true,
+    dir: ".orchestrator/memory",
+    workingFile: "working.md",
+    maxWorkingChars: 2400,
+    dailyRefreshHourLocal: 8,
+    crystalMinUnits: 4,
+    retrievalTopK: 8,
+    retrievalWeights: {
+      lexical: 0.55,
+      recency: 0.25,
+      confidence: 0.2,
+    },
+    evolvesMode: "off",
+  },
   security: {
     sanitizeContext: true,
     enforceDeniedTools: true,

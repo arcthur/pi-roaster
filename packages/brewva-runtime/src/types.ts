@@ -214,6 +214,21 @@ export interface BrewvaConfig {
       high: number;
     };
   };
+  memory: {
+    enabled: boolean;
+    dir: string;
+    workingFile: string;
+    maxWorkingChars: number;
+    dailyRefreshHourLocal: number;
+    crystalMinUnits: number;
+    retrievalTopK: number;
+    retrievalWeights: {
+      lexical: number;
+      recency: number;
+      confidence: number;
+    };
+    evolvesMode: "off" | "shadow";
+  };
   security: {
     sanitizeContext: boolean;
     enforceDeniedTools: boolean;
@@ -293,6 +308,7 @@ export interface BrewvaConfigFile {
   tape?: Partial<Omit<BrewvaConfig["tape"], "tapePressureThresholds">> & {
     tapePressureThresholds?: Partial<BrewvaConfig["tape"]["tapePressureThresholds"]>;
   };
+  memory?: Partial<BrewvaConfig["memory"]>;
   security?: Partial<BrewvaConfig["security"]>;
   parallel?: Partial<BrewvaConfig["parallel"]>;
   infrastructure?: Partial<

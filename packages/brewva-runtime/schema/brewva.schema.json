@@ -112,6 +112,53 @@
             }
           }
         },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "crystalMinUnits": {
+              "type": "number"
+            },
+            "dailyRefreshHourLocal": {
+              "type": "number"
+            },
+            "dir": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "evolvesMode": {
+              "type": "string",
+              "enum": ["off", "shadow"]
+            },
+            "maxWorkingChars": {
+              "type": "number"
+            },
+            "retrievalTopK": {
+              "type": "number"
+            },
+            "retrievalWeights": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "type": "number"
+                },
+                "lexical": {
+                  "type": "number"
+                },
+                "recency": {
+                  "type": "number"
+                }
+              },
+              "required": ["lexical", "recency", "confidence"]
+            },
+            "workingFile": {
+              "type": "string"
+            }
+          }
+        },
         "parallel": {
           "type": "object",
           "additionalProperties": false,

@@ -19,6 +19,8 @@ const TaskItemStatusSchema = Type.Union([
   Type.Literal("blocked"),
 ]);
 
+const EvolvesDecisionSchema = Type.Union([Type.Literal("accept"), Type.Literal("reject")]);
+
 export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinition[] {
   const taskSetSpec = defineTool({
     name: "task_set_spec",
@@ -159,6 +161,47 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     },
   });
 
+  const memoryDismissInsight = defineTool({
+    name: "memory_dismiss_insight",
+    label: "Memory Dismiss Insight",
+    description: "Dismiss an open memory insight so it no longer appears in working memory.",
+    parameters: Type.Object({
+      insightId: Type.String(),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionId(ctx);
+      const result = options.runtime.dismissMemoryInsight(sessionId, params.insightId);
+      if (!result.ok) {
+        return textResult(`Insight dismiss rejected (${result.error ?? "unknown_error"}).`, result);
+      }
+      return textResult("Insight dismissed.", result);
+    },
+  });
+
+  const memoryReviewEvolvesEdge = defineTool({
+    name: "memory_review_evolves_edge",
+    label: "Memory Review Evolves Edge",
+    description: "Accept or reject a proposed evolves edge (shadow mode).",
+    parameters: Type.Object({
+      edgeId: Type.String(),
+      decision: EvolvesDecisionSchema,
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionId(ctx);
+      const result = options.runtime.reviewMemoryEvolvesEdge(sessionId, {
+        edgeId: params.edgeId,
+        decision: params.decision,
+      });
+      if (!result.ok) {
+        return textResult(
+          `Evolves edge review rejected (${result.error ?? "unknown_error"}).`,
+          result,
+        );
+      }
+      return textResult("Evolves edge reviewed.", result);
+    },
+  });
+
   return [
     taskSetSpec,
     taskAddItem,
@@ -166,5 +209,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     taskRecordBlocker,
     taskResolveBlocker,
     taskViewState,
+    memoryDismissInsight,
+    memoryReviewEvolvesEdge,
   ];
 }

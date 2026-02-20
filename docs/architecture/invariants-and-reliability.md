@@ -84,6 +84,23 @@ Relevant implementation:
 - `packages/brewva-cli/src/session-event-bridge.ts`
 - `packages/brewva-extensions/src/index.ts`
 
+## 8) Memory Projection Integrity Invariant
+
+- Memory must remain projection-derived and auditable:
+  units/crystals/insights/evolves are derived from event tape semantics, not an
+  independent mutable source of truth.
+- Working-memory injection must be reproducible from persisted projection
+  artifacts and bounded by context-budget policy.
+- EVOLVES side effects must be explicit and review-gated:
+  proposed edges do not mutate unit status until accepted review.
+
+Relevant implementation:
+
+- `packages/brewva-runtime/src/memory/engine.ts`
+- `packages/brewva-runtime/src/memory/store.ts`
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-tools/src/task-ledger.ts`
+
 ## Failure Modes and Containment
 
 - Missing verification evidence: gate must block completion.

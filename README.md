@@ -10,14 +10,14 @@ Brewva takes the opposite approach: **make the agent the owner**.
 
 ### 1. Agent Autonomy — The Agent Manages Itself
 
-The runtime exposes two orthogonal resource pipelines and hands the controls directly to the agent:
+The runtime exposes two orthogonal pressure pipelines and hands the controls directly to the agent:
 
-| Pipeline           | Resource                                          | Pressure Signal    | Agent Action                                      |
-| ------------------ | ------------------------------------------------- | ------------------ | ------------------------------------------------- |
-| **State Tape**     | Working memory (task, truth, verification, cost)  | `tape_pressure`    | `tape_handoff` — mark a semantic phase boundary   |
-| **Message Buffer** | LLM context window (user/assistant/tool messages) | `context_pressure` | `session_compact` — compress conversation history |
+| Pipeline           | Resource                                                     | Pressure Signal    | Agent Action                                      |
+| ------------------ | ------------------------------------------------------------ | ------------------ | ------------------------------------------------- |
+| **State Tape**     | Append-only operational state (task/truth/verification/cost) | `tape_pressure`    | `tape_handoff` — mark a semantic phase boundary   |
+| **Message Buffer** | LLM context window (user/assistant/tool messages)            | `context_pressure` | `session_compact` — compress conversation history |
 
-The framework injects a **Context Contract** — explicit if-then rules that tell the agent which pressure triggers which action — but never acts on the agent's behalf. No auto-compaction, no prebuilt memory injection, no opaque snapshot restoration.
+In the extension-enabled profile, the runtime injects a **Context Contract** with explicit if-then rules for pressure handling, but never silently compacts on the agent's behalf. Memory injection is explicit and traceable (`[WorkingMemory]` / `[MemoryRecall]`), backed by persisted artifacts and events rather than opaque snapshots.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -62,6 +62,15 @@ Execution flows through explicit gates at every layer:
 - **Evidence Ledger** captures every tool outcome as an append-only evidence chain. Missing evidence blocks completion — no silent pass-throughs.
 - **Budget Boundaries** enforce limits on context injection size, session cost, and parallel concurrency.
 
+### 4. Projection-Based Memory — Derived, Traceable, Reviewable
+
+Memory is implemented as an event-driven projection layer on top of the tape:
+
+- **Trace source**: `.orchestrator/events/<session>.jsonl` is the immutable source; memory never mutates tape rows.
+- **Derived projections**: `Unit`, `Crystal`, `Insight`, and `EVOLVES` edges are stored in `.orchestrator/memory/*.jsonl`.
+- **Context surfaces**: in the extension-enabled profile, each `before_agent_start` can inject `[WorkingMemory]` (`brewva.working-memory`) and `[MemoryRecall]` (`brewva.memory-recall`) with budget-aware truncation/drop behavior.
+- **Reviewable evolution**: proposed EVOLVES relations stay shadow-only until explicit review (`memory_review_evolves_edge`), after which side effects (such as unit superseding) are auditable via memory events.
+
 ## Architecture
 
 README uses a conceptual architecture view (high-level intent and control model):
@@ -71,16 +80,21 @@ flowchart TD
   AGENT["Agent (LLM)<br>plans and executes"]
   CONTRACT["Context Contract<br>state tape vs message buffer"]
   ORCH["Runtime Orchestration<br>skill selection, tool policy, budgeting"]
+  MEMORY["Memory Projection Layer<br>extractor, units/crystals, recall/injection"]
   ASSURE["Assurance Layer<br>evidence ledger, verification gate, completion guard"]
   RECOVERY["Recovery Layer<br>event tape, checkpoints, replay"]
   SURFACES["Operator Surfaces<br>CLI modes, replay/undo, telemetry"]
 
   AGENT --> CONTRACT
   CONTRACT --> ORCH
+  ORCH --> MEMORY
+  MEMORY --> ORCH
   ORCH --> ASSURE
   ASSURE --> RECOVERY
+  RECOVERY --> MEMORY
   SURFACES --> ORCH
   SURFACES --> RECOVERY
+  SURFACES --> MEMORY
 ```
 
 Implementation-level architecture (package DAG, execution profiles, hook wiring)
@@ -88,15 +102,16 @@ is documented in:
 
 - `docs/architecture/system-architecture.md`
 - `docs/architecture/control-and-data-flow.md`
+- `docs/journeys/memory-projection-and-recall.md`
 
 ## Packages
 
-| Package                     | Responsibility                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `@brewva/brewva-runtime`    | Skill contracts, evidence ledger, verification gates, tape replay engine, context budget, cost tracking |
-| `@brewva/brewva-tools`      | Runtime-aware tools: LSP/AST adapters, ledger query, skill lifecycle, task management, tape operations  |
-| `@brewva/brewva-extensions` | Event hook wiring: context injection, quality gates, completion guards, event stream persistence        |
-| `@brewva/brewva-cli`        | CLI entrypoint, session bootstrap, TUI / `--print` / `--json` modes, replay and undo                    |
+| Package                     | Responsibility                                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `@brewva/brewva-runtime`    | Skill contracts, evidence ledger, verification gates, tape replay engine, memory projection/retrieval, context budget, cost tracking  |
+| `@brewva/brewva-tools`      | Runtime-aware tools: LSP/AST adapters, ledger query, skill lifecycle, task management, tape operations, memory insight/evolves review |
+| `@brewva/brewva-extensions` | Event hook wiring: context injection, memory bridge hooks, quality gates, completion guards, event stream persistence                 |
+| `@brewva/brewva-cli`        | CLI entrypoint, session bootstrap, TUI / `--print` / `--json` modes, replay and undo                                                  |
 
 ## Skill System
 

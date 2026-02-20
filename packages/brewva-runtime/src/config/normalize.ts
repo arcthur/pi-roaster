@@ -3,6 +3,7 @@ import type { BrewvaConfig, VerificationLevel } from "../types.js";
 const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "summarize", "tail"]);
 const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
 const VALID_ALLOWED_TOOLS_MODES = new Set(["off", "warn", "enforce"]);
+const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "shadow"]);
 const VALID_VERIFICATION_LEVELS = new Set<VerificationLevel>(["quick", "standard", "strict"]);
 
 type AnyRecord = Record<string, unknown>;
@@ -100,6 +101,23 @@ function normalizeSkillOverrides(
   return out;
 }
 
+function normalizeMemoryRetrievalWeights(
+  value: unknown,
+  fallback: BrewvaConfig["memory"]["retrievalWeights"],
+): BrewvaConfig["memory"]["retrievalWeights"] {
+  const input = isRecord(value) ? value : {};
+  const lexical = normalizeNonNegativeNumber(input.lexical, fallback.lexical);
+  const recency = normalizeNonNegativeNumber(input.recency, fallback.recency);
+  const confidence = normalizeNonNegativeNumber(input.confidence, fallback.confidence);
+  const total = lexical + recency + confidence;
+  if (total <= 0) return { ...fallback };
+  return {
+    lexical: lexical / total,
+    recency: recency / total,
+    confidence: confidence / total,
+  };
+}
+
 export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): BrewvaConfig {
   const input = isRecord(config) ? config : {};
   const uiInput = isRecord(input.ui) ? input.ui : {};
@@ -111,6 +129,7 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
     : {};
   const ledgerInput = isRecord(input.ledger) ? input.ledger : {};
   const tapeInput = isRecord(input.tape) ? input.tape : {};
+  const memoryInput = isRecord(input.memory) ? input.memory : {};
   const securityInput = isRecord(input.security) ? input.security : {};
   const parallelInput = isRecord(input.parallel) ? input.parallel : {};
   const infrastructureInput = isRecord(input.infrastructure) ? input.infrastructure : {};
@@ -199,6 +218,37 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         tapeInput.tapePressureThresholds,
         defaults.tape.tapePressureThresholds,
       ),
+    },
+    memory: {
+      enabled: normalizeBoolean(memoryInput.enabled, defaults.memory.enabled),
+      dir: normalizeNonEmptyString(memoryInput.dir, defaults.memory.dir),
+      workingFile: normalizeNonEmptyString(memoryInput.workingFile, defaults.memory.workingFile),
+      maxWorkingChars: normalizePositiveInteger(
+        memoryInput.maxWorkingChars,
+        defaults.memory.maxWorkingChars,
+      ),
+      dailyRefreshHourLocal: Math.min(
+        23,
+        normalizeNonNegativeInteger(
+          memoryInput.dailyRefreshHourLocal,
+          defaults.memory.dailyRefreshHourLocal,
+        ),
+      ),
+      crystalMinUnits: normalizePositiveInteger(
+        memoryInput.crystalMinUnits,
+        defaults.memory.crystalMinUnits,
+      ),
+      retrievalTopK: normalizePositiveInteger(
+        memoryInput.retrievalTopK,
+        defaults.memory.retrievalTopK,
+      ),
+      retrievalWeights: normalizeMemoryRetrievalWeights(
+        memoryInput.retrievalWeights,
+        defaults.memory.retrievalWeights,
+      ),
+      evolvesMode: VALID_MEMORY_EVOLVES_MODES.has(memoryInput.evolvesMode as string)
+        ? (memoryInput.evolvesMode as BrewvaConfig["memory"]["evolvesMode"])
+        : defaults.memory.evolvesMode,
     },
     security: {
       sanitizeContext: normalizeBoolean(

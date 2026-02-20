@@ -27,8 +27,17 @@ fields as forward-compatible.
 - `tool_call`
 - `tool_result_recorded`
 - `tool_parallel_read`
+- `skill_completed`
 - `task_event`
 - `truth_event`
+- `verification_state_reset`
+- `memory_unit_upserted`
+- `memory_unit_superseded`
+- `memory_crystal_compiled`
+- `memory_working_published`
+- `memory_insight_recorded`
+- `memory_insight_dismissed`
+- `memory_evolves_edge_reviewed`
 - `anchor`
 - `checkpoint`
 - `context_usage`
@@ -172,6 +181,222 @@ Payload `kind` includes:
 - `fact_upserted`
 - `fact_resolved`
 
+### `verification_state_reset`
+
+Emitted when runtime verification state is explicitly cleared (for example after
+rollback) before subsequent verification runs rebuild fresh evidence.
+
+Payload fields:
+
+- `reason`: reset trigger reason (currently `rollback`).
+
+Example payload:
+
+```json
+{
+  "reason": "rollback"
+}
+```
+
+## Memory Projection Events
+
+### `skill_completed`
+
+Emitted when `completeSkill()` accepts outputs and finalizes an active skill.
+
+Payload fields:
+
+- `skillName`: completed skill name.
+- `outputKeys`: sorted output keys submitted by `skill_complete` (trimmed list).
+- `completedAt`: completion timestamp (epoch ms).
+
+Example payload:
+
+```json
+{
+  "skillName": "debugging",
+  "outputKeys": ["root_cause", "verification"],
+  "completedAt": 1730000000000
+}
+```
+
+### `memory_unit_upserted`
+
+Emitted when memory extractor writes/merges a `Unit` projection row.
+
+Payload fields:
+
+- `unitId`: memory unit id.
+- `topic`: normalized unit topic.
+- `unitType`: `fact | decision | constraint | preference | pattern | hypothesis | learning | risk`.
+- `created`: whether this was a first insert vs merge update.
+- `confidence`: normalized unit confidence (`0..1`).
+
+Example payload:
+
+```json
+{
+  "unitId": "memu_1730000000000_ab12cd34",
+  "topic": "verification",
+  "unitType": "risk",
+  "created": false,
+  "confidence": 0.92
+}
+```
+
+### `memory_unit_superseded`
+
+Emitted when a memory unit transitions to status `superseded`, typically as a side-effect of accepting a proposed evolves edge.
+
+Payload fields:
+
+- `unitId`: superseded unit id.
+- `supersededAt`: supersede transition time (epoch ms).
+- `supersededByUnitId`: the newer unit id that superseded this one (when available).
+- `edgeId`: evolves edge id that triggered the change (when available).
+- `relation`: evolves relation label (`replaces | enriches | confirms | challenges`).
+
+Example payload:
+
+```json
+{
+  "unitId": "memu_old",
+  "supersededAt": 1730000001000,
+  "supersededByUnitId": "memu_new",
+  "edgeId": "meme_1730000000700_qr78st90",
+  "relation": "replaces"
+}
+```
+
+### `memory_crystal_compiled`
+
+Emitted when memory compiler writes/updates a `Crystal` aggregate.
+
+Payload fields:
+
+- `crystalId`: crystal id.
+- `topic`: crystal topic.
+- `unitCount`: number of backing units.
+- `confidence`: aggregate confidence (`0..1`).
+
+Example payload:
+
+```json
+{
+  "crystalId": "memc_1730000000000_ef56gh78",
+  "topic": "database architecture",
+  "unitCount": 6,
+  "confidence": 0.84
+}
+```
+
+### `memory_working_published`
+
+Emitted when working memory markdown is regenerated and published to disk.
+
+Payload fields:
+
+- `generatedAt`: publication timestamp (epoch ms).
+- `units`: number of source units used.
+- `crystals`: number of source crystals used.
+- `insights`: number of included insights.
+- `chars`: final published text length.
+
+Example payload:
+
+```json
+{
+  "generatedAt": 1730000000123,
+  "units": 18,
+  "crystals": 4,
+  "insights": 2,
+  "chars": 2140
+}
+```
+
+### `memory_insight_recorded`
+
+Emitted when memory pipeline writes an insight (for example conflict/evolves pending).
+
+Payload fields:
+
+- `insightId`: insight id.
+- `kind`: `conflict | evolves_pending`.
+- `message`: rendered insight text.
+- `relatedUnitIds`: associated unit ids (when available).
+- `edgeId`: evolves edge id (only for `evolves_pending` when available).
+- `relation`: evolves relation label (`replaces | enriches | confirms | challenges`) for evolves insight.
+
+Kind-specific field matrix:
+
+| `kind`            | `relatedUnitIds`           | `edgeId`                                       | `relation`                                  |
+| ----------------- | -------------------------- | ---------------------------------------------- | ------------------------------------------- |
+| `conflict`        | optional (usually present) | not used                                       | not used                                    |
+| `evolves_pending` | optional                   | optional (present when an evolves edge exists) | optional (present when `edgeId` is present) |
+
+Example payload:
+
+```json
+{
+  "insightId": "memi_1730000000456_ij90kl12",
+  "kind": "conflict",
+  "message": "Potential conflict in topic 'verification' with 2 active statements.",
+  "relatedUnitIds": ["memu_1730000000000_ab12cd34", "memu_1730000000010_cd34ef56"]
+}
+```
+
+Example payload (`evolves_pending`):
+
+```json
+{
+  "insightId": "memi_1730000000789_mn34op56",
+  "kind": "evolves_pending",
+  "edgeId": "meme_1730000000700_qr78st90",
+  "relation": "challenges",
+  "message": "Pending evolves: edge=meme_1730000000700_qr78st90 topic='verification' relation=challenges (memu_new -> memu_old)."
+}
+```
+
+### `memory_insight_dismissed`
+
+Emitted when an open memory insight is explicitly dismissed.
+
+Payload fields:
+
+- `insightId`: dismissed insight id.
+
+Example payload:
+
+```json
+{
+  "insightId": "memi_1730000000456_ij90kl12"
+}
+```
+
+### `memory_evolves_edge_reviewed`
+
+Emitted when a proposed evolves edge is manually accepted/rejected.
+
+Payload fields:
+
+- `edgeId`: evolves edge id.
+- `status`: `accepted | rejected`.
+- `relation`: evolves relation label (`replaces | enriches | confirms | challenges`).
+- `sourceUnitId`: source (newer) unit id.
+- `targetUnitId`: target (older) unit id.
+
+Example payload:
+
+```json
+{
+  "edgeId": "meme_1730000000700_qr78st90",
+  "status": "accepted",
+  "relation": "challenges",
+  "sourceUnitId": "memu_new",
+  "targetUnitId": "memu_old"
+}
+```
+
 ## Context Gate Events
 
 ### `critical_without_compact`
@@ -213,3 +438,28 @@ Payload fields:
   (`scannedFiles = loadedFiles + failedFiles`)
 - `batches`: Number of read batches executed.
 - `durationMs`: End-to-end scan duration in milliseconds.
+
+Mode/reason matrix:
+
+| `reason`                  | `mode`                     | `batchSize` behavior                                                   |
+| ------------------------- | -------------------------- | ---------------------------------------------------------------------- |
+| `runtime_unavailable`     | `parallel`                 | fixed default `16`                                                     |
+| `parallel_disabled`       | `sequential`               | fixed `1`                                                              |
+| `runtime_parallel_budget` | `parallel` or `sequential` | `clamp(min(maxConcurrent, maxTotal) * 4, 1, 64)`; `1` means sequential |
+
+Example payload:
+
+```json
+{
+  "toolName": "lsp_symbols",
+  "operation": "find_references",
+  "batchSize": 32,
+  "mode": "parallel",
+  "reason": "runtime_parallel_budget",
+  "scannedFiles": 24,
+  "loadedFiles": 24,
+  "failedFiles": 0,
+  "batches": 1,
+  "durationMs": 183
+}
+```

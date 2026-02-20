@@ -9,6 +9,8 @@ import { BrewvaEventStore } from "./events/store.js";
 import { buildLedgerDigest } from "./ledger/digest.js";
 import { EvidenceLedger } from "./ledger/evidence-ledger.js";
 import { formatLedgerRows } from "./ledger/query.js";
+import { MemoryEngine } from "./memory/engine.js";
+import type { MemorySearchResult, WorkingMemorySnapshot } from "./memory/types.js";
 import { ParallelBudgetManager } from "./parallel/budget.js";
 import { ParallelResultStore } from "./parallel/results.js";
 import type { ViewportQuality } from "./policy/viewport-policy.js";
@@ -175,6 +177,8 @@ function buildContextSourceTokenLimits(maxInjectionTokens: number): Record<strin
     "brewva.skill-candidates": fromRatio(0.28, 64, 320),
     "brewva.compaction-summary": fromRatio(0.45, 120, 600),
     "brewva.ledger-digest": fromRatio(0.2, 96, 360),
+    "brewva.working-memory": fromRatio(0.32, 120, 640),
+    "brewva.memory-recall": fromRatio(0.28, 96, 520),
   };
 }
 
@@ -191,6 +195,7 @@ export class BrewvaRuntime {
   readonly events: BrewvaEventStore;
   readonly contextBudget: ContextBudgetManager;
   readonly contextInjection: ContextInjectionCollector;
+  readonly memory: MemoryEngine;
   readonly fileChanges: FileChangeTracker;
   readonly costTracker: SessionCostTracker;
 
@@ -264,6 +269,18 @@ export class BrewvaRuntime {
       artifactsBaseDir: this.workspaceRoot,
     });
     this.costTracker = new SessionCostTracker(this.config.infrastructure.costTracking);
+    this.memory = new MemoryEngine({
+      enabled: this.config.memory.enabled,
+      rootDir: resolve(this.workspaceRoot, this.config.memory.dir),
+      workingFile: this.config.memory.workingFile,
+      maxWorkingChars: this.config.memory.maxWorkingChars,
+      dailyRefreshHourLocal: this.config.memory.dailyRefreshHourLocal,
+      crystalMinUnits: this.config.memory.crystalMinUnits,
+      retrievalTopK: this.config.memory.retrievalTopK,
+      retrievalWeights: this.config.memory.retrievalWeights,
+      evolvesMode: this.config.memory.evolvesMode,
+      recordEvent: (eventInput) => this.recordEvent(eventInput),
+    });
   }
 
   refreshSkills(): void {
@@ -629,6 +646,36 @@ export class BrewvaRuntime {
     finalTokens: number;
     truncated: boolean;
   } {
+    if (this.config.memory.enabled) {
+      const taskGoal = this.getTaskState(sessionId).spec?.goal;
+      this.memory.refreshIfNeeded({ sessionId });
+
+      const working = this.memory.getWorkingMemory(sessionId);
+      if (working?.content.trim()) {
+        this.registerContextInjection(sessionId, {
+          source: "brewva.working-memory",
+          id: "working-memory",
+          priority: "critical",
+          content: working.content,
+        });
+      }
+
+      const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
+      const recall = this.memory.buildRecallBlock({
+        sessionId,
+        query: recallQuery,
+        limit: this.config.memory.retrievalTopK,
+      });
+      if (recall.trim()) {
+        this.registerContextInjection(sessionId, {
+          source: "brewva.memory-recall",
+          id: "memory-recall",
+          priority: "high",
+          content: recall,
+        });
+      }
+    }
+
     return buildContextInjectionOrchestrated(
       {
         cwd: this.cwd,
@@ -973,6 +1020,7 @@ export class BrewvaRuntime {
 
     const activeSkillName = this.activeSkillsBySession.get(sessionId);
     if (activeSkillName) {
+      const completedAt = Date.now();
       let sessionOutputs = this.skillOutputsBySession.get(sessionId);
       if (!sessionOutputs) {
         sessionOutputs = new Map();
@@ -980,8 +1028,19 @@ export class BrewvaRuntime {
       }
       sessionOutputs.set(activeSkillName, {
         skillName: activeSkillName,
-        completedAt: Date.now(),
+        completedAt,
         outputs,
+      });
+
+      this.recordEvent({
+        sessionId,
+        type: "skill_completed",
+        turn: this.getCurrentTurn(sessionId),
+        payload: {
+          skillName: activeSkillName,
+          outputKeys: Object.keys(outputs).toSorted().slice(0, 64),
+          completedAt,
+        },
       });
 
       this.activeSkillsBySession.delete(sessionId);
@@ -1852,6 +1911,43 @@ export class BrewvaRuntime {
     return this.turnReplay.getTruthState(sessionId);
   }
 
+  getWorkingMemory(sessionId: string): WorkingMemorySnapshot | undefined {
+    return this.memory.getWorkingMemory(sessionId);
+  }
+
+  searchMemory(sessionId: string, input: { query: string; limit?: number }): MemorySearchResult {
+    return this.memory.search(sessionId, input);
+  }
+
+  dismissMemoryInsight(
+    sessionId: string,
+    insightId: string,
+  ): { ok: boolean; error?: "missing_id" | "not_found" } {
+    const id = insightId.trim();
+    if (!id) {
+      return { ok: false, error: "missing_id" };
+    }
+    const dismissed = this.memory.dismissInsight(sessionId, id);
+    if (!dismissed) {
+      return { ok: false, error: "not_found" };
+    }
+    return { ok: true };
+  }
+
+  reviewMemoryEvolvesEdge(
+    sessionId: string,
+    input: { edgeId: string; decision: "accept" | "reject" },
+  ): { ok: boolean; error?: "missing_id" | "not_found" | "already_set" } {
+    const edgeId = input.edgeId.trim();
+    if (!edgeId) {
+      return { ok: false, error: "missing_id" };
+    }
+    return this.memory.reviewEvolvesEdge(sessionId, {
+      edgeId,
+      decision: input.decision,
+    });
+  }
+
   upsertTruthFact(
     sessionId: string,
     input: {
@@ -1939,6 +2035,7 @@ export class BrewvaRuntime {
     for (const listener of this.eventListeners.values()) {
       listener(structured);
     }
+    this.memory.ingestEvent(row);
     if (!input.skipTapeCheckpoint) {
       this.maybeRecordTapeCheckpoint(row);
     }
@@ -2150,6 +2247,7 @@ export class BrewvaRuntime {
     this.latestCompactionSummaryBySession.delete(sessionId);
     this.clearInjectionFingerprintsForSession(sessionId);
     this.clearReservedInjectionTokensForSession(sessionId);
+    this.memory.clearSessionCache(sessionId);
 
     this.turnReplay.clear(sessionId);
     this.viewportPolicyBySession.delete(sessionId);
@@ -2363,6 +2461,9 @@ export class BrewvaRuntime {
     if (lastEvent.type === TAPE_CHECKPOINT_EVENT_TYPE) {
       return;
     }
+    if (lastEvent.type.startsWith("memory_")) {
+      return;
+    }
 
     const intervalEntries = this.resolveTapeCheckpointIntervalEntries();
     if (intervalEntries <= 0) {
@@ -2389,6 +2490,9 @@ export class BrewvaRuntime {
       }
       if (event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
         break;
+      }
+      if (event.type.startsWith("memory_")) {
+        continue;
       }
       entriesSinceCheckpoint += 1;
     }

@@ -90,6 +90,49 @@ describe("Brewva config loader normalization", () => {
     );
   });
 
+  test("normalizes memory config bounds and enum values", () => {
+    const workspace = createWorkspace("memory-normalize");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          memory: {
+            enabled: "yes",
+            dir: "",
+            workingFile: "",
+            maxWorkingChars: -10,
+            dailyRefreshHourLocal: 72,
+            crystalMinUnits: 0,
+            retrievalTopK: -1,
+            retrievalWeights: {
+              lexical: -1,
+              recency: 2,
+              confidence: 2,
+            },
+            evolvesMode: "unsupported",
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    const defaults = DEFAULT_BREWVA_CONFIG.memory;
+    expect(loaded.memory.enabled).toBe(defaults.enabled);
+    expect(loaded.memory.dir).toBe(defaults.dir);
+    expect(loaded.memory.workingFile).toBe(defaults.workingFile);
+    expect(loaded.memory.maxWorkingChars).toBe(defaults.maxWorkingChars);
+    expect(loaded.memory.dailyRefreshHourLocal).toBe(23);
+    expect(loaded.memory.crystalMinUnits).toBe(defaults.crystalMinUnits);
+    expect(loaded.memory.retrievalTopK).toBe(defaults.retrievalTopK);
+    expect(loaded.memory.retrievalWeights.lexical).toBe(0);
+    expect(loaded.memory.retrievalWeights.recency).toBe(0.5);
+    expect(loaded.memory.retrievalWeights.confidence).toBe(0.5);
+    expect(loaded.memory.evolvesMode).toBe(defaults.evolvesMode);
+  });
+
   test("returns isolated config instances when no config file exists", () => {
     const workspace = createWorkspace("isolation");
 
