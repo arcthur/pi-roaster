@@ -15,6 +15,7 @@ Default packs are defined in `packages/brewva-runtime/src/config/defaults.ts`:
 - `typescript`
 - `react`
 - `bun`
+- `skill-creator`
 
 Skill configuration contract is defined in `packages/brewva-runtime/src/types.ts` (`BrewvaConfig.skills`).
 

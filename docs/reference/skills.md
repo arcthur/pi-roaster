@@ -24,6 +24,7 @@ Skill parsing, merge, and selection logic:
 - `bun`
 - `frontend-ui-ux`
 - `react`
+- `skill-creator`
 - `typescript`
 
 ## Project Skills

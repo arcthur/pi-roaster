@@ -7,7 +7,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
   },
   skills: {
     roots: [],
-    packs: ["typescript", "react", "bun"],
+    packs: ["typescript", "react", "bun", "skill-creator"],
     disabled: [],
     overrides: {},
     selector: {

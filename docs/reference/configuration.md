@@ -19,7 +19,9 @@ Configuration contract sources:
 - `infrastructure`
 - `ui`
 
-配置文件是 patch/overlay：你只需要写要覆盖的字段；未写的字段会从 defaults 和更低优先级的配置层继承。
+Configuration files use patch/overlay semantics: only specify fields you want
+to override; unspecified fields are inherited from defaults and lower-precedence
+configuration layers.
 
 ## Key Defaults
 
@@ -28,7 +30,7 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 ### Skills
 
 - `skills.roots`: `[]` (optional additional skill root directories; relative paths in config files are resolved from that config file's directory)
-- `skills.packs`: `["typescript", "react", "bun"]`
+- `skills.packs`: `["typescript", "react", "bun", "skill-creator"]`
 - `skills.disabled`: `[]`
 - `skills.overrides`: `{}`
 - `skills.selector.k`: `4`
@@ -140,10 +142,13 @@ To enable editor completion and validation for `.brewva/brewva.json`, set `$sche
 
 If you store the config file elsewhere (for example via `--config`), adjust the relative path accordingly.
 
-## 校验与诊断
+## Validation and Diagnostics
 
-- 启动时会对配置文件做 schema 校验；发现未知字段或类型不匹配时，会输出 warning（默认最多 3 条；`--verbose` 输出全部）。
-- `$schema` 仅用于编辑器补全与校验提示，运行时会忽略该字段。
+- On startup, configuration files are validated against the schema. If unknown
+  fields or type mismatches are detected, warnings are emitted (up to 3 by
+  default; use `--verbose` to print all warnings).
+- `$schema` is only used for editor completion and validation hints, and is
+  ignored at runtime.
 
 ## Security
 
