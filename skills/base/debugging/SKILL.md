@@ -164,6 +164,9 @@ If Layer A passes but Layer B fails:
 - list new failures and probable relation
 - avoid claiming full completion
 
+If required verification commands are unavailable, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` with a reproducible script path and success criteria.
+
 ### Step 7: Emit final debugging report
 
 ```text
@@ -190,6 +193,7 @@ DEBUG_REPORT
 - Three hypotheses are exhausted with no confirmed root cause.
 - Proposed fix creates two or more new failing tests.
 - Tool-call budget exceeds configured limit without convergence.
+- Required verification cannot run and no meaningful `TOOL_BRIDGE` can be produced.
 
 When stopping, provide:
 

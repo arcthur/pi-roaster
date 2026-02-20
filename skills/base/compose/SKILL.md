@@ -172,6 +172,9 @@ COMPOSE_PLAN
 - Circular dependency detected between subtasks.
 - Total estimated budget exceeds system limits with no pruning path.
 
+When blocked by unverifiable steps, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` and assign the bridge to the appropriate downstream skill.
+
 On stop, report the blocking subtask and recommend escalation target.
 
 ## Anti-Patterns (never)

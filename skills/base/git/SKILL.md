@@ -304,8 +304,12 @@ HISTORY_REPORT
 - Request implies destructive rewrite on protected branch.
 - Rebase creates unresolved conflicts after two attempts.
 - History search cannot narrow to meaningful candidates.
+- Required Git workflow cannot execute in current environment and no meaningful `TOOL_BRIDGE` can be produced.
 
 When stopped, output what was tried and what exact input is needed next.
+
+If execution is blocked by environment/tooling constraints, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` for a human-run recovery script.
 
 ## Anti-Patterns (never)
 

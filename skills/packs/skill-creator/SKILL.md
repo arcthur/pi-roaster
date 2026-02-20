@@ -366,6 +366,9 @@ The packaging script will:
 
 If validation fails, the script will report the errors and exit without creating a package. Fix any validation errors and run the packaging command again.
 
+If packaging or validation cannot run in the current environment, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` with a deterministic script handoff.
+
 ### Step 6: Iterate
 
 After testing the skill, users may request improvements. Often this happens right after using the skill, with fresh context of how the skill performed.

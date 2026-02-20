@@ -85,6 +85,10 @@ Report environment caveats when commands depend on:
 - Repository is not Bun-based and no Bun workflow is configured.
 - Required script is absent and there is no documented equivalent.
 - Command execution depends on unavailable environment or service.
+- Command execution is blocked and no meaningful `TOOL_BRIDGE` can be produced.
+
+If commands are blocked by environment constraints, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` for a human-run script path.
 
 ## Anti-Patterns (never)
 

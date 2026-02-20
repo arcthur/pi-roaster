@@ -102,6 +102,11 @@ VERIFICATION_REPORT
   - "<what is still required>"
 ```
 
+### Step 5: Bridge when execution is blocked
+
+If a required command does not exist or cannot run in the current environment, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` instead of ending with narrative-only guidance.
+
 ## Diagnostic Guidance
 
 - For compiler failures, prioritize first error line and dependent files.
@@ -113,6 +118,7 @@ VERIFICATION_REPORT
 - Required verification command does not exist in environment.
 - Command output is inconclusive after one rerun.
 - Verification cannot be scoped because change set is unknown.
+- Required verification is blocked and no meaningful `TOOL_BRIDGE` can be produced.
 
 When stopped, emit exact missing command/info needed.
 

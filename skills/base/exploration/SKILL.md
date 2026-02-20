@@ -112,6 +112,11 @@ UNKNOWNS
 - Track naming conventions to infer boundary ownership.
 - Prioritize modules with high fan-in or fan-out.
 
+## Executable Evidence Bridge
+
+Prefer reproducible command traces over narrative-only assumptions. If exploration depends on unavailable runtime data
+or generated outputs, emit `TOOL_BRIDGE` using `skills/base/planning/references/executable-evidence-bridge.md`.
+
 ## Stop Conditions
 
 - Cannot identify real entrypoint after focused scan.

@@ -109,6 +109,9 @@ INTERACTION_CHECKS
   status: <pass|fail|pending>
 ```
 
+When interactive verification cannot run in the current environment, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` for a reproducible UI check script.
+
 ## Aesthetic Guardrails
 
 ### Typography
@@ -144,6 +147,7 @@ INTERACTION_CHECKS
 - Product/design constraints are missing and direction cannot be chosen safely.
 - Existing design system forbids requested visual changes.
 - Required assets (fonts/brand tokens) are unavailable.
+- Verification is blocked and no meaningful `TOOL_BRIDGE` can be produced.
 
 When blocked, report exact missing constraints or assets.
 

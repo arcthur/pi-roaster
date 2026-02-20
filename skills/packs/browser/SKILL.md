@@ -219,6 +219,10 @@ TROUBLESHOOTING
 - Target site blocks automation with hard anti-bot constraints.
 - Required credentials are missing.
 - Workflow exceeds tool budget without stable progress.
+- Automation is blocked and no meaningful `TOOL_BRIDGE` can be produced.
+
+If browser automation cannot execute, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` for a reproducible human-run flow.
 
 ## Anti-Patterns (never)
 

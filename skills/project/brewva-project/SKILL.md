@@ -162,12 +162,16 @@ DELIVERY_REPORT
 - Critical constraint is missing and changes solution correctness.
 - High-risk change has no rollback path.
 - Required verification checks are not executable and no substitute evidence exists.
+- Required verification is blocked and no meaningful `TOOL_BRIDGE` can be produced.
 
 When stopping, always report:
 
 1. completed vs pending boundaries
 2. highest current risk
 3. minimal input needed to proceed
+
+When executable verification is blocked by environment constraints, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md`.
 
 ## Anti-Patterns (forbidden)
 

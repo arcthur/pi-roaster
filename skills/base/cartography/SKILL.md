@@ -112,6 +112,12 @@ MAP_CONFIDENCE
 - Use test files to confirm intended module boundaries.
 - Prefer import graph signals over file size when ranking hotspots.
 
+## Executable Evidence Bridge
+
+This is a read-only mapping skill. If confidence is low due missing generated artifacts, scripts, or external metadata,
+emit `TOOL_BRIDGE` using `skills/base/planning/references/executable-evidence-bridge.md` so a human can run a deterministic
+collector and feed results back.
+
 ## Stop Conditions
 
 - Repository lacks enough structure to infer boundaries.

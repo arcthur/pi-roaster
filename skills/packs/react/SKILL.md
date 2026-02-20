@@ -75,6 +75,9 @@ Suggested command pattern:
 bun test <react-related-target>
 ```
 
+If runtime or test harness is unavailable, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` with a scriptable interaction check.
+
 ## Design Guardrails
 
 - Respect existing design system tokens and spacing scale.
@@ -86,6 +89,7 @@ bun test <react-related-target>
 - Component behavior cannot be validated due to missing runtime/test harness.
 - Requested visual changes conflict with mandatory design-system constraints.
 - Required props/data contracts are unknown and change core interaction behavior.
+- Validation is blocked and no meaningful `TOOL_BRIDGE` can be produced.
 
 ## Anti-Patterns (never)
 

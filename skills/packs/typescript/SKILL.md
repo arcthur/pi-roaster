@@ -78,6 +78,7 @@ bun run typecheck
 ```
 
 If typecheck is unavailable, run configured diagnostics tool and report limitation.
+If both are unavailable, emit `TOOL_BRIDGE` using `skills/base/planning/references/executable-evidence-bridge.md`.
 
 ## Review Checklist
 
@@ -91,6 +92,7 @@ If typecheck is unavailable, run configured diagnostics tool and report limitati
 - Required type boundary decisions are blocked by unknown external contracts.
 - Typecheck cannot run and diagnostics output is unavailable.
 - Fix requires broad public API changes outside requested scope.
+- Validation is blocked and no meaningful `TOOL_BRIDGE` can be produced.
 
 ## Anti-Patterns (never)
 

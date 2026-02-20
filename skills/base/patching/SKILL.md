@@ -101,6 +101,9 @@ bun run typecheck
 bun test <target>
 ```
 
+If these checks are unavailable in the environment, emit `TOOL_BRIDGE` using
+`skills/base/planning/references/executable-evidence-bridge.md` with an executable script handoff.
+
 ### Step 5: Emit patch summary
 
 ```text
@@ -125,6 +128,7 @@ PATCH_REPORT
 - Required fix implies public API or data contract change not in request.
 - Repeated minimal patches fail due to hidden architectural issue.
 - Verification requires commands or environment not available.
+- Verification is blocked and no meaningful `TOOL_BRIDGE` can be produced.
 
 When stopping, provide exact blocker and recommended next planning scope.
 

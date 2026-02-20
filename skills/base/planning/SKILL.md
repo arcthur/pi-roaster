@@ -228,6 +228,11 @@ On stop, report exactly what missing input blocks progress.
 - Ignoring verification details until after coding.
 - Treating risky migration as a single-step task.
 
+## Executable Evidence Bridge
+
+Plans must prefer executable checks. When verification prerequisites are unavailable, include a `TOOL_BRIDGE` section
+following `skills/base/planning/references/executable-evidence-bridge.md` so the next step is scriptable by humans.
+
 ## References
 
 - Standard plan packet template: `skills/base/planning/references/plan-output-template.md`
