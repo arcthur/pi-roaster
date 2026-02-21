@@ -222,7 +222,7 @@ Skill creation involves these steps:
 
 1. Understand the skill with concrete examples
 2. Plan reusable skill contents (scripts, references, assets)
-3. Initialize the skill (run init_skill.py)
+3. Initialize or fork the skill (run init_skill.py or fork_skill.py)
 4. Edit the skill (implement resources and write SKILL.md)
 5. Package the skill (run package_skill.py)
 6. Iterate based on real usage
@@ -274,7 +274,7 @@ To establish the skill's contents, analyze each concrete example to create a lis
 
 At this point, it is time to actually create the skill.
 
-Skip this step only if the skill being developed already exists, and iteration or packaging is needed. In this case, continue to the next step.
+Skip this step only if the skill already exists and only iteration/packaging is needed.
 
 When creating a new skill from scratch, always run the `init_skill.py` script. The script conveniently generates a new template skill directory that automatically includes everything a skill requires, making the skill creation process much more efficient and reliable.
 
@@ -297,6 +297,45 @@ The script:
 - Adds example files in each directory that can be customized or deleted
 
 After initialization, customize or remove the generated SKILL.md and example files as needed.
+
+#### Forking an existing skill for local/project override
+
+When a built-in or shared skill already exists but you need environment-specific behavior, fork it instead of creating a parallel duplicate skill name.
+
+Usage:
+
+```bash
+scripts/fork_skill.py <skill-name> [--path <target-root>] [--force]
+```
+
+Optional flags:
+
+```bash
+scripts/fork_skill.py <skill-name> --from <source-skill-path>
+scripts/fork_skill.py <skill-name> --path <target-root> --allow-inactive
+scripts/fork_skill.py <skill-name> --tier <base|pack|project> --verbose
+scripts/fork_skill.py <skill-name> --dry-run
+```
+
+Default target behavior when `--path` is omitted:
+
+- If `./.brewva` exists, fork into `./.brewva/skills/<tier>/<skill-name>`
+- Otherwise fork into global `~/.config/brewva/skills/<tier>/<skill-name>`
+
+Forking rules:
+
+- Keep the same frontmatter `name` to preserve override semantics
+- Prefer project root (`.brewva/skills`) when you need guaranteed local precedence
+- If you use a custom root, add it to `skills.roots`
+- For pack-tier skills outside project/config roots, ensure the pack is enabled in `skills.packs`
+
+The forking script:
+
+- Resolves the effective source skill from runtime-style root discovery
+- Copies the full skill directory (`SKILL.md`, `scripts`, `references`, `assets`)
+- Adds `metadata.fork` provenance in destination `SKILL.md` (unless `--no-metadata`)
+- Validates destination skill structure
+- Verifies whether the forked copy is the active effective skill and reports remediation if not
 
 ### Step 4: Edit the Skill
 
@@ -325,15 +364,16 @@ Any example files and directories not needed for the skill should be deleted. Th
 
 ##### Frontmatter
 
-Write the YAML frontmatter with `name` and `description`:
+`name` and `description` are the minimum required frontmatter fields.
 
-- `name`: The skill name
-- `description`: This is the primary triggering mechanism for your skill, and helps Codex understand when to use the skill.
-  - Include both what the Skill does and specific triggers/contexts for when to use it.
-  - Include all "when to use" information here - Not in the body. The body is only loaded after triggering, so "When to Use This Skill" sections in the body are not helpful to Codex.
-  - Example description for a `docx` skill: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when Codex needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
+- `name`: The skill name.
+- `description`: The primary trigger text used by Codex.
+  - Include both capability and trigger context.
+  - Keep "when to use" guidance in `description`, because body text is loaded later.
 
-Do not include any other fields in YAML frontmatter.
+Optional contract metadata is allowed when useful (for example: `tier`, `tags`, `tools`, `budget`, `outputs`, `consumes`, `escalation_path`, `metadata`) as long as it follows runtime parser expectations and repository conventions.
+
+For forked skills, keep `metadata.fork` provenance unless there is a strong reason to remove it.
 
 ##### Body
 

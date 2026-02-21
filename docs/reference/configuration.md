@@ -32,7 +32,7 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 ### Skills
 
 - `skills.roots`: `[]` (optional additional skill root directories; relative paths in config files are resolved from that config file's directory)
-- `skills.packs`: `["typescript", "react", "bun", "skill-creator"]`
+- `skills.packs`: `["skill-creator"]`
 - `skills.disabled`: `[]`
 - `skills.overrides`: `{}`
 - `skills.selector.k`: `4`

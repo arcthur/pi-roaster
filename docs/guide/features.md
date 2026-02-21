@@ -48,7 +48,7 @@ Tool registry source: `packages/brewva-tools/src/index.ts`
 ## Skill Surface
 
 - Base: `cartography`, `compose`, `debugging`, `exploration`, `git`, `patching`, `planning`, `review`, `verification`
-- Packs: `browser`, `bun`, `frontend-ui-ux`, `react`, `skill-creator`, `typescript`
+- Packs: `browser`, `frontend-ui-ux`, `gh-issues`, `github`, `skill-creator`
 - Project: `brewva-project`
 
 Skill roots:

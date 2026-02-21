@@ -21,11 +21,10 @@ Skill parsing, merge, and selection logic:
 ## Pack Skills
 
 - `browser`
-- `bun`
 - `frontend-ui-ux`
-- `react`
+- `gh-issues`
+- `github`
 - `skill-creator`
-- `typescript`
 
 ## Project Skills
 
