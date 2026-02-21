@@ -470,6 +470,13 @@ async function run(): Promise<void> {
   const gracefulTimeoutMs = runtime.config.infrastructure.interruptRecovery.gracefulTimeoutMs;
   let terminatedBySignal = false;
   let finalized = false;
+  const ensureSessionShutdownRecorded = (sessionId: string): void => {
+    if (runtime.queryEvents(sessionId, { type: "session_shutdown", last: 1 }).length > 0) return;
+    runtime.recordEvent({
+      sessionId,
+      type: "session_shutdown",
+    });
+  };
 
   const finalizeAndExit = (code: number): void => {
     if (finalized) return;
@@ -534,6 +541,7 @@ async function run(): Promise<void> {
     process.off("SIGTERM", handleSignal);
     if (!terminatedBySignal) {
       const sessionId = getSessionId();
+      ensureSessionShutdownRecorded(sessionId);
       if (emitJsonBundle) {
         const replayEvents = runtime.queryStructuredEvents(sessionId);
         await writeJsonLine({

@@ -229,16 +229,14 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
       return undefined;
     }
 
-    if (!ctx.hasUI) {
-      emitRuntimeEvent(runtime, {
-        sessionId,
-        turn: state.turnIndex,
-        type: "context_compaction_skipped",
-        payload: {
-          reason: "non_interactive_mode",
-        },
-      });
-    }
+    emitRuntimeEvent(runtime, {
+      sessionId,
+      turn: state.turnIndex,
+      type: "context_compaction_skipped",
+      payload: {
+        reason: ctx.hasUI ? "manual_compaction_required" : "non_interactive_mode",
+      },
+    });
 
     return undefined;
   });

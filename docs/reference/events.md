@@ -411,6 +411,19 @@ Payload fields:
 - `contextPressure`: currently fixed to `critical` for this event.
 - `requiredTool`: currently fixed to `session_compact`.
 
+### `context_compaction_skipped`
+
+Emitted after `context_compaction_requested` when compaction is not executed
+immediately in the current flow.
+
+Payload fields:
+
+- `reason`: why compaction was skipped in-place.
+  - `manual_compaction_required`: interactive/UI sessions. Runtime requested
+    compaction and expects an explicit `session_compact` tool call.
+  - `non_interactive_mode`: non-interactive print/json flows. Runtime requested
+    compaction but no interactive compaction path is available.
+
 ## Tool Parallel Read Event
 
 ### `tool_parallel_read`

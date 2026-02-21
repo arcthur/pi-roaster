@@ -350,26 +350,19 @@ function assertCoreCounts(result: RegressionRunResult, rounds: number): void {
 }
 
 function assertCompactionContinuity(result: RegressionRunResult): void {
+  const requestIndexes = eventIndexes(result.events, "context_compaction_requested");
+  if (requestIndexes.length === 0) return;
+
   const agentEndIndexes = eventIndexes(result.events, "agent_end");
-  let previousAgentEnd = -1;
-  for (let i = 0; i < agentEndIndexes.length; i += 1) {
-    const currentAgentEnd = agentEndIndexes[i]!;
+  for (const requestIndex of requestIndexes) {
     const nextAgentEnd =
-      i + 1 < agentEndIndexes.length ? agentEndIndexes[i + 1]! : result.events.length;
-
-    const segmentHasRequest = result.events
-      .slice(previousAgentEnd + 1, currentAgentEnd + 1)
-      .some((event) => event.type === "context_compaction_requested");
-    if (segmentHasRequest) {
-      const hasFollow = result.events
-        .slice(currentAgentEnd + 1, nextAgentEnd)
-        .some((event) =>
-          COMPACTION_FOLLOW_TYPES.has(typeof event.type === "string" ? event.type : ""),
-        );
-      expect(hasFollow).toBe(true);
-    }
-
-    previousAgentEnd = currentAgentEnd;
+      agentEndIndexes.find((index) => index > requestIndex) ?? result.events.length;
+    const hasFollow = result.events
+      .slice(requestIndex + 1, nextAgentEnd + 1)
+      .some((event) =>
+        COMPACTION_FOLLOW_TYPES.has(typeof event.type === "string" ? event.type : ""),
+      );
+    expect(hasFollow).toBe(true);
   }
 }
 

@@ -968,6 +968,7 @@ describe("Extension integration: observability", () => {
       JSON.stringify(
         {
           memory: {
+            enabled: true,
             dailyRefreshHourLocal: 0,
           },
         },
@@ -988,7 +989,7 @@ describe("Extension integration: observability", () => {
       extensionPath,
       [
         `import { createBrewvaExtension } from '${brewvaExtensionEntry}';`,
-        "export default createBrewvaExtension({ registerTools: false });",
+        `export default createBrewvaExtension({ registerTools: false, cwd: ${JSON.stringify(workspace)} });`,
       ].join("\n"),
       "utf8",
     );
