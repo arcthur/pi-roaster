@@ -1,8 +1,10 @@
 import { resolve } from "node:path";
 import { addMilliseconds, subMilliseconds } from "date-fns";
-import type { BrewvaRuntime } from "../runtime.js";
 import type {
+  BrewvaConfig,
+  BrewvaEventQuery,
   BrewvaEventRecord,
+  BrewvaStructuredEvent,
   ConvergencePredicate,
   ScheduleIntentCancelInput,
   ScheduleIntentCancelResult,
@@ -14,6 +16,8 @@ import type {
   ScheduleIntentUpdateInput,
   ScheduleIntentUpdateResult,
   ScheduleProjectionSnapshot,
+  TaskState,
+  TruthState,
 } from "../types.js";
 import {
   getNextCronRunAt,
@@ -104,8 +108,65 @@ export interface SchedulerCatchUpSummary {
   sessions: SchedulerCatchUpSessionSummary[];
 }
 
+export interface SchedulerRuntimePort {
+  workspaceRoot: string;
+  scheduleConfig: BrewvaConfig["schedule"];
+  listSessionIds(): string[];
+  listEvents(sessionId: string, query?: BrewvaEventQuery): BrewvaEventRecord[];
+  recordEvent(input: {
+    sessionId: string;
+    type: string;
+    turn?: number;
+    payload?: Record<string, unknown>;
+    timestamp?: number;
+    skipTapeCheckpoint?: boolean;
+  }): BrewvaEventRecord | undefined;
+  subscribeEvents(listener: (event: BrewvaStructuredEvent) => void): () => void;
+  getTruthState(sessionId: string): TruthState;
+  getTaskState(sessionId: string): TaskState;
+}
+
+interface SchedulerLegacyRuntimePort {
+  workspaceRoot: string;
+  config: Pick<BrewvaConfig, "schedule">;
+  events: {
+    listSessionIds(): string[];
+    list(sessionId: string, query?: BrewvaEventQuery): BrewvaEventRecord[];
+  };
+  recordEvent(input: {
+    sessionId: string;
+    type: string;
+    turn?: number;
+    payload?: Record<string, unknown>;
+    timestamp?: number;
+    skipTapeCheckpoint?: boolean;
+  }): BrewvaEventRecord | undefined;
+  subscribeEvents(listener: (event: BrewvaStructuredEvent) => void): () => void;
+  getTruthState(sessionId: string): TruthState;
+  getTaskState(sessionId: string): TaskState;
+}
+
+function toSchedulerRuntimePort(
+  runtime: SchedulerRuntimePort | SchedulerLegacyRuntimePort,
+): SchedulerRuntimePort {
+  if ("scheduleConfig" in runtime) {
+    return runtime;
+  }
+
+  return {
+    workspaceRoot: runtime.workspaceRoot,
+    scheduleConfig: runtime.config.schedule,
+    listSessionIds: () => runtime.events.listSessionIds(),
+    listEvents: (sessionId, query) => runtime.events.list(sessionId, query),
+    recordEvent: (input) => runtime.recordEvent(input),
+    subscribeEvents: (listener) => runtime.subscribeEvents(listener),
+    getTruthState: (sessionId) => runtime.getTruthState(sessionId),
+    getTaskState: (sessionId) => runtime.getTaskState(sessionId),
+  };
+}
+
 export interface SchedulerServiceOptions {
-  runtime: BrewvaRuntime;
+  runtime: SchedulerRuntimePort | SchedulerLegacyRuntimePort;
   enableExecution?: boolean;
   now?: () => number;
   setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
@@ -130,7 +191,7 @@ export interface SchedulerStats {
 }
 
 export class SchedulerService {
-  private readonly runtime: BrewvaRuntime;
+  private readonly runtimePort: SchedulerRuntimePort;
   private readonly enableExecution: boolean;
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => TimerHandle;
@@ -150,7 +211,7 @@ export class SchedulerService {
   private unsubscribeRuntimeEvents: (() => void) | null = null;
 
   constructor(options: SchedulerServiceOptions) {
-    this.runtime = options.runtime;
+    this.runtimePort = toSchedulerRuntimePort(options.runtime);
     this.enableExecution =
       options.enableExecution !== false && typeof options.executeIntent === "function";
     this.now = options.now ?? (() => Date.now());
@@ -164,8 +225,8 @@ export class SchedulerService {
     };
 
     const projectionPath = resolve(
-      this.runtime.workspaceRoot,
-      this.runtime.config.schedule.projectionPath,
+      this.runtimePort.workspaceRoot,
+      this.runtimePort.scheduleConfig.projectionPath,
     );
     this.projectionStore = new ScheduleProjectionStore(projectionPath);
     this.defaultCronTimeZone = detectDefaultCronTimeZone();
@@ -247,7 +308,7 @@ export class SchedulerService {
   createIntent(
     input: ScheduleIntentCreateInput & { parentSessionId: string },
   ): ScheduleIntentCreateResult {
-    if (!this.runtime.config.schedule.enabled) {
+    if (!this.runtimePort.scheduleConfig.enabled) {
       return { ok: false, error: "scheduler_disabled" };
     }
     const parentSessionId = normalizeOptionalString(input.parentSessionId);
@@ -302,7 +363,7 @@ export class SchedulerService {
       }
       this.parsedCronBySource.set(cron, parsedCron.expression);
       const minBase = subMilliseconds(
-        addMilliseconds(now, this.runtime.config.schedule.minIntervalMs),
+        addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs),
         1,
       ).getTime();
       normalizedNextRunAt = this.computeCronNextRunAt(cron, minBase, normalizedTimeZone);
@@ -313,7 +374,10 @@ export class SchedulerService {
       if (typeof input.runAt !== "number" || !Number.isFinite(input.runAt) || input.runAt <= now) {
         return { ok: false, error: "invalid_runAt" };
       }
-      const minRunAt = addMilliseconds(now, this.runtime.config.schedule.minIntervalMs).getTime();
+      const minRunAt = addMilliseconds(
+        now,
+        this.runtimePort.scheduleConfig.minIntervalMs,
+      ).getTime();
       normalizedRunAt = Math.max(Math.floor(input.runAt), minRunAt);
       normalizedNextRunAt = normalizedRunAt;
     }
@@ -321,13 +385,13 @@ export class SchedulerService {
     const activeIntents = [...this.intentsById.values()].filter(
       (intent) => intent.status === "active",
     );
-    if (activeIntents.length >= this.runtime.config.schedule.maxActiveIntentsGlobal) {
+    if (activeIntents.length >= this.runtimePort.scheduleConfig.maxActiveIntentsGlobal) {
       return { ok: false, error: "max_active_intents_global_exceeded" };
     }
     const activeInSession = activeIntents.filter(
       (intent) => intent.parentSessionId === parentSessionId,
     ).length;
-    if (activeInSession >= this.runtime.config.schedule.maxActiveIntentsPerSession) {
+    if (activeInSession >= this.runtimePort.scheduleConfig.maxActiveIntentsPerSession) {
       return { ok: false, error: "max_active_intents_per_session_exceeded" };
     }
 
@@ -449,7 +513,10 @@ export class SchedulerService {
       if (typeof input.runAt !== "number" || !Number.isFinite(input.runAt) || input.runAt <= now) {
         return { ok: false, error: "invalid_runAt" };
       }
-      const minRunAt = addMilliseconds(now, this.runtime.config.schedule.minIntervalMs).getTime();
+      const minRunAt = addMilliseconds(
+        now,
+        this.runtimePort.scheduleConfig.minIntervalMs,
+      ).getTime();
       runAt = Math.max(Math.floor(input.runAt), minRunAt);
       cron = undefined;
       timeZone = undefined;
@@ -471,7 +538,7 @@ export class SchedulerService {
         return { ok: false, error: "invalid_time_zone" };
       }
       const minBase = subMilliseconds(
-        addMilliseconds(now, this.runtime.config.schedule.minIntervalMs),
+        addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs),
         1,
       ).getTime();
       const nextRunAtForCron = this.computeCronNextRunAt(nextCron, minBase, nextTimeZone);
@@ -492,7 +559,7 @@ export class SchedulerService {
         return { ok: false, error: "invalid_time_zone" };
       }
       const minBase = subMilliseconds(
-        addMilliseconds(now, this.runtime.config.schedule.minIntervalMs),
+        addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs),
         1,
       ).getTime();
       const nextRunAtForCron = this.computeCronNextRunAt(cron, minBase, nextTimeZone);
@@ -517,7 +584,7 @@ export class SchedulerService {
     } else if (maxRuns > intent.runCount && nextRunAt === undefined) {
       if (cron) {
         const minBase = subMilliseconds(
-          addMilliseconds(now, this.runtime.config.schedule.minIntervalMs),
+          addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs),
           1,
         ).getTime();
         nextRunAt = this.computeCronNextRunAt(cron, minBase, timeZone);
@@ -525,7 +592,7 @@ export class SchedulerService {
           return { ok: false, error: "cron_has_no_future_match" };
         }
       } else {
-        nextRunAt = addMilliseconds(now, this.runtime.config.schedule.minIntervalMs).getTime();
+        nextRunAt = addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs).getTime();
       }
     }
 
@@ -569,16 +636,16 @@ export class SchedulerService {
   }
 
   private collectScheduleEvents(): BrewvaEventRecord[] {
-    const sessionIds = this.runtime.events.listSessionIds();
+    const sessionIds = this.runtimePort.listSessionIds();
     const rows: BrewvaEventRecord[] = [];
     for (const sessionId of sessionIds) {
-      rows.push(...this.runtime.events.list(sessionId, { type: SCHEDULE_EVENT_TYPE }));
+      rows.push(...this.runtimePort.listEvents(sessionId, { type: SCHEDULE_EVENT_TYPE }));
     }
     return rows.toSorted(sortEventsByTime);
   }
 
   private appendScheduleEvent(payload: ScheduleIntentEventPayload): BrewvaEventRecord | null {
-    const row = this.runtime.recordEvent({
+    const row = this.runtimePort.recordEvent({
       sessionId: payload.parentSessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: payload as unknown as Record<string, unknown>,
@@ -609,7 +676,7 @@ export class SchedulerService {
         ? this.computeCronNextRunAt(
             normalizedCron,
             subMilliseconds(
-              addMilliseconds(timestamp, this.runtime.config.schedule.minIntervalMs),
+              addMilliseconds(timestamp, this.runtimePort.scheduleConfig.minIntervalMs),
               1,
             ).getTime(),
             normalizedTimeZone,
@@ -729,7 +796,7 @@ export class SchedulerService {
 
   private subscribeRuntimeEvents(): void {
     if (this.unsubscribeRuntimeEvents) return;
-    this.unsubscribeRuntimeEvents = this.runtime.subscribeEvents((event) => {
+    this.unsubscribeRuntimeEvents = this.runtimePort.subscribeEvents((event) => {
       if (event.type !== SCHEDULE_EVENT_TYPE) return;
       if (this.selfEmittedEventIds.delete(event.id)) return;
 
@@ -791,7 +858,7 @@ export class SchedulerService {
     const deferredFrom = input.intent.nextRunAt;
     const deferredTo = addMilliseconds(
       input.now,
-      this.runtime.config.schedule.minIntervalMs * input.sequence,
+      this.runtimePort.scheduleConfig.minIntervalMs * input.sequence,
     ).getTime();
 
     const payload = buildScheduleIntentUpdatedEvent({
@@ -810,7 +877,7 @@ export class SchedulerService {
     const appended = this.appendScheduleEvent(payload);
     if (!appended) return false;
 
-    this.runtime.recordEvent({
+    this.runtimePort.recordEvent({
       sessionId: input.intent.parentSessionId,
       type: "schedule_recovery_deferred",
       payload: {
@@ -831,7 +898,7 @@ export class SchedulerService {
     if (catchUp.dueIntents <= 0) return;
     for (const session of catchUp.sessions) {
       if (session.dueIntents <= 0) continue;
-      this.runtime.recordEvent({
+      this.runtimePort.recordEvent({
         sessionId: session.parentSessionId,
         type: "schedule_recovery_summary",
         payload: {
@@ -841,7 +908,7 @@ export class SchedulerService {
           dueIntents: session.dueIntents,
           firedIntents: session.firedIntents,
           deferredIntents: session.deferredIntents,
-          maxRecoveryCatchUps: this.runtime.config.schedule.maxRecoveryCatchUps,
+          maxRecoveryCatchUps: this.runtimePort.scheduleConfig.maxRecoveryCatchUps,
         },
         skipTapeCheckpoint: true,
       });
@@ -850,7 +917,7 @@ export class SchedulerService {
 
   private async catchUpMissedRuns(): Promise<SchedulerCatchUpSummary> {
     const now = this.now();
-    const limit = this.runtime.config.schedule.maxRecoveryCatchUps;
+    const limit = this.runtimePort.scheduleConfig.maxRecoveryCatchUps;
     const due = [...this.intentsById.values()]
       .filter(
         (intent) =>
@@ -943,7 +1010,7 @@ export class SchedulerService {
   }
 
   private computeRetryBackoffMs(consecutiveErrors: number): number {
-    const base = this.runtime.config.schedule.minIntervalMs;
+    const base = this.runtimePort.scheduleConfig.minIntervalMs;
     const multiplier = 2 ** Math.max(0, consecutiveErrors - 1);
     const capMs = 60 * 60 * 1000;
     return Math.min(capMs, base * multiplier);
@@ -951,7 +1018,7 @@ export class SchedulerService {
 
   private normalizeExecutionNextRunAt(value: number | undefined, now: number): number | undefined {
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
-    const minimum = addMilliseconds(now, this.runtime.config.schedule.minIntervalMs).getTime();
+    const minimum = addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs).getTime();
     return Math.max(Math.floor(value), minimum);
   }
 
@@ -993,13 +1060,13 @@ export class SchedulerService {
 
     switch (predicate.kind) {
       case "truth_resolved": {
-        const truth = this.runtime.getTruthState(input.sessionId);
+        const truth = this.runtimePort.getTruthState(input.sessionId);
         return truth.facts.some(
           (fact) => fact.id === predicate.factId && fact.status === "resolved",
         );
       }
       case "task_phase": {
-        const task = this.runtime.getTaskState(input.sessionId);
+        const task = this.runtimePort.getTaskState(input.sessionId);
         return task.status?.phase === predicate.phase;
       }
       case "max_runs":
@@ -1029,7 +1096,7 @@ export class SchedulerService {
     try {
       intent.leaseUntilMs = addMilliseconds(
         now,
-        this.runtime.config.schedule.leaseDurationMs,
+        this.runtimePort.scheduleConfig.leaseDurationMs,
       ).getTime();
       this.persistProjection(now);
 
@@ -1060,7 +1127,7 @@ export class SchedulerService {
       let schedulingErrorText: string | undefined;
       if (executionErrorText) {
         const consecutiveErrors = intent.consecutiveErrors + 1;
-        if (consecutiveErrors >= this.runtime.config.schedule.maxConsecutiveErrors) {
+        if (consecutiveErrors >= this.runtimePort.scheduleConfig.maxConsecutiveErrors) {
           nextRunAt = undefined;
         } else {
           nextRunAt = addMilliseconds(now, this.computeRetryBackoffMs(consecutiveErrors)).getTime();
@@ -1071,7 +1138,7 @@ export class SchedulerService {
         nextRunAt = this.computeCronNextRunAt(
           intent.cron,
           subMilliseconds(
-            addMilliseconds(now, this.runtime.config.schedule.minIntervalMs),
+            addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs),
             1,
           ).getTime(),
           intent.timeZone,
@@ -1082,7 +1149,7 @@ export class SchedulerService {
       } else {
         nextRunAt =
           this.normalizeExecutionNextRunAt(executionResult?.nextRunAt, now) ??
-          addMilliseconds(now, this.runtime.config.schedule.minIntervalMs).getTime();
+          addMilliseconds(now, this.runtimePort.scheduleConfig.minIntervalMs).getTime();
       }
       const errorText = executionErrorText ?? schedulingErrorText;
 

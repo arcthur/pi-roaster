@@ -1,10 +1,10 @@
 # Understanding Runtime System
 
-## Core Object
+## Runtime Shape
 
-`BrewvaRuntime` in `packages/brewva-runtime/src/runtime.ts` is the central system object.
+`BrewvaRuntime` in `packages/brewva-runtime/src/runtime.ts` is the public facade and stable API entrypoint.
 
-It composes the following subsystems:
+The facade wires foundational subsystems:
 
 - `skills`
 - `ledger`
@@ -17,8 +17,38 @@ It composes the following subsystems:
 - `fileChanges`
 - `costTracker`
 
-Runtime state reconstruction is handled by tape replay (`checkpoint + delta`) via
-`TurnReplayEngine`, not by persisted runtime session-state snapshot files.
+Runtime domain logic is delegated to service modules in
+`packages/brewva-runtime/src/services/`, including:
+
+- `ContextService`
+- `ToolGateService`
+- `TaskService`
+- `TapeService`
+- `VerificationService`
+- `FileChangeService`
+- `SkillLifecycleService`
+- `LedgerService`
+- `EventPipelineService`
+- `ScheduleIntentService`
+
+`BrewvaRuntime` should remain thin: constructor wiring + one-line method delegation.
+
+## Runtime State Model
+
+Short-lived per-session maps are centralized in
+`packages/brewva-runtime/src/services/session-state.ts` (`RuntimeSessionStateStore`).
+
+Task/truth reconstruction is still replay-based (`checkpoint + delta`) through
+`TurnReplayEngine`, not persisted in-memory snapshot files.
+
+## Scheduling Boundary
+
+`ScheduleIntentService` lazily creates `SchedulerService` from
+`packages/brewva-runtime/src/schedule/service.ts`.
+
+`SchedulerService` depends on `SchedulerRuntimePort` (a narrow runtime adapter),
+not on `BrewvaRuntime` directly. This keeps scheduler internals decoupled from
+the facade and avoids hidden runtime-to-scheduler coupling.
 
 ## Shared Type Contract
 

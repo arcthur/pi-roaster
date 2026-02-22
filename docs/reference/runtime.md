@@ -2,6 +2,14 @@
 
 Primary class: `packages/brewva-runtime/src/runtime.ts`.
 
+## Runtime Role
+
+- `BrewvaRuntime` is the public facade/API surface.
+- Internal orchestration logic is delegated to service modules under
+  `packages/brewva-runtime/src/services/`.
+- Ephemeral session maps are centralized in `RuntimeSessionStateStore`
+  (`packages/brewva-runtime/src/services/session-state.ts`) instead of scattered runtime fields.
+
 ## Public Methods
 
 - `refreshSkills`
@@ -113,6 +121,8 @@ All public runtime data contracts are defined in `packages/brewva-runtime/src/ty
   `error` via `intent_cancelled` with `error` payload).
 - Schedule APIs persist through `recordEvent()`. If event storage is disabled,
   schedule mutations return `events_store_disabled`.
+- Scheduler internals depend on `SchedulerRuntimePort` (a narrow adapter in
+  `schedule/service.ts`) rather than the full `BrewvaRuntime` object.
 
 ## Viewport Policy
 

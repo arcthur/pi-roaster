@@ -34,6 +34,10 @@ sequenceDiagram
   EXT->>RT: memory refresh hook (agent_end)
 ```
 
+In this diagram, `BrewvaRuntime` represents the facade API layer. Internal
+state transitions and side effects are delegated to service modules in
+`packages/brewva-runtime/src/services/*`.
+
 ## `--no-extensions` Flow (Core-Enforced Profile)
 
 ```mermaid
@@ -45,6 +49,9 @@ flowchart TD
   E --> F["tool_result => runtime.finishToolCall(): ledger write + patch tracking"]
   F --> G["registerRuntimeCoreEventBridge(): lifecycle + usage telemetry"]
 ```
+
+For scheduling paths, facade methods delegate to `ScheduleIntentService`, which
+manages `SchedulerService` through a narrow `SchedulerRuntimePort` adapter.
 
 This mode disables extension presentation hooks, but runtime safety and evidence
 chain enforcement stay active through the runtime core bridge hooks.

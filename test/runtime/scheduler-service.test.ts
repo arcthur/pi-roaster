@@ -6,6 +6,7 @@ import {
   BrewvaRuntime,
   SCHEDULE_EVENT_TYPE,
   SchedulerService,
+  type SchedulerRuntimePort,
   buildScheduleIntentCancelledEvent,
   buildScheduleIntentCreatedEvent,
   parseScheduleIntentEvent,
@@ -18,6 +19,49 @@ function createWorkspace(name: string): string {
 }
 
 describe("scheduler service", () => {
+  test("accepts SchedulerRuntimePort without direct BrewvaRuntime coupling", async () => {
+    const workspace = createWorkspace("runtime-port");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "scheduler-runtime-port-session";
+    const now = Date.now();
+
+    const runtimePort: SchedulerRuntimePort = {
+      workspaceRoot: runtime.workspaceRoot,
+      scheduleConfig: runtime.config.schedule,
+      listSessionIds: () => runtime.events.listSessionIds(),
+      listEvents: (targetSessionId, query) => runtime.events.list(targetSessionId, query),
+      recordEvent: (input) => runtime.recordEvent(input),
+      subscribeEvents: (listener) => runtime.subscribeEvents(listener),
+      getTruthState: (targetSessionId) => runtime.getTruthState(targetSessionId),
+      getTaskState: (targetSessionId) => runtime.getTaskState(targetSessionId),
+    };
+
+    const scheduler = new SchedulerService({
+      runtime: runtimePort,
+      enableExecution: false,
+    });
+
+    const recovered = await scheduler.recover();
+    expect(recovered.rebuiltFromEvents).toBe(0);
+
+    const created = scheduler.createIntent({
+      parentSessionId: sessionId,
+      reason: "runtime-port create",
+      continuityMode: "inherit",
+      runAt: now + 5_000,
+    });
+    expect(created.ok).toBe(true);
+
+    const intents = scheduler.listIntents({ parentSessionId: sessionId });
+    expect(intents).toHaveLength(1);
+    expect(intents[0]?.parentSessionId).toBe(sessionId);
+
+    const scheduleEvents = runtime.queryEvents(sessionId, { type: SCHEDULE_EVENT_TYPE });
+    expect(scheduleEvents.length).toBeGreaterThan(0);
+
+    scheduler.stop();
+  });
+
   test("recovers missed runAt intent and converges one-shot intent", async () => {
     const workspace = createWorkspace("recover");
     const runtime = new BrewvaRuntime({ cwd: workspace });

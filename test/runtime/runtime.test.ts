@@ -643,8 +643,12 @@ describe("session state cleanup", () => {
       costUsd: 0.0001,
     });
 
-    expect((runtime as any).turnsBySession.has(sessionId)).toBe(true);
-    expect((runtime as any).toolCallsBySession.has(sessionId)).toBe(true);
+    const sessionState = (runtime as any).sessionState as {
+      turnsBySession: Map<string, number>;
+      toolCallsBySession: Map<string, number>;
+    };
+    expect(sessionState.turnsBySession.has(sessionId)).toBe(true);
+    expect(sessionState.toolCallsBySession.has(sessionId)).toBe(true);
     expect(((runtime as any).contextBudget.sessions as Map<string, unknown>).has(sessionId)).toBe(
       true,
     );
@@ -659,8 +663,8 @@ describe("session state cleanup", () => {
 
     runtime.clearSessionState(sessionId);
 
-    expect((runtime as any).turnsBySession.has(sessionId)).toBe(false);
-    expect((runtime as any).toolCallsBySession.has(sessionId)).toBe(false);
+    expect(sessionState.turnsBySession.has(sessionId)).toBe(false);
+    expect(sessionState.toolCallsBySession.has(sessionId)).toBe(false);
     expect((runtime as any).turnReplay.hasSession(sessionId)).toBe(false);
     expect(((runtime as any).contextBudget.sessions as Map<string, unknown>).has(sessionId)).toBe(
       false,

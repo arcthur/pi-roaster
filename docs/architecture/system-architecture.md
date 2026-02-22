@@ -39,6 +39,10 @@ flowchart TD
   - Runtime-aware tool definitions (LSP/AST, tape, ledger, task, skill, rollback, memory review/dismiss).
   - Tool-side scan telemetry (`tool_parallel_read`) and runtime APIs.
 - **Runtime core (`@brewva/brewva-runtime`)**
+  - Public facade: `BrewvaRuntime` (`packages/brewva-runtime/src/runtime.ts`) stays as external API entry.
+  - Internal logic is split into domain services (`packages/brewva-runtime/src/services/*`) and wired by constructor injection.
+  - Session-local ephemeral maps are centralized in `RuntimeSessionStateStore` (`packages/brewva-runtime/src/services/session-state.ts`).
+  - Scheduler boundary uses a narrow runtime port (`SchedulerRuntimePort`) instead of direct runtime coupling.
   - Skill contracts/selection, tool policy enforcement, verification gate.
   - Evidence ledger + truth/task event-sourced state.
   - Tape replay (`checkpoint + delta`), context budget, parallel budget, cost tracking.

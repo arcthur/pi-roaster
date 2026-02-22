@@ -1179,8 +1179,12 @@ describe("Extension integration: observability", () => {
       },
     );
 
-    expect((runtime as any).turnsBySession.has(sessionId)).toBe(false);
-    expect((runtime as any).toolCallsBySession.has(sessionId)).toBe(false);
+    const sessionState = (runtime as any).sessionState as {
+      turnsBySession: Map<string, number>;
+      toolCallsBySession: Map<string, number>;
+    };
+    expect(sessionState.turnsBySession.has(sessionId)).toBe(false);
+    expect(sessionState.toolCallsBySession.has(sessionId)).toBe(false);
     expect(((runtime as any).contextBudget.sessions as Map<string, unknown>).has(sessionId)).toBe(
       false,
     );
