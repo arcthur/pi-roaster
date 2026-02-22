@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/brewva-runtime" },
+    { "path": "./packages/brewva-channels-telegram" },
     { "path": "./packages/brewva-tools" },
     { "path": "./packages/brewva-extensions" },
     { "path": "./packages/brewva-cli" },

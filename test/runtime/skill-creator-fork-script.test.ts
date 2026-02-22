@@ -30,10 +30,16 @@ function runForkSkill(input: {
   });
 }
 
+function toTextOutput(value: ReturnType<typeof spawnSync>["stdout"]): string {
+  return typeof value === "string" ? value : value.toString("utf8");
+}
+
 function assertSuccess(result: ReturnType<typeof spawnSync>): void {
   if (result.status !== 0) {
+    const stdout = toTextOutput(result.stdout);
+    const stderr = toTextOutput(result.stderr);
     throw new Error(
-      `fork_skill.py failed (status=${result.status})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      `fork_skill.py failed (status=${result.status})\nstdout:\n${stdout}\nstderr:\n${stderr}`,
     );
   }
 }

@@ -4,10 +4,6 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [
-    { "path": "../brewva-runtime" },
-    { "path": "../brewva-channels-telegram" },
-    { "path": "../brewva-tools" }
-  ],
+  "references": [{ "path": "../brewva-runtime" }],
   "include": ["src/**/*.ts"]
 }

@@ -106,12 +106,13 @@ is documented in:
 
 ## Packages
 
-| Package                     | Responsibility                                                                                                                        |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `@brewva/brewva-runtime`    | Skill contracts, evidence ledger, verification gates, tape replay engine, memory projection/retrieval, context budget, cost tracking  |
-| `@brewva/brewva-tools`      | Runtime-aware tools: LSP/AST adapters, ledger query, skill lifecycle, task management, tape operations, memory insight/evolves review |
-| `@brewva/brewva-extensions` | Event hook wiring: context injection, memory bridge hooks, quality gates, completion guards, event stream persistence                 |
-| `@brewva/brewva-cli`        | CLI entrypoint, session bootstrap, TUI / `--print` / `--json` modes, replay and undo                                                  |
+| Package                            | Responsibility                                                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `@brewva/brewva-runtime`           | Skill contracts, evidence ledger, verification gates, tape replay engine, memory projection/retrieval, context budget, cost tracking  |
+| `@brewva/brewva-channels-telegram` | Telegram channel adapter package: update projection, approval callback signing, long-polling transport, and outbound rendering        |
+| `@brewva/brewva-tools`             | Runtime-aware tools: LSP/AST adapters, ledger query, skill lifecycle, task management, tape operations, memory insight/evolves review |
+| `@brewva/brewva-extensions`        | Event hook wiring: context injection, memory bridge hooks, quality gates, completion guards, event stream persistence                 |
+| `@brewva/brewva-cli`               | CLI entrypoint, session bootstrap, TUI / `--print` / `--json` modes, replay and undo                                                  |
 
 ## Skill System
 

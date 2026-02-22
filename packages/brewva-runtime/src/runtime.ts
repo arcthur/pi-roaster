@@ -149,9 +149,14 @@ function inferEventCategory(type: string): BrewvaEventCategory {
   if (type === TAPE_ANCHOR_EVENT_TYPE || type === TAPE_CHECKPOINT_EVENT_TYPE) {
     return "state";
   }
-  if (type.startsWith("session_") || type === "session_start" || type === "session_shutdown")
+  if (
+    type.startsWith("session_") ||
+    type.startsWith("channel_session_") ||
+    type === "session_start" ||
+    type === "session_shutdown"
+  )
     return "session";
-  if (type.startsWith("turn_")) return "turn";
+  if (type.startsWith("turn_") || type.startsWith("channel_turn_")) return "turn";
   if (type.includes("tool") || type.startsWith("patch_") || type === "rollback") return "tool";
   if (type.startsWith("context_")) return "context";
   if (type.startsWith("cost_") || type.startsWith("budget_")) return "cost";

@@ -10,6 +10,7 @@ CLI implementation: `packages/brewva-cli/src/index.ts`.
 - Undo mode (`--undo`)
 - Replay mode (`--replay`)
 - Scheduler daemon mode (`--daemon`)
+- Channel gateway mode (`--channel`)
 
 ## Startup Behavior
 
@@ -39,6 +40,12 @@ CLI implementation: `packages/brewva-cli/src/index.ts`.
 - `--undo`
 - `--replay`
 - `--daemon`
+- `--channel`
+- `--telegram-token`
+- `--telegram-callback-secret`
+- `--telegram-poll-timeout`
+- `--telegram-poll-limit`
+- `--telegram-poll-retry-ms`
 - `--session`
 - `--verbose`
 - `--help`
@@ -62,6 +69,17 @@ It cannot be combined with `--print`/`--json`/`--mode`, `--undo`/`--replay`,
 `--task`/`--task-file`, or inline prompt text.
 It also requires `schedule.enabled=true` and `infrastructure.events.enabled=true`.
 
+`--channel` runs gateway mode for channel ingress/egress.
+Current supported value is `telegram` (alias `tg`).
+It cannot be combined with `--daemon`, `--undo`/`--replay`, `--task`/`--task-file`,
+non-interactive output flags (`--print`/`--json`/`--mode`), or inline prompt text.
+For `--channel telegram`, `--telegram-token` is required.
+Other Telegram flags are optional and mapped into channel-scoped config:
+`channelConfig.telegram.callbackSecret`,
+`channelConfig.telegram.pollTimeoutSeconds`,
+`channelConfig.telegram.pollLimit`,
+`channelConfig.telegram.pollRetryMs`.
+
 To temporarily restore upstream version-check notifications (this is an upstream `pi-coding-agent` environment variable), launch with an empty override:
 
 ```bash
@@ -77,4 +95,10 @@ bun run start -- --mode json "Summarize recent changes"
 bun run start -- --print --task-file ./task.json
 bun run start -- --undo --session <session-id>
 bun run start -- --replay --mode json --session <session-id>
+bun run start -- --channel telegram --telegram-token <bot-token>
+bun run start -- --channel tg --telegram-token <bot-token> --telegram-poll-timeout 15
 ```
+
+## Related Journey
+
+- `docs/journeys/channel-gateway-and-turn-flow.md`

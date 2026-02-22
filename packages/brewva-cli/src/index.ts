@@ -14,6 +14,7 @@ import {
 } from "@brewva/brewva-runtime";
 import { InteractiveMode, runPrintMode } from "@mariozechner/pi-coding-agent";
 import { differenceInSeconds, formatISO } from "date-fns";
+import { runChannelMode } from "./channel-mode.js";
 import { JsonLineWriter, writeJsonLine } from "./json-lines.js";
 import { createBrewvaSession, type BrewvaSessionResult } from "./session.js";
 
@@ -119,6 +120,16 @@ Options:
   --undo                Roll back the latest tracked patch set in this session
   --replay              Replay persisted runtime events
   --daemon              Run scheduler daemon (no interactive session)
+  --channel <name>      Run channel gateway mode (currently: telegram)
+  --telegram-token <t>  Telegram bot token for --channel telegram
+  --telegram-callback-secret <s>
+                        Secret used to sign/verify Telegram approval callbacks
+  --telegram-poll-timeout <seconds>
+                        Telegram getUpdates timeout in seconds
+  --telegram-poll-limit <n>
+                        Telegram getUpdates batch size (1-100)
+  --telegram-poll-retry-ms <ms>
+                        Delay before retry when polling fails
   --session <id>        Target session id for --undo/--replay
   --verbose             Verbose interactive startup
   -h, --help            Show help
@@ -131,10 +142,23 @@ Examples:
   brewva --task-file ./task.json
   brewva --undo --session <session-id>
   brewva --replay --mode json --session <session-id>
+  brewva --channel telegram --telegram-token <bot-token>
   brewva --daemon`);
 }
 
 type CliMode = "interactive" | "print-text" | "print-json";
+
+interface TelegramCliChannelConfig {
+  token?: string;
+  callbackSecret?: string;
+  pollTimeoutSeconds?: number;
+  pollLimit?: number;
+  pollRetryMs?: number;
+}
+
+interface CliChannelConfig {
+  telegram?: TelegramCliChannelConfig;
+}
 
 interface CliArgs {
   cwd?: string;
@@ -142,6 +166,8 @@ interface CliArgs {
   model?: string;
   taskJson?: string;
   taskFile?: string;
+  channel?: string;
+  channelConfig?: CliChannelConfig;
   enableExtensions: boolean;
   undo: boolean;
   replay: boolean;
@@ -168,6 +194,12 @@ const CLI_PARSE_OPTIONS = {
   undo: { type: "boolean" },
   replay: { type: "boolean" },
   daemon: { type: "boolean" },
+  channel: { type: "string" },
+  "telegram-token": { type: "string" },
+  "telegram-callback-secret": { type: "string" },
+  "telegram-poll-timeout": { type: "string" },
+  "telegram-poll-limit": { type: "string" },
+  "telegram-poll-retry-ms": { type: "string" },
   session: { type: "string" },
   verbose: { type: "boolean" },
 } as const;
@@ -177,6 +209,24 @@ function resolveModeFromFlag(value: string): CliMode | null {
   if (value === "json") return "print-json";
   console.error(`Error: --mode must be "text" or "json" (received "${value}").`);
   return null;
+}
+
+function parseOptionalIntegerFlag(
+  name: string,
+  raw: unknown,
+): { value: number | undefined; error?: string } {
+  if (typeof raw !== "string") {
+    return { value: undefined };
+  }
+  const normalized = raw.trim();
+  if (!normalized) {
+    return { value: undefined, error: `Error: --${name} must be an integer.` };
+  }
+  const value = Number(normalized);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    return { value: undefined, error: `Error: --${name} must be an integer.` };
+  }
+  return { value };
 }
 
 function parseArgs(argv: string[]): CliArgs | null {
@@ -229,6 +279,30 @@ function parseArgs(argv: string[]): CliArgs | null {
   }
 
   const prompt = parsed.positionals.join(" ").trim() || undefined;
+  const pollTimeout = parseOptionalIntegerFlag(
+    "telegram-poll-timeout",
+    parsed.values["telegram-poll-timeout"],
+  );
+  if (pollTimeout.error) {
+    console.error(pollTimeout.error);
+    return null;
+  }
+  const pollLimit = parseOptionalIntegerFlag(
+    "telegram-poll-limit",
+    parsed.values["telegram-poll-limit"],
+  );
+  if (pollLimit.error) {
+    console.error(pollLimit.error);
+    return null;
+  }
+  const pollRetryMs = parseOptionalIntegerFlag(
+    "telegram-poll-retry-ms",
+    parsed.values["telegram-poll-retry-ms"],
+  );
+  if (pollRetryMs.error) {
+    console.error(pollRetryMs.error);
+    return null;
+  }
 
   return {
     cwd: typeof parsed.values.cwd === "string" ? parsed.values.cwd : undefined,
@@ -237,6 +311,22 @@ function parseArgs(argv: string[]): CliArgs | null {
     taskJson: typeof parsed.values.task === "string" ? parsed.values.task : undefined,
     taskFile:
       typeof parsed.values["task-file"] === "string" ? parsed.values["task-file"] : undefined,
+    channel: typeof parsed.values.channel === "string" ? parsed.values.channel : undefined,
+    channelConfig: {
+      telegram: {
+        token:
+          typeof parsed.values["telegram-token"] === "string"
+            ? parsed.values["telegram-token"]
+            : undefined,
+        callbackSecret:
+          typeof parsed.values["telegram-callback-secret"] === "string"
+            ? parsed.values["telegram-callback-secret"]
+            : undefined,
+        pollTimeoutSeconds: pollTimeout.value,
+        pollLimit: pollLimit.value,
+        pollRetryMs: pollRetryMs.value,
+      },
+    },
     enableExtensions: parsed.values["no-extensions"] !== true,
     undo: parsed.values.undo === true,
     replay: parsed.values.replay === true,
@@ -749,6 +839,43 @@ async function run(): Promise<void> {
   process.title = "brewva";
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed) return;
+
+  if (parsed.channel) {
+    if (parsed.daemon) {
+      console.error("Error: --channel cannot be combined with --daemon.");
+      return;
+    }
+    if (parsed.undo || parsed.replay) {
+      console.error("Error: --channel cannot be combined with --undo/--replay.");
+      return;
+    }
+    if (parsed.taskJson || parsed.taskFile) {
+      console.error("Error: --channel cannot be combined with --task/--task-file.");
+      return;
+    }
+    if (parsed.prompt) {
+      console.error("Error: --channel mode does not accept prompt text.");
+      return;
+    }
+    if (parsed.modeExplicit && parsed.mode !== "interactive") {
+      console.error("Error: --channel mode cannot be combined with --print/--json/--mode.");
+      return;
+    }
+
+    await runChannelMode({
+      cwd: parsed.cwd,
+      configPath: parsed.configPath,
+      model: parsed.model,
+      enableExtensions: parsed.enableExtensions,
+      verbose: parsed.verbose,
+      channel: parsed.channel,
+      channelConfig: parsed.channelConfig,
+      onRuntimeReady: (runtime) => {
+        printConfigDiagnostics(runtime.configDiagnostics, parsed.verbose);
+      },
+    });
+    return;
+  }
 
   if (parsed.daemon) {
     await runDaemon(parsed);

@@ -12,6 +12,7 @@ Implementation source: `packages/brewva-cli/src/index.ts`.
 - Undo mode (`--undo`)
 - Replay mode (`--replay`)
 - Scheduler daemon mode (`--daemon`)
+- Channel gateway mode (`--channel`)
 
 `--daemon` executes due intents in child sessions (lineage-aware wakeups) and
 handles graceful shutdown by aborting active child runs on signals.
@@ -21,6 +22,20 @@ Daemon mode rejects incompatible input surfaces:
 - `--undo` / `--replay`
 - `--task` / `--task-file`
 - inline prompt text
+
+`--channel` runs channel gateway orchestration.
+Supported channel ids are `telegram` and alias `tg`.
+Channel mode rejects incompatible input surfaces:
+
+- `--daemon`
+- `--undo` / `--replay`
+- `--task` / `--task-file`
+- `--print` / `--json` / `--mode`
+- inline prompt text
+
+`--channel telegram` requires `--telegram-token`.
+`--telegram-callback-secret`, `--telegram-poll-timeout`, `--telegram-poll-limit`,
+and `--telegram-poll-retry-ms` are optional tuning flags.
 
 Daemon startup also requires:
 
@@ -50,6 +65,12 @@ With `--verbose`, daemon prints a rolling 60-second scheduler window summary
 - `--undo`
 - `--replay`
 - `--daemon`
+- `--channel`
+- `--telegram-token`
+- `--telegram-callback-secret`
+- `--telegram-poll-timeout`
+- `--telegram-poll-limit`
+- `--telegram-poll-retry-ms`
 - `--session`
 - `--verbose`
 - `--help`
@@ -63,6 +84,11 @@ Short aliases:
 `--no-extensions` disables presentation-oriented extension handlers. Runtime
 core bridge hooks remain active for tool policy, compaction gate, and
 ledger/patch tracking.
+
+Channel mode examples:
+
+- `bun run start -- --channel telegram --telegram-token <bot-token>`
+- `bun run start -- --channel tg --telegram-token <bot-token> --telegram-poll-timeout 15`
 
 ## Input Resolution Rules
 

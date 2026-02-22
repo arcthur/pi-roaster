@@ -56,3 +56,5 @@ export { registerLedgerWriter } from "./ledger-writer.js";
 export { registerCompletionGuard } from "./completion-guard.js";
 export { registerMemoryBridge } from "./memory-bridge.js";
 export { registerNotification } from "./notification.js";
+export { createRuntimeChannelTurnBridge } from "./channel-turn-bridge.js";
+export { createRuntimeTelegramChannelBridge } from "./telegram-channel-bridge.js";

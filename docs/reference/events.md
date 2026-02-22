@@ -22,8 +22,16 @@ fields as forward-compatible.
 
 - `session_start`
 - `session_shutdown`
+- `channel_session_bound`
 - `turn_start`
 - `turn_end`
+- `channel_turn_ingested`
+- `channel_turn_dispatch_start`
+- `channel_turn_dispatch_end`
+- `channel_turn_emitted`
+- `channel_turn_outbound_complete`
+- `channel_turn_outbound_error`
+- `channel_turn_bridge_error`
 - `tool_call`
 - `tool_result_recorded`
 - `tool_parallel_read`
@@ -65,6 +73,114 @@ fields as forward-compatible.
 - `schedule_child_session_started`
 - `schedule_child_session_finished`
 - `schedule_child_session_failed`
+
+## Channel Gateway Events
+
+### `channel_session_bound`
+
+Emitted by channel mode when a `(channel, conversationId)` pair is bound to an
+agent session.
+
+Payload fields:
+
+- `channel`
+- `conversationId`
+- `channelConversationKey`
+- `channelTurnSessionId`
+- `agentSessionId`
+
+### `channel_turn_ingested`
+
+Emitted when adapter ingress yields a normalized turn envelope.
+
+Payload fields:
+
+- `adapterId`
+- `turnSessionId`
+- `turnId`
+- `kind`
+- `channel`
+- `conversationId`
+- `messageId`
+- `threadId`
+- `partTypes`
+- `partCount`
+- `timestamp`
+
+### `channel_turn_dispatch_start`
+
+Emitted when CLI channel orchestration starts dispatching an inbound turn to the
+agent session.
+
+Payload fields:
+
+- `turnId`
+- `kind`
+- `agentSessionId`
+
+### `channel_turn_dispatch_end`
+
+Emitted when CLI channel orchestration completes one inbound dispatch cycle.
+
+Payload fields:
+
+- `turnId`
+- `kind`
+- `agentSessionId`
+- `assistantChars`
+- `toolTurns`
+
+### `channel_turn_emitted`
+
+Emitted when a prepared outbound turn is delivered through the adapter.
+
+Payload fields:
+
+- `adapterId`
+- `turnId`
+- `kind`
+- `channel`
+- `conversationId`
+- `messageId`
+- `threadId`
+- `partTypes`
+- `partCount`
+- `timestamp`
+- `requestedTurnId`
+- `providerMessageId`
+
+### `channel_turn_outbound_complete`
+
+Emitted when all outbound turns produced from one inbound dispatch are handled.
+
+Payload fields:
+
+- `turnId`
+- `agentSessionId`
+- `outboundTurnsSent`
+- `toolTurns`
+- `hasAssistantTurn`
+
+### `channel_turn_outbound_error`
+
+Emitted when sending an outbound turn fails.
+
+Payload fields:
+
+- `turnId`
+- `outboundKind`
+- `toolCallId` (optional, tool turn only)
+- `agentSessionId`
+- `error`
+
+### `channel_turn_bridge_error`
+
+Emitted when bridge send/adapter operations throw.
+
+Payload fields:
+
+- `adapterId`
+- `error`
 
 ## Raw vs Semantic Tool Events
 

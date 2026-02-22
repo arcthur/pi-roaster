@@ -1050,13 +1050,27 @@ describe("Gap remediation: structured replay events", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".config/brewva/brewva.json" });
     const sessionId = "replay-1";
     runtime.recordEvent({ sessionId, type: "session_start", payload: { cwd: workspace } });
+    runtime.recordEvent({
+      sessionId,
+      type: "channel_session_bound",
+      payload: { channel: "telegram", conversationId: "12345" },
+    });
     runtime.recordEvent({ sessionId, type: "tool_call", turn: 1, payload: { toolName: "read" } });
 
     const structured = runtime.queryStructuredEvents(sessionId);
-    expect(structured.length).toBe(2);
+    expect(structured.length).toBe(3);
     expect(structured[0]?.schema).toBe("brewva.event.v1");
-    expect(structured[0]?.category).toBe("session");
-    expect(structured[1]?.category).toBe("tool");
+    expect(
+      structured.some((event) => event.type === "session_start" && event.category === "session"),
+    ).toBe(true);
+    expect(
+      structured.some(
+        (event) => event.type === "channel_session_bound" && event.category === "session",
+      ),
+    ).toBe(true);
+    expect(
+      structured.some((event) => event.type === "tool_call" && event.category === "tool"),
+    ).toBe(true);
 
     const sessions = runtime.listReplaySessions();
     expect(sessions.some((entry) => entry.sessionId === sessionId)).toBe(true);

@@ -31,6 +31,7 @@
     "typecheck:test": "tsc -b test/tsconfig.json"
   },
   "devDependencies": {
+    "@brewva/brewva-channels-telegram": "workspace:*",
     "@brewva/brewva-cli": "workspace:*",
     "@brewva/brewva-extensions": "workspace:*",
     "@brewva/brewva-runtime": "workspace:*",

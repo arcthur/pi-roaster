@@ -13,6 +13,7 @@
 Primary deliverables:
 
 - Runtime core (`@brewva/brewva-runtime`)
+- Channel packages (`@brewva/brewva-channels-telegram`, …)
 - Tool registry (`@brewva/brewva-tools`)
 - Extension wiring (`@brewva/brewva-extensions`)
 - CLI session bootstrap (`@brewva/brewva-cli`)
@@ -25,10 +26,11 @@ Primary deliverables:
 ```text
 brewva/
 ├── packages/
-│   ├── brewva-runtime/      # skill contracts, ledger, verification, replay, snapshots, cost tracking
-│   ├── brewva-tools/        # runtime-aware tools + lsp/ast helpers
-│   ├── brewva-extensions/   # event hooks and runtime integration
-│   └── brewva-cli/          # CLI entrypoint + session creation
+│   ├── brewva-runtime/            # skill contracts, ledger, verification, replay, snapshots, cost tracking
+│   ├── brewva-channels-telegram/  # Telegram channel adapter, projector, transport
+│   ├── brewva-tools/              # runtime-aware tools + lsp/ast helpers
+│   ├── brewva-extensions/         # event hooks and runtime integration
+│   └── brewva-cli/                # CLI entrypoint + session creation
 ├── distribution/             # launcher + per-platform binary packages
 ├── script/                   # build-binaries.ts, verify-dist.ts
 ├── skills/                   # base/packs/project skills

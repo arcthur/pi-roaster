@@ -21,6 +21,7 @@ This repository uses a layered documentation system:
 ## Journeys
 
 - Planning to execution: `docs/journeys/planning-to-execution.md`
+- Channel gateway flow: `docs/journeys/channel-gateway-and-turn-flow.md`
 - Context and compaction: `docs/journeys/context-and-compaction.md`
 - Background and parallelism: `docs/journeys/background-and-parallelism.md`
 - Intent-driven scheduling: `docs/journeys/intent-driven-scheduling.md`
@@ -54,6 +55,7 @@ This repository uses a layered documentation system:
 ## Source of Truth
 
 - Runtime package: `packages/brewva-runtime/src/index.ts`
+- Telegram channel package: `packages/brewva-channels-telegram/src/index.ts`
 - Tool package: `packages/brewva-tools/src/index.ts`
 - Extension package: `packages/brewva-extensions/src/index.ts`
 - CLI package: `packages/brewva-cli/src/index.ts`

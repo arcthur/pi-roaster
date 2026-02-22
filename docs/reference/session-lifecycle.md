@@ -15,6 +15,7 @@
 - Replay (`--replay`): query structured events and print text/JSON timeline
 - Undo (`--undo`): resolve target session and rollback latest tracked patch set
 - JSON one-shot (`--mode json`/`--json`): emits normal stream plus final `brewva_event_bundle`
+- Channel gateway (`--channel`): run adapter bridge loop; bind channel conversations to agent sessions and dispatch inbound turns serially per conversation key
 
 ## Recovery Path
 

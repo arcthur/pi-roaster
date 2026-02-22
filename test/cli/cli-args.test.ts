@@ -78,4 +78,46 @@ describe("brewva cli args", () => {
     expect(parsed!.mode).toBe("interactive");
     expect(parsed!.prompt).toBeUndefined();
   });
+
+  test("supports channel mode telegram flags", () => {
+    const parsed = parseArgs([
+      "--channel",
+      "telegram",
+      "--telegram-token",
+      "bot-token",
+      "--telegram-callback-secret",
+      "secret",
+      "--telegram-poll-timeout",
+      "15",
+      "--telegram-poll-limit",
+      "50",
+      "--telegram-poll-retry-ms",
+      "2500",
+    ]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.channel).toBe("telegram");
+    expect(parsed!.channelConfig?.telegram?.token).toBe("bot-token");
+    expect(parsed!.channelConfig?.telegram?.callbackSecret).toBe("secret");
+    expect(parsed!.channelConfig?.telegram?.pollTimeoutSeconds).toBe(15);
+    expect(parsed!.channelConfig?.telegram?.pollLimit).toBe(50);
+    expect(parsed!.channelConfig?.telegram?.pollRetryMs).toBe(2500);
+    expect(parsed!.mode).toBe("interactive");
+  });
+
+  test("rejects non-integer telegram polling flags", () => {
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map((value) => String(value)).join(" "));
+    };
+    try {
+      const parsed = parseArgs(["--channel", "telegram", "--telegram-poll-timeout", "1.5"]);
+      expect(parsed).toBeNull();
+    } finally {
+      console.error = originalError;
+    }
+    expect(errors.some((line) => line.includes("--telegram-poll-timeout must be an integer"))).toBe(
+      true,
+    );
+  });
 });
