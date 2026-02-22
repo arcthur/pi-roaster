@@ -1,7 +1,7 @@
 ---
 name: review
-description: Risk-driven code review for merge safety with evidence-based findings.
-version: 1.1.0
+description: Risk-driven merge-safety review with deterministic issue tables and evidence-backed decisions.
+version: 2.0.0
 stability: stable
 tier: base
 tags: [review, quality, bug, risk, merge-safety]
@@ -24,7 +24,11 @@ escalation_path:
 
 ## Intent
 
-Assess change risk with the minimum sufficient evidence and produce an actionable merge decision.
+Assess merge risk with the minimum sufficient evidence and produce:
+
+- deterministic, fix-ready issue inventory
+- explicit merge decision
+- clear testing gaps and residual risks
 
 ## Trigger
 
@@ -37,8 +41,9 @@ Use this skill for:
 ## Core Principles
 
 - findings first; conclusions must be evidence-backed
-- model risk before selecting review depth
-- prioritize root-cause issues over style suggestions
+- risk model before depth selection
+- prioritize behavior, safety, compatibility, and operability over style
+- all issues must be traceable with stable IDs and locations
 - review is read-only; do not implement changes, run verification commands, or perform Git operations
 - follow executable-evidence policy from `skills/base/planning/references/executable-evidence-bridge.md`
 
@@ -55,7 +60,7 @@ Collect and state explicitly:
 
 If no diff is available, explicitly declare the review target and key assumptions.
 
-Blocking output:
+Required output:
 
 ```text
 REVIEW_CONTEXT
@@ -85,7 +90,7 @@ Depth routing rules:
 - `>=8` => `DEEP` + mandatory `security` lane
 - any `P0/P1` finding or insufficient critical-path evidence => upgrade from `QUICK` to `DEEP`
 
-Blocking output:
+Required output:
 
 ```text
 RISK_PROFILE
@@ -99,7 +104,24 @@ RISK_PROFILE
   - "<core|security|architecture|performance|ux>"
 ```
 
-### Step 3: Evidence collection by lane
+### Step 3: Check plan and evidence collection
+
+Before reviewing details, enumerate checks and concrete search targets.
+
+`CHECKS_PERFORMED` must be included in the final report.
+
+Each check entry must include:
+
+- `name` (stable check label)
+- `lane` (`core|security|architecture|performance|ux`)
+- `patterns` (what was inspected, APIs/paths/symbols/contracts)
+- `result` (`no_issue|issue_found|insufficient_evidence`)
+
+If an external aggregated review tool (for example `code_review`) is available, treat it as a supplemental check only:
+
+- use it to broaden candidate issue discovery
+- still perform lane-based validation for severity, confidence, and evidence
+- never skip Step 1/Step 2 risk modeling because of tool output
 
 `core` lane (always enabled):
 
@@ -114,14 +136,15 @@ In `DEEP`, activate additional lanes based on risk:
 - `performance` lane: `skills/base/review/references/boundary-failure.md`
 - `ux` lane: enable only when UI changes are explicit, focusing on state flows and accessibility risks
 
-### Step 4: Emit findings first
+### Step 4: Emit findings first (mandatory ordering)
 
 Output order is mandatory:
 
 1. findings (highest severity first)
-2. open questions / assumptions
-3. testing gaps
-4. decision summary
+2. normalized results table
+3. open questions / assumptions
+4. testing gaps
+5. decision summary
 
 Severity labels:
 
@@ -129,6 +152,13 @@ Severity labels:
 - `P1`: high-impact bug or likely regression
 - `P2`: reliability/maintainability issue
 - `P3`: low-impact improvement
+
+External severity mapping (for table output):
+
+- `P0` => `CRITICAL`
+- `P1` => `HIGH`
+- `P2` => `MEDIUM`
+- `P3` => `LOW`
 
 Every finding must include:
 
@@ -140,7 +170,7 @@ Every finding must include:
 - evidence (code path, contract delta, test signal, or log signal)
 - recommendation (minimal safe fix direction)
 
-Blocking template:
+Required finding template:
 
 ```text
 FINDING
@@ -153,7 +183,50 @@ FINDING
 - recommendation: "<minimal safe fix>"
 ```
 
-### Step 5: Decision and handoff
+Findings must be numbered sequentially starting from `1` in report order.
+
+If no findings exist, emit:
+
+```text
+NO_FINDINGS
+- rationale: "<why no actionable issue was found>"
+- residual_risks:
+  - "<remaining uncertainty>"
+```
+
+### Step 5: Emit normalized results table (mandatory)
+
+After `FINDING` blocks, emit this exact header and columns:
+
+```text
+Code Review Results
+X issues found across Y checks
+
+#	Severity	Source	Location	Problem	Why	Fix
+1	CRITICAL	security	path:line	problem text	why text	fix text
+2	HIGH	core	path:line	problem text	why text	fix text
+3	MEDIUM	architecture	path:line	problem text	why text	fix text
+4	LOW	performance	path:line	problem text	why text	fix text
+```
+
+Rules:
+
+- `#` must match finding IDs.
+- `Severity` must use mapped external severity (`CRITICAL/HIGH/MEDIUM/LOW`).
+- `Source` should be the originating lane (`core/security/architecture/performance/ux`).
+- `Location` should be `file:line` when available; otherwise `path:symbol`.
+- `Problem/Why/Fix` must be concise and actionable.
+- `X` is actionable issue count, `Y` is checks count from `CHECKS_PERFORMED`.
+
+Then emit:
+
+```text
+Checks performed:
+- <check_name>: <patterns inspected> => <result>
+- <check_name>: <patterns inspected> => <result>
+```
+
+### Step 6: Decision and handoff
 
 Decision types:
 
@@ -175,7 +248,13 @@ REVIEW_DECISION
   - "<accepted risk>"
 ```
 
-### Step 6: Evidence bridge on blocker
+Final interaction line:
+
+- if `X > 0`, ask exactly:
+  `"Would you like me to fix any of these issues? (e.g., 'fix issue #1' or 'fix issues #2 and #3')"`
+- if `X = 0`, state that no actionable issues were found and list residual risks/testing gaps.
+
+### Step 7: Evidence bridge on blocker
 
 If risk is high and required verification evidence cannot be obtained, emit `TOOL_BRIDGE` using:
 `skills/base/planning/references/executable-evidence-bridge.md`
@@ -199,6 +278,8 @@ When blocked, state exactly which artifact is missing.
 
 - skipping risk modeling and jumping directly to conclusions
 - prioritizing style comments over behavior/risk issues
+- presenting checklists without issue-to-evidence mapping
+- emitting table rows that cannot be traced back to findings
 - modifying code during the review phase
 - presenting strong conclusions without confidence labels
 - claiming "no issues" without disclosing residual risks or testing gaps
@@ -215,5 +296,7 @@ Expected outputs:
 
 1. `REVIEW_CONTEXT`
 2. `RISK_PROFILE` with `QUICK` or `DEEP`
-3. Findings list (`P0-P3`, with confidence and evidence)
-4. `REVIEW_DECISION` + `testing_gaps`
+3. `CHECKS_PERFORMED`
+4. Findings list (`P0-P3`, with confidence and evidence)
+5. `Code Review Results` table + checks list
+6. `REVIEW_DECISION` + `testing_gaps`
