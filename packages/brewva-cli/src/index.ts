@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { format, parseArgs as parseNodeArgs } from "node:util";
+import { runGatewayCli } from "@brewva/brewva-gateway";
 import {
   BrewvaRuntime,
   SchedulerService,
@@ -100,6 +101,9 @@ function printHelp(): void {
 
 Usage:
   brewva [options] [prompt]
+
+Subcommands:
+  brewva gateway ...   Local control-plane daemon commands
 
 Modes:
   default               Interactive TUI mode (same flow as pi)
@@ -837,7 +841,16 @@ async function runDaemon(parsed: CliArgs): Promise<void> {
 
 async function run(): Promise<void> {
   process.title = "brewva";
-  const parsed = parseArgs(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs[0] === "gateway") {
+    const gatewayResult = await runGatewayCli(rawArgs.slice(1));
+    if (gatewayResult.handled) {
+      process.exitCode = gatewayResult.exitCode;
+      return;
+    }
+  }
+
+  const parsed = parseArgs(rawArgs);
   if (!parsed) return;
 
   if (parsed.channel) {

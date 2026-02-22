@@ -8,10 +8,12 @@
         "@brewva/brewva-channels-telegram": "workspace:*",
         "@brewva/brewva-cli": "workspace:*",
         "@brewva/brewva-extensions": "workspace:*",
+        "@brewva/brewva-gateway": "workspace:*",
         "@brewva/brewva-runtime": "workspace:*",
         "@brewva/brewva-tools": "workspace:*",
         "@mariozechner/pi-coding-agent": "^0.53.0",
         "@types/node": "^25.2.3",
+        "@types/ws": "^8.18.1",
         "bun-types": "^1.3.9",
         "oxfmt": "0.33.0",
         "oxlint": "^1.48.0",
@@ -103,6 +105,7 @@
       },
       "dependencies": {
         "@brewva/brewva-extensions": "workspace:*",
+        "@brewva/brewva-gateway": "workspace:*",
         "@brewva/brewva-runtime": "workspace:*",
         "@brewva/brewva-tools": "workspace:*",
         "@mariozechner/pi-coding-agent": "^0.53.0",
@@ -117,6 +120,19 @@
         "@brewva/brewva-runtime": "workspace:*",
         "@brewva/brewva-tools": "workspace:*",
         "@mariozechner/pi-coding-agent": "^0.53.0",
+      },
+    },
+    "packages/brewva-gateway": {
+      "name": "@brewva/brewva-gateway",
+      "version": "0.1.0",
+      "dependencies": {
+        "@brewva/brewva-extensions": "workspace:*",
+        "@brewva/brewva-runtime": "workspace:*",
+        "@brewva/brewva-tools": "workspace:*",
+        "@mariozechner/pi-coding-agent": "^0.53.0",
+        "@sinclair/typebox": "^0.34.48",
+        "ajv": "^8.17.1",
+        "ws": "^8.18.3",
       },
     },
     "packages/brewva-runtime": {
@@ -225,6 +241,8 @@
     "@brewva/brewva-darwin-x64": ["@brewva/brewva-darwin-x64@workspace:distribution/brewva-darwin-x64"],
 
     "@brewva/brewva-extensions": ["@brewva/brewva-extensions@workspace:packages/brewva-extensions"],
+
+    "@brewva/brewva-gateway": ["@brewva/brewva-gateway@workspace:packages/brewva-gateway"],
 
     "@brewva/brewva-linux-arm64": ["@brewva/brewva-linux-arm64@workspace:distribution/brewva-linux-arm64"],
 
@@ -493,6 +511,8 @@
     "@types/mime-types": ["@types/mime-types@2.1.4", "", {}, "sha512-lfU4b34HOri+kAY5UheuFMWPDOI+OPceBSHZKp69gEyTL/mmJ4cnU6Y/rlme3UL3GyOn6Y42hyIEw0/q8sWx5w=="],
 
     "@types/node": ["@types/node@25.2.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-m0jEgYlYz+mDJZ2+F4v8D1AyQb+QzsNqRuI7xg1VQX/KlKS0qT9r1Mo16yo5F/MtifXFgaofIFsdFMox2SxIbQ=="],
+
+    "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 

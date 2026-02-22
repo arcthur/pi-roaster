@@ -8,15 +8,18 @@ current package dependencies and runtime wiring.
 ```mermaid
 flowchart TD
   CLI["@brewva/brewva-cli"]
+  GTW["@brewva/brewva-gateway"]
   EXT["@brewva/brewva-extensions"]
   TOOLS["@brewva/brewva-tools"]
   RT["@brewva/brewva-runtime"]
   DIST["distribution/*"]
   SCRIPT["script/*"]
 
+  CLI --> GTW
   CLI --> EXT
   CLI --> TOOLS
   CLI --> RT
+  GTW --> RT
   EXT --> TOOLS
   EXT --> RT
   TOOLS --> RT
@@ -28,7 +31,13 @@ flowchart TD
 
 - **Session entry and mode control (`@brewva/brewva-cli`)**
   - CLI flags, interactive/print/json modes, replay/undo, signal handling.
+  - Gateway subcommand dispatch (`brewva gateway ...`).
   - Session bootstrap and extension-enabled/disabled selection.
+- **Control-plane daemon (`@brewva/brewva-gateway`)**
+  - Local daemon lifecycle management (`start`/`status`/`stop`/`rotate-token`/`logs`).
+  - Typed WebSocket protocol surface (frame validation, method/event schema, traceId propagation).
+  - Connection authentication (challenge-response) and connection revocation after token rotation.
+  - Session worker supervision, heartbeat policy reload, PID/state-file management.
 - **Lifecycle orchestration (`@brewva/brewva-extensions`)**
   - Event stream persistence hooks.
   - Context transform and compaction gate behavior.
