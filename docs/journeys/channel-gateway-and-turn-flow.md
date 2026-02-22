@@ -1,5 +1,7 @@
 # Journey: Channel Gateway And Turn Flow
 
+> Note: this document describes channel ingress/egress (`--channel`), not the local control-plane daemon (`brewva gateway ...`).
+
 ## Objective
 
 Describe the end-to-end `--channel` execution path: inbound channel updates are normalized into `TurnEnvelope`, orchestrated against runtime-backed agent sessions, and delivered back to the originating channel.

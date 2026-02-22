@@ -5,6 +5,7 @@
     { "path": "./packages/brewva-channels-telegram" },
     { "path": "./packages/brewva-tools" },
     { "path": "./packages/brewva-extensions" },
+    { "path": "./packages/brewva-gateway" },
     { "path": "./packages/brewva-cli" },
     { "path": "./script" }
   ]

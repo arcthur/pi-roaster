@@ -14,6 +14,7 @@ This repository uses a layered documentation system:
 - Installation: `docs/guide/installation.md`
 - Features: `docs/guide/features.md`
 - CLI: `docs/guide/cli.md`
+- Gateway daemon: `docs/guide/gateway-control-plane-daemon.md`
 - Runtime architecture: `docs/guide/understanding-runtime-system.md`
 - Orchestration: `docs/guide/orchestration.md`
 - Skill categories: `docs/guide/category-and-skills.md`
@@ -43,6 +44,7 @@ This repository uses a layered documentation system:
 - Events: `docs/reference/events.md`
 - Extensions: `docs/reference/extensions.md`
 - Commands (CLI surface): `docs/reference/commands.md`
+- Gateway control-plane protocol: `docs/reference/gateway-control-plane-protocol.md`
 - Session lifecycle: `docs/reference/session-lifecycle.md`
 - Artifacts and paths: `docs/reference/artifacts-and-paths.md`
 - Glossary: `docs/reference/glossary.md`
@@ -59,3 +61,4 @@ This repository uses a layered documentation system:
 - Tool package: `packages/brewva-tools/src/index.ts`
 - Extension package: `packages/brewva-extensions/src/index.ts`
 - CLI package: `packages/brewva-cli/src/index.ts`
+- Gateway package: `packages/brewva-gateway/src/index.ts`

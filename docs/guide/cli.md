@@ -12,6 +12,20 @@ CLI implementation: `packages/brewva-cli/src/index.ts`.
 - Scheduler daemon mode (`--daemon`)
 - Channel gateway mode (`--channel`)
 
+## Gateway Subcommand (`brewva gateway`)
+
+In addition to `brewva [flags]` primary modes, the CLI exposes control-plane subcommands:
+
+- `brewva gateway start`
+- `brewva gateway status`
+- `brewva gateway stop`
+- `brewva gateway heartbeat-reload`
+- `brewva gateway rotate-token`
+- `brewva gateway logs`
+
+`brewva gateway` and `--channel` are different execution paths: the former is the local control-plane daemon, while the latter is channel ingress/egress orchestration.
+For operational details, see `docs/guide/gateway-control-plane-daemon.md`.
+
 ## Startup Behavior
 
 - Interactive mode defaults to quiet startup, reducing banner/changelog/version-check noise during initialization.
@@ -102,3 +116,4 @@ bun run start -- --channel tg --telegram-token <bot-token> --telegram-poll-timeo
 ## Related Journey
 
 - `docs/journeys/channel-gateway-and-turn-flow.md`
+- `docs/guide/gateway-control-plane-daemon.md`

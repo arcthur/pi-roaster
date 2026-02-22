@@ -14,6 +14,21 @@ Implementation source: `packages/brewva-cli/src/index.ts`.
 - Scheduler daemon mode (`--daemon`)
 - Channel gateway mode (`--channel`)
 
+## Subcommand: `brewva gateway`
+
+The primary CLI also exposes control-plane subcommands via `brewva gateway ...`.
+
+- `start`
+- `status`
+- `stop`
+- `heartbeat-reload`
+- `rotate-token`
+- `logs`
+
+This subcommand set covers local daemon lifecycle management, health probing, token rotation, and log access. It is distinct from `--channel`.
+Protocol and method reference: `docs/reference/gateway-control-plane-protocol.md`.  
+Operational guide: `docs/guide/gateway-control-plane-daemon.md`.
+
 `--daemon` executes due intents in child sessions (lineage-aware wakeups) and
 handles graceful shutdown by aborting active child runs on signals.
 Daemon mode rejects incompatible input surfaces:
