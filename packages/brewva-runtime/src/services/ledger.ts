@@ -1,6 +1,7 @@
 import { buildLedgerDigest } from "../ledger/digest.js";
 import type { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { formatLedgerRows } from "../ledger/query.js";
+import { withToolFailureContextMetadata } from "../ledger/tool-failure-context.js";
 import { syncTruthFromToolResult } from "../truth/sync.js";
 import type {
   BrewvaConfig,
@@ -122,6 +123,11 @@ export class LedgerService {
     const turn = this.getCurrentTurn(input.sessionId);
     const activeSkill = this.getActiveSkill(input.sessionId);
     const verdict = input.verdict ?? (input.success ? "pass" : "fail");
+    const metadata = withToolFailureContextMetadata(input.metadata, {
+      verdict,
+      args: input.args,
+      outputText: input.outputText,
+    });
 
     const ledgerRow = this.ledger.append({
       sessionId: input.sessionId,
@@ -132,7 +138,7 @@ export class LedgerService {
       outputSummary: input.outputText.slice(0, 500),
       fullOutput: input.outputText,
       verdict,
-      metadata: input.metadata,
+      metadata,
     });
 
     syncTruthFromToolResult(
@@ -158,7 +164,7 @@ export class LedgerService {
           argsSummary: ledgerRow.argsSummary,
           outputSummary: ledgerRow.outputSummary,
         },
-        metadata: input.metadata,
+        metadata,
       },
     );
 

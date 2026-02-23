@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { format, getHours } from "date-fns";
 import type {
   CognitiveInferRelationOutput,
@@ -13,6 +14,7 @@ import {
   normalizeCognitiveUsage,
 } from "../cognitive/usage.js";
 import type { BrewvaEventRecord } from "../types.js";
+import { writeFileAtomic } from "../utils/fs.js";
 import { compileCrystalDrafts } from "./crystal.js";
 import { extractMemoryFromEvent } from "./extractor.js";
 import {
@@ -35,6 +37,7 @@ import { MEMORY_RANKING_SIGNAL_SCHEMA, MEMORY_SEARCH_RESULT_SCHEMA } from "./typ
 import { buildWorkingMemorySnapshot } from "./working-memory.js";
 
 const GLOBAL_LIFECYCLE_COOLDOWN_MS = 60_000;
+const GLOBAL_SYNC_SNAPSHOT_DIR = "global-sync";
 
 function toDayKey(date: Date): string {
   return format(date, "yyyy-MM-dd");
@@ -359,6 +362,7 @@ export class MemoryEngine {
               lifecycle.crystalsRemoved > 0
             ) {
               const globalSnapshot = tier.snapshot();
+              const globalSnapshotRef = this.persistGlobalSyncSnapshot(globalSnapshot);
               this.recordEvent?.({
                 sessionId: input.sessionId,
                 type: "memory_global_sync",
@@ -373,7 +377,13 @@ export class MemoryEngine {
                   crystalsCompiled: lifecycle.crystalsCompiled,
                   crystalsRemoved: lifecycle.crystalsRemoved,
                   promotedUnitIds: lifecycle.promotedUnitIds,
-                  global: globalSnapshot as unknown as Record<string, unknown>,
+                  globalSummary: {
+                    schema: globalSnapshot.schema,
+                    generatedAt: globalSnapshot.generatedAt,
+                    unitCount: globalSnapshot.units.length,
+                    crystalCount: globalSnapshot.crystals.length,
+                  },
+                  globalSnapshotRef,
                 },
               });
             }
@@ -497,9 +507,11 @@ export class MemoryEngine {
     const sessionCrystals = store.listCrystals(sessionId);
     const globalCrystals = globalTier?.listCrystals() ?? [];
 
-    const sessionFingerprints = new Set(sessionUnits.map((unit) => unit.fingerprint));
+    const activeSessionFingerprints = new Set(
+      sessionUnits.filter((unit) => unit.status === "active").map((unit) => unit.fingerprint),
+    );
     const uniqueGlobalUnits = globalUnits.filter(
-      (unit) => !sessionFingerprints.has(unit.fingerprint),
+      (unit) => !activeSessionFingerprints.has(unit.fingerprint),
     );
     const sessionCrystalTopics = new Set(
       sessionCrystals.map((crystal) => normalizeTopicKey(crystal.topic)),
@@ -920,11 +932,21 @@ export class MemoryEngine {
         replayedEvents += 1;
       }
 
-      if (event.type === "memory_global_sync" && isRecord(payload.global)) {
+      if (event.type === "memory_global_sync") {
+        const snapshotRef =
+          typeof payload.globalSnapshotRef === "string" ? payload.globalSnapshotRef : "";
+        if (!snapshotRef) continue;
         const tier = this.getGlobalTier();
         if (!tier) continue;
-        const imported = tier.importSnapshot(payload.global as unknown as GlobalMemorySnapshot);
-        if (imported.importedUnits > 0 || imported.importedCrystals > 0) {
+        const snapshot = this.loadGlobalSyncSnapshot(snapshotRef);
+        if (!snapshot) continue;
+        const imported = tier.importSnapshot(snapshot);
+        if (
+          imported.importedUnits > 0 ||
+          imported.importedCrystals > 0 ||
+          imported.removedUnits > 0 ||
+          imported.removedCrystals > 0
+        ) {
           replayedEvents += 1;
         }
       }
@@ -1007,13 +1029,13 @@ export class MemoryEngine {
     stage: string;
     usage: CognitiveUsage | null;
   }): CognitiveTokenBudgetStatus | null {
-    if (!input.usage) return this.resolveCognitiveBudgetStatus(input.sessionId);
     if (!this.recordCognitiveUsage) return this.resolveCognitiveBudgetStatus(input.sessionId);
+    const effectiveUsage: CognitiveUsage = input.usage ?? { totalTokens: 1 };
     try {
       return this.recordCognitiveUsage({
         sessionId: input.sessionId,
         stage: input.stage,
-        usage: input.usage,
+        usage: effectiveUsage,
       });
     } catch {
       return this.resolveCognitiveBudgetStatus(input.sessionId);
@@ -1480,6 +1502,44 @@ export class MemoryEngine {
           targetUnitId: older.id,
         });
       }
+    }
+  }
+
+  private persistGlobalSyncSnapshot(snapshot: GlobalMemorySnapshot): string | null {
+    const fileName = `snapshot-${snapshot.generatedAt}-${Math.random().toString(36).slice(2, 10)}.json`;
+    const snapshotRef = join(GLOBAL_SYNC_SNAPSHOT_DIR, fileName);
+    const snapshotPath = resolve(this.rootDir, snapshotRef);
+    try {
+      writeFileAtomic(snapshotPath, JSON.stringify(snapshot));
+      return snapshotRef.replaceAll("\\", "/");
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveGlobalSyncSnapshotPath(snapshotRef: string): string | null {
+    const normalizedRef = snapshotRef.trim();
+    if (!normalizedRef) return null;
+    const snapshotPath = isAbsolute(normalizedRef)
+      ? resolve(normalizedRef)
+      : resolve(this.rootDir, normalizedRef);
+    const relativePath = relative(this.rootDir, snapshotPath);
+    if (!relativePath || relativePath === ".") return null;
+    if (relativePath.startsWith("..") || isAbsolute(relativePath)) return null;
+    return snapshotPath;
+  }
+
+  private loadGlobalSyncSnapshot(snapshotRef: string): GlobalMemorySnapshot | null {
+    const snapshotPath = this.resolveGlobalSyncSnapshotPath(snapshotRef);
+    if (!snapshotPath) return null;
+
+    try {
+      const raw = readFileSync(snapshotPath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (!isRecord(parsed)) return null;
+      return parsed as unknown as GlobalMemorySnapshot;
+    } catch {
+      return null;
     }
   }
 

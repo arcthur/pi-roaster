@@ -417,6 +417,11 @@ export interface BrewvaConfig {
       truncationStrategy: "drop-entry" | "summarize" | "tail";
       compactionInstructions: string;
     };
+    toolFailureInjection: {
+      enabled: boolean;
+      maxEntries: number;
+      maxOutputChars: number;
+    };
     interruptRecovery: {
       enabled: boolean;
       gracefulTimeoutMs: number;
@@ -462,11 +467,12 @@ export interface BrewvaConfigFile {
   infrastructure?: Partial<
     Omit<
       BrewvaConfig["infrastructure"],
-      "events" | "contextBudget" | "interruptRecovery" | "costTracking"
+      "events" | "contextBudget" | "toolFailureInjection" | "interruptRecovery" | "costTracking"
     >
   > & {
     events?: Partial<BrewvaConfig["infrastructure"]["events"]>;
     contextBudget?: Partial<BrewvaConfig["infrastructure"]["contextBudget"]>;
+    toolFailureInjection?: Partial<BrewvaConfig["infrastructure"]["toolFailureInjection"]>;
     interruptRecovery?: Partial<BrewvaConfig["infrastructure"]["interruptRecovery"]>;
     costTracking?: Partial<BrewvaConfig["infrastructure"]["costTracking"]>;
   };
@@ -533,6 +539,28 @@ export type TruthLedgerEventPayload =
       factId: string;
       resolvedAt?: number;
     };
+
+export interface MemoryGlobalSyncSummary {
+  schema: "brewva.memory.global.v1";
+  generatedAt: number;
+  unitCount: number;
+  crystalCount: number;
+}
+
+export interface MemoryGlobalSyncEventPayload {
+  stage: "refresh";
+  scannedCandidates: number;
+  promoted: number;
+  refreshed: number;
+  decayed: number;
+  pruned: number;
+  resolvedByPass: number;
+  crystalsCompiled: number;
+  crystalsRemoved: number;
+  promotedUnitIds: string[];
+  globalSummary: MemoryGlobalSyncSummary;
+  globalSnapshotRef: string | null;
+}
 
 export interface LedgerDigest {
   generatedAt: number;

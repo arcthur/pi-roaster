@@ -8,6 +8,7 @@ import type {
 } from "../types.js";
 import { sha256 } from "../utils/hash.js";
 import type { ContextInjectionPlanResult, RegisterContextInjectionInput } from "./injection.js";
+import { buildRecentToolFailuresBlock, type ToolFailureEntry } from "./tool-failures.js";
 import { buildTruthFactsBlock } from "./truth-facts.js";
 import { buildTruthLedgerBlock } from "./truth.js";
 import { buildOutputHealthGuardBlock, decideViewportPolicy } from "./viewport-orchestrator.js";
@@ -40,6 +41,11 @@ export interface ContextInjectionOrchestratorDeps {
   cwd: string;
   maxInjectionTokens: number;
   isContextBudgetEnabled(): boolean;
+  getToolFailureInjectionConfig(): {
+    enabled: boolean;
+    maxEntries: number;
+    maxOutputChars: number;
+  };
   sanitizeInput(text: string): string;
   getTruthState(sessionId: string): TruthState;
   maybeAlignTaskStatus(input: {
@@ -54,6 +60,7 @@ export interface ContextInjectionOrchestratorDeps {
   selectSkills(message: string): SkillSelection[];
   buildSkillCandidateBlock(selected: SkillSelection[]): string;
   getLedgerDigest(sessionId: string): string;
+  getRecentToolFailures(sessionId: string): ToolFailureEntry[];
   getLatestCompactionSummary(sessionId: string): { entryId?: string; summary: string } | undefined;
   getTaskState(sessionId: string): TaskState;
   buildTaskStateBlock(state: TaskState): string;
@@ -139,6 +146,23 @@ export function buildContextInjection(
     priority: "normal",
     content: deps.getLedgerDigest(input.sessionId),
   });
+
+  const toolFailureConfig = deps.getToolFailureInjectionConfig();
+  if (toolFailureConfig.enabled) {
+    const recentFailures = deps.getRecentToolFailures(input.sessionId);
+    const failureBlock = buildRecentToolFailuresBlock(recentFailures, {
+      maxEntries: toolFailureConfig.maxEntries,
+      maxOutputChars: toolFailureConfig.maxOutputChars,
+    });
+    if (failureBlock) {
+      deps.registerContextInjection(input.sessionId, {
+        source: "brewva.tool-failures",
+        id: "recent-failures",
+        priority: "high",
+        content: failureBlock,
+      });
+    }
+  }
 
   const latestCompaction = deps.getLatestCompactionSummary(input.sessionId);
   if (latestCompaction?.summary) {

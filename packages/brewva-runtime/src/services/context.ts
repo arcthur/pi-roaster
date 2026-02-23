@@ -1,7 +1,9 @@
 import { ContextBudgetManager } from "../context/budget.js";
 import { buildContextInjection as buildContextInjectionOrchestrated } from "../context/injection-orchestrator.js";
 import { ContextInjectionCollector, type ContextInjectionPriority } from "../context/injection.js";
+import type { ToolFailureEntry } from "../context/tool-failures.js";
 import { EvidenceLedger } from "../ledger/evidence-ledger.js";
+import { readToolFailureContextMetadata } from "../ledger/tool-failure-context.js";
 import { MemoryEngine } from "../memory/engine.js";
 import { FileChangeTracker } from "../state/file-change-tracker.js";
 import type {
@@ -23,6 +25,13 @@ import type { RuntimeCallback } from "./callback.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 
 const OUTPUT_HEALTH_GUARD_LOOKBACK_EVENTS = 32;
+const TOOL_FAILURE_INFRASTRUCTURE_TOOLS = new Set([
+  "ledger_checkpoint",
+  "brewva_cost",
+  "brewva_context_compaction",
+  "brewva_rollback",
+  "brewva_verify",
+]);
 
 export interface ContextServiceOptions {
   cwd: string;
@@ -317,6 +326,27 @@ export class ContextService {
     return null;
   }
 
+  private getRecentToolFailures(sessionId: string): ToolFailureEntry[] {
+    const rows = this.ledger.list(sessionId);
+    const failures: ToolFailureEntry[] = [];
+
+    for (const row of rows) {
+      if (row.verdict !== "fail") continue;
+      if (TOOL_FAILURE_INFRASTRUCTURE_TOOLS.has(row.tool)) continue;
+      const persistedContext = readToolFailureContextMetadata(row.metadata);
+      if (!persistedContext) continue;
+
+      failures.push({
+        toolName: row.tool,
+        args: persistedContext.args,
+        outputText: this.sanitizeInput(persistedContext.outputText),
+        turn: Number.isFinite(row.turn) ? row.turn : 0,
+      });
+    }
+
+    return failures;
+  }
+
   buildContextInjection(
     sessionId: string,
     prompt: string,
@@ -366,6 +396,7 @@ export class ContextService {
         cwd: this.cwd,
         maxInjectionTokens: this.config.infrastructure.contextBudget.maxInjectionTokens,
         isContextBudgetEnabled: () => this.isContextBudgetEnabled(),
+        getToolFailureInjectionConfig: () => this.config.infrastructure.toolFailureInjection,
         sanitizeInput: (text) => this.sanitizeInput(text),
         getTruthState: (id) => this.getTruthState(id),
         maybeAlignTaskStatus: (orchestrationInput) => this.maybeAlignTaskStatus(orchestrationInput),
@@ -373,6 +404,7 @@ export class ContextService {
         selectSkills: (text) => this.selectSkills(text),
         buildSkillCandidateBlock: (selected) => this.buildSkillCandidateBlock(selected),
         getLedgerDigest: (id) => this.getLedgerDigest(id),
+        getRecentToolFailures: (id) => this.getRecentToolFailures(id),
         getLatestCompactionSummary: (id) =>
           this.sessionState.latestCompactionSummaryBySession.get(id),
         getTaskState: (id) => this.getTaskState(id),

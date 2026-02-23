@@ -85,6 +85,11 @@ interface VerificationOutcomeContext {
   evidence: string;
 }
 
+interface ReflectionAttemptBudget {
+  max: number;
+  remaining: number;
+}
+
 export interface VerificationServiceOptions {
   cwd: string;
   config: BrewvaConfig;
@@ -235,7 +240,11 @@ export class VerificationService {
     });
     this.syncVerificationBlockers(sessionId, report);
     const outcomeContext = this.recordVerificationOutcome(sessionId, effectiveLevel, report);
-    void this.maybeReflectOnOutcome(sessionId, outcomeContext);
+    const reflectionBudget: ReflectionAttemptBudget = {
+      max: this.cognitiveMaxReflectionsPerVerification,
+      remaining: this.cognitiveMaxReflectionsPerVerification,
+    };
+    void this.maybeReflectOnOutcome(sessionId, outcomeContext, reflectionBudget);
     return report;
   }
 
@@ -354,13 +363,13 @@ export class VerificationService {
     stage: string;
     usage: CognitiveUsage | null;
   }): CognitiveTokenBudgetStatus | null {
-    if (!input.usage) return this.resolveCognitiveBudgetStatus(input.sessionId);
     if (!this.recordCognitiveUsage) return this.resolveCognitiveBudgetStatus(input.sessionId);
+    const effectiveUsage: CognitiveUsage = input.usage ?? { totalTokens: 1 };
     try {
       return this.recordCognitiveUsage({
         sessionId: input.sessionId,
         stage: input.stage,
-        usage: input.usage,
+        usage: effectiveUsage,
       });
     } catch {
       return this.resolveCognitiveBudgetStatus(input.sessionId);
@@ -370,18 +379,20 @@ export class VerificationService {
   private async maybeReflectOnOutcome(
     sessionId: string,
     context: VerificationOutcomeContext | null,
+    budget: ReflectionAttemptBudget,
   ): Promise<void> {
     if (!context) return;
     if (context.outcome !== "fail") return;
     if (this.cognitiveMode === "off") return;
-    if (this.cognitiveMaxReflectionsPerVerification <= 0) {
+    if (budget.remaining <= 0) {
       this.recordEvent({
         sessionId,
         type: "cognitive_outcome_reflection_skipped",
         payload: {
           stage: "verification_outcome",
-          reason: "budget_exhausted",
-          maxReflectionsPerVerification: this.cognitiveMaxReflectionsPerVerification,
+          reason: "reflection_limit_reached",
+          maxReflectionsPerVerification: budget.max,
+          usedReflections: Math.max(0, budget.max - budget.remaining),
         },
       });
       return;
@@ -402,6 +413,7 @@ export class VerificationService {
     }
     const cognitivePort = this.cognitivePort;
     if (!cognitivePort?.reflectOnOutcome) return;
+    budget.remaining -= 1;
 
     try {
       const reflection = await Promise.resolve(

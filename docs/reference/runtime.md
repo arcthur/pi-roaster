@@ -137,6 +137,12 @@ All public runtime data contracts are defined in `packages/brewva-runtime/src/ty
 - Recall block rendering notes:
   - `buildRecallBlock()` / `buildRecallBlockAsync()` append a `facets:` line when a hit carries `knowledgeFacets` signal (`pattern/root_cause/recommendation/outcomes`).
 
+## Memory Global Sync Contract
+
+- `memory_global_sync` emits lightweight payload (`globalSummary` + `globalSnapshotRef`) instead of embedding full snapshot rows in event payload.
+- Full global snapshot is stored as a file under memory root (default `.brewva/memory/global-sync/`) and replay/import resolves via `globalSnapshotRef`.
+- If `globalSnapshotRef` is unavailable or unreadable during replay, runtime skips global import for that event and continues replay.
+
 ## Scheduling Notes
 
 - `createScheduleIntent()` accepts either `runAt` (one-shot) or `cron` (recurring).
@@ -174,3 +180,16 @@ All public runtime data contracts are defined in `packages/brewva-runtime/src/ty
 When the viewport signal is low (or the context is truncated), the runtime can downshift the viewport variant or skip injecting it entirely.
 
 When policy decisions trigger, the runtime emits `viewport_built` / `viewport_policy_evaluated` events and may inject a `brewva.viewport-policy` guard block to enforce a verification-first posture.
+
+## Tool Failure Context Injection
+
+- `buildContextInjection()` may inject a recent-failure block (`brewva.tool-failures`) for model self-correction.
+- The block contains recent failed tool records from structured ledger failure context metadata (`brewva.tool_failure_context.v1`):
+  - `tool`
+  - `turn`
+  - `args`
+  - truncated `outputText`
+- Injection is controlled by `infrastructure.toolFailureInjection`:
+  - `enabled`
+  - `maxEntries`
+  - `maxOutputChars`

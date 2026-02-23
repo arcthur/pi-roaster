@@ -112,6 +112,11 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       compactionInstructions:
         "Summarize stale tool outputs and keep only active objectives, unresolved failures, and latest verification evidence.",
     },
+    toolFailureInjection: {
+      enabled: true,
+      maxEntries: 3,
+      maxOutputChars: 300,
+    },
     interruptRecovery: {
       enabled: true,
       gracefulTimeoutMs: 8000,

@@ -162,7 +162,12 @@ export class BrewvaRuntime {
     this.contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
     this.contextInjection = new ContextInjectionCollector({
       sourceTokenLimits: this.isContextBudgetEnabled()
-        ? buildContextSourceTokenLimits(this.config.infrastructure.contextBudget.maxInjectionTokens)
+        ? buildContextSourceTokenLimits(
+            this.config.infrastructure.contextBudget.maxInjectionTokens,
+            {
+              toolFailureInjection: this.config.infrastructure.toolFailureInjection,
+            },
+          )
         : {},
       truncationStrategy: this.config.infrastructure.contextBudget.truncationStrategy,
     });

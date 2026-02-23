@@ -49,6 +49,21 @@
                 }
               }
             },
+            "toolFailureInjection": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "maxEntries": {
+                  "type": "number"
+                },
+                "maxOutputChars": {
+                  "type": "number"
+                }
+              }
+            },
             "costTracking": {
               "type": "object",
               "additionalProperties": false,

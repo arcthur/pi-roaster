@@ -671,9 +671,17 @@ Payload fields:
   - `crystalsCompiled`
   - `crystalsRemoved`
 - `promotedUnitIds`: promoted/refreshed global unit ids
-- `global`: full global snapshot payload (`brewva.memory.global.v1`)
-  - global lesson units expose `metadata.globalLesson` (`brewva.memory.global-lesson.v1`)
-  - global crystals expose `metadata.globalCrystal` (`brewva.memory.global-crystal.v1`) with normalized structured fields (`pattern/patterns`, `rootCause/rootCauses`, `recommendation/recommendations`, `outcomes`)
+- `globalSummary`: lightweight global snapshot summary
+  - `schema`: global snapshot schema (`brewva.memory.global.v1`)
+  - `generatedAt`: snapshot timestamp (epoch ms)
+  - `unitCount`: active global unit count
+  - `crystalCount`: global crystal count
+- `globalSnapshotRef`: snapshot file reference (relative path under memory root, for example `global-sync/snapshot-*.json`) or `null` when persistence fails
+
+Notes:
+
+- Full snapshot rows are persisted to the snapshot file referenced by `globalSnapshotRef`.
+- Replay/import reads from `globalSnapshotRef`; if the file is missing/unreadable, replay skips global import for that event.
 
 ### `memory_global_recall`
 

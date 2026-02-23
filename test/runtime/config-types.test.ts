@@ -15,9 +15,16 @@ describe("BrewvaConfigFile typing", () => {
           enabled: true,
         },
       },
+      infrastructure: {
+        toolFailureInjection: {
+          enabled: false,
+          maxEntries: 5,
+        },
+      },
     };
 
     expect(config.memory?.cognitive?.mode).toBe("active");
     expect(config.memory?.global?.enabled).toBe(true);
+    expect(config.infrastructure?.toolFailureInjection?.enabled).toBe(false);
   });
 });

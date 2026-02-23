@@ -125,6 +125,9 @@ Schedule runtime behavior:
 - `infrastructure.contextBudget.minSecondsBetweenCompaction`: `45`
 - `infrastructure.contextBudget.pressureBypassPercent`: `0.94`
 - `infrastructure.contextBudget.truncationStrategy`: `summarize`
+- `infrastructure.toolFailureInjection.enabled`: `true`
+- `infrastructure.toolFailureInjection.maxEntries`: `3`
+- `infrastructure.toolFailureInjection.maxOutputChars`: `300`
 - `infrastructure.interruptRecovery.enabled`: `true`
 - `infrastructure.interruptRecovery.gracefulTimeoutMs`: `8000`
 - `infrastructure.costTracking.enabled`: `true`
@@ -167,6 +170,13 @@ Pack loading behavior:
   - supplemental context injection token caps
   - compaction threshold / hard-limit decisions
 - `maxInjectionTokens` and related thresholds apply only when `enabled=true`.
+
+## Tool Failure Injection Behavior
+
+- `infrastructure.toolFailureInjection.enabled=true` allows runtime to inject recent failed tool evidence as `brewva.tool-failures`.
+- `maxEntries` limits how many recent failed tool records are injected per turn.
+- `maxOutputChars` truncates each failure `outputText` line to keep injection bounded.
+- Failure evidence is sourced from structured ledger metadata `brewva.tool_failure_context.v1` and excludes only runtime infrastructure tools (`ledger_checkpoint`, `brewva_cost`, `brewva_context_compaction`, `brewva_rollback`, `brewva_verify`). User-defined tools that start with `brewva_` are still included.
 
 ## Config File Location
 

@@ -195,6 +195,62 @@ describe("Verification blockers", () => {
     expect(memoryHits.hits.length).toBeGreaterThan(0);
   });
 
+  test("skips cognitive reflection when maxReflectionsPerVerification is zero", async () => {
+    const workspace = createWorkspace("verification-reflection-limit");
+    writeConfig(
+      workspace,
+      createConfig({
+        verification: {
+          defaultLevel: "standard",
+          checks: {
+            quick: ["type-check"],
+            standard: ["type-check", "tests"],
+            strict: ["type-check", "tests"],
+          },
+          commands: {
+            "type-check": "true",
+            tests: "false",
+          },
+        },
+        memory: {
+          ...DEFAULT_BREWVA_CONFIG.memory,
+          cognitive: {
+            ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
+            mode: "shadow",
+            maxReflectionsPerVerification: 0,
+          },
+        },
+      }),
+    );
+
+    const runtime = new BrewvaRuntime({
+      cwd: workspace,
+      configPath: ".brewva/brewva.json",
+      cognitivePort: {
+        reflectOnOutcome: () => ({
+          lesson: "Should not be emitted when reflection limit is zero.",
+        }),
+      },
+    });
+    const sessionId = "verify-reflection-limit-1";
+    runtime.markToolCall(sessionId, "edit");
+
+    const report = await runtime.verifyCompletion(sessionId, "standard", {
+      executeCommands: true,
+      timeoutMs: 5_000,
+    });
+    expect(report.passed).toBe(false);
+
+    const reflections = runtime.queryEvents(sessionId, { type: "cognitive_outcome_reflection" });
+    expect(reflections).toHaveLength(0);
+    const skipped = runtime.queryEvents(sessionId, {
+      type: "cognitive_outcome_reflection_skipped",
+    });
+    expect(skipped.some((event) => event.payload?.reason === "reflection_limit_reached")).toBe(
+      true,
+    );
+  });
+
   test("skips cognitive reflection when cognitive token budget is exhausted", async () => {
     const workspace = createWorkspace("verification-reflection-token-budget");
     writeConfig(

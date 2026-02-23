@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { MemoryEngine, TASK_EVENT_TYPE, type BrewvaEventRecord } from "@brewva/brewva-runtime";
 
 function dayKey(date: Date): string {
@@ -997,6 +1004,8 @@ describe("memory engine", () => {
         event.payload.promoted > 0,
     );
     expect(promoted).toBeDefined();
+    expect(typeof promoted?.payload?.globalSnapshotRef).toBe("string");
+    expect(typeof promoted?.payload?.globalSummary).toBe("object");
 
     const result = engine.search("global-c", {
       query: "bun test instead of jest",
@@ -1269,15 +1278,24 @@ describe("memory engine", () => {
     );
     sourceEngine.refreshIfNeeded({ sessionId: "global-replay-b" });
 
-    const globalSync = captured.find(
-      (event) => event.type === "memory_global_sync" && !!event.payload?.global,
-    );
+    const globalSync = captured.find((event) => event.type === "memory_global_sync");
     expect(globalSync).toBeDefined();
     if (!globalSync) return;
+    const snapshotRef =
+      typeof globalSync.payload?.globalSnapshotRef === "string"
+        ? globalSync.payload.globalSnapshotRef
+        : "";
+    expect(snapshotRef.length).toBeGreaterThan(0);
+    if (!snapshotRef) return;
+    const sourceSnapshotPath = join(sourceWorkspace, snapshotRef);
+    expect(existsSync(sourceSnapshotPath)).toBe(true);
 
     const targetWorkspace = mkdtempSync(
       join(tmpdir(), "brewva-memory-engine-global-replay-target-"),
     );
+    const targetSnapshotPath = join(targetWorkspace, snapshotRef);
+    mkdirSync(dirname(targetSnapshotPath), { recursive: true });
+    copyFileSync(sourceSnapshotPath, targetSnapshotPath);
     const targetEngine = new MemoryEngine({
       enabled: true,
       rootDir: targetWorkspace,

@@ -41,6 +41,11 @@ describe("Brewva config loader normalization", () => {
           pressureBypassPercent: -0.3,
           truncationStrategy: "invalid_strategy",
         },
+        toolFailureInjection: {
+          enabled: "yes",
+          maxEntries: -2,
+          maxOutputChars: 0,
+        },
         interruptRecovery: {
           gracefulTimeoutMs: -1,
         },
@@ -88,6 +93,15 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.infrastructure.contextBudget.pressureBypassPercent).toBe(0);
     expect(loaded.infrastructure.contextBudget.truncationStrategy).toBe(
       defaults.infrastructure.contextBudget.truncationStrategy,
+    );
+    expect(loaded.infrastructure.toolFailureInjection.enabled).toBe(
+      defaults.infrastructure.toolFailureInjection.enabled,
+    );
+    expect(loaded.infrastructure.toolFailureInjection.maxEntries).toBe(
+      defaults.infrastructure.toolFailureInjection.maxEntries,
+    );
+    expect(loaded.infrastructure.toolFailureInjection.maxOutputChars).toBe(
+      defaults.infrastructure.toolFailureInjection.maxOutputChars,
     );
 
     expect(loaded.infrastructure.interruptRecovery.gracefulTimeoutMs).toBe(
