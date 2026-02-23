@@ -2,6 +2,8 @@ import { createRuntimeTelegramChannelBridge } from "@brewva/brewva-extensions";
 import { BrewvaRuntime } from "@brewva/brewva-runtime";
 import {
   type ChannelTurnBridge,
+  TurnWALRecovery,
+  TurnWALStore,
   buildRawConversationKey,
   normalizeChannelId,
   type TurnEnvelope,
@@ -72,6 +74,12 @@ interface ChannelLauncherInput {
 
 function normalizeText(value: string | undefined): string {
   return (value ?? "").trim();
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return String(error);
 }
 
 export function resolveSupportedChannel(raw: string): SupportedChannel | null {
@@ -379,6 +387,24 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
     configPath: options.configPath,
   });
   options.onRuntimeReady?.(runtime);
+  const turnWalStore = new TurnWALStore({
+    workspaceRoot: runtime.workspaceRoot,
+    config: runtime.config.infrastructure.turnWal,
+    scope: `channel-${channel}`,
+    recordEvent: (input) => {
+      runtime.events.record({
+        sessionId: input.sessionId,
+        type: input.type,
+        payload: input.payload,
+        skipTapeCheckpoint: true,
+      });
+    },
+  });
+  const turnWalCompactIntervalMs = Math.max(
+    30_000,
+    Math.floor(runtime.config.infrastructure.turnWal.compactAfterMs / 2),
+  );
+  let turnWalCompactTimer: ReturnType<typeof setInterval> | null = null;
 
   const sessions = new Map<string, ConversationSessionState>();
   const createSessionTasks = new Map<string, Promise<ConversationSessionState>>();
@@ -429,125 +455,167 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
     }
   };
 
+  const processInboundTurn = async (
+    state: ConversationSessionState,
+    turn: TurnEnvelope,
+    walId: string,
+  ): Promise<void> => {
+    turnWalStore.markInflight(walId);
+    try {
+      const canonicalTurn = canonicalizeInboundTurnSession(turn, state.agentSessionId);
+      const prompt = buildInboundPrompt(canonicalTurn);
+      if (!prompt) {
+        turnWalStore.markDone(walId);
+        return;
+      }
+
+      runtime.events.record({
+        sessionId: canonicalTurn.sessionId,
+        type: "channel_turn_dispatch_start",
+        payload: {
+          turnId: canonicalTurn.turnId,
+          kind: canonicalTurn.kind,
+          agentSessionId: state.agentSessionId,
+        },
+      });
+
+      const outputs = await collectPromptTurnOutputs(state.result.session, prompt);
+      const assistantText = normalizeText(outputs.assistantText);
+      let outboundTurnsSent = 0;
+
+      runtime.events.record({
+        sessionId: canonicalTurn.sessionId,
+        type: "channel_turn_dispatch_end",
+        payload: {
+          turnId: canonicalTurn.turnId,
+          kind: canonicalTurn.kind,
+          agentSessionId: state.agentSessionId,
+          assistantChars: assistantText.length,
+          toolTurns: outputs.toolOutputs.length,
+        },
+      });
+
+      for (const toolOutput of outputs.toolOutputs) {
+        state.outboundSequence += 1;
+        const toolTurn = buildOutboundTurn({
+          inbound: canonicalTurn,
+          kind: "tool",
+          text: toolOutput.text,
+          agentSessionId: state.agentSessionId,
+          sequence: state.outboundSequence,
+          meta: {
+            toolCallId: toolOutput.toolCallId,
+            toolName: toolOutput.toolName,
+            toolError: toolOutput.isError,
+          },
+        });
+        try {
+          await bundle.bridge.sendTurn(toolTurn);
+          outboundTurnsSent += 1;
+        } catch (error) {
+          runtime.events.record({
+            sessionId: canonicalTurn.sessionId,
+            type: "channel_turn_outbound_error",
+            payload: {
+              turnId: canonicalTurn.turnId,
+              outboundKind: "tool",
+              toolCallId: toolOutput.toolCallId,
+              agentSessionId: state.agentSessionId,
+              error: toErrorMessage(error),
+            },
+          });
+        }
+      }
+
+      if (assistantText) {
+        state.outboundSequence += 1;
+        const assistantTurn = buildOutboundTurn({
+          inbound: canonicalTurn,
+          kind: "assistant",
+          text: assistantText,
+          agentSessionId: state.agentSessionId,
+          sequence: state.outboundSequence,
+        });
+        try {
+          await bundle.bridge.sendTurn(assistantTurn);
+          outboundTurnsSent += 1;
+        } catch (error) {
+          runtime.events.record({
+            sessionId: canonicalTurn.sessionId,
+            type: "channel_turn_outbound_error",
+            payload: {
+              turnId: canonicalTurn.turnId,
+              outboundKind: "assistant",
+              agentSessionId: state.agentSessionId,
+              error: toErrorMessage(error),
+            },
+          });
+        }
+      }
+
+      runtime.events.record({
+        sessionId: canonicalTurn.sessionId,
+        type: "channel_turn_outbound_complete",
+        payload: {
+          turnId: canonicalTurn.turnId,
+          agentSessionId: state.agentSessionId,
+          outboundTurnsSent,
+          toolTurns: outputs.toolOutputs.length,
+          hasAssistantTurn: assistantText.length > 0,
+        },
+      });
+      turnWalStore.markDone(walId);
+    } catch (error) {
+      turnWalStore.markFailed(walId, toErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const enqueueInboundTurn = async (
+    turn: TurnEnvelope,
+    enqueueOptions: {
+      walId?: string;
+      awaitCompletion?: boolean;
+    } = {},
+  ): Promise<void> => {
+    if (shuttingDown) return;
+    const walId =
+      enqueueOptions.walId ??
+      turnWalStore.appendPending(turn, "channel", {
+        dedupeKey: `${turn.channel}:${turn.turnId}`,
+      }).walId;
+
+    let state: ConversationSessionState;
+    try {
+      state = await getOrCreateSession(turn);
+    } catch (error) {
+      turnWalStore.markFailed(walId, toErrorMessage(error));
+      throw error;
+    }
+
+    const previous = state.queueTail;
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await processInboundTurn(state, turn, walId);
+      });
+    state.queueTail = next.catch(() => undefined);
+    if (enqueueOptions.awaitCompletion) {
+      await next;
+    }
+  };
+
   let bundle: ChannelLaunchBundle;
   try {
     bundle = CHANNEL_LAUNCHERS[channel]({
       runtime,
       channelConfig: options.channelConfig,
-      resolveIngestedSessionId: async (turn) => {
-        const state = await getOrCreateSession(turn);
-        return state.agentSessionId;
+      resolveIngestedSessionId: (turn) => {
+        const key = buildRawConversationKey(turn.channel, turn.conversationId);
+        return sessions.get(key)?.agentSessionId;
       },
       onInboundTurn: async (turn) => {
-        if (shuttingDown) return;
-        const state = await getOrCreateSession(turn);
-        const canonicalTurn = canonicalizeInboundTurnSession(turn, state.agentSessionId);
-        const previous = state.queueTail;
-        const next = previous
-          .catch(() => undefined)
-          .then(async () => {
-            const prompt = buildInboundPrompt(canonicalTurn);
-            if (!prompt) {
-              return;
-            }
-
-            runtime.events.record({
-              sessionId: canonicalTurn.sessionId,
-              type: "channel_turn_dispatch_start",
-              payload: {
-                turnId: canonicalTurn.turnId,
-                kind: canonicalTurn.kind,
-                agentSessionId: state.agentSessionId,
-              },
-            });
-
-            const outputs = await collectPromptTurnOutputs(state.result.session, prompt);
-            const assistantText = normalizeText(outputs.assistantText);
-            let outboundTurnsSent = 0;
-
-            runtime.events.record({
-              sessionId: canonicalTurn.sessionId,
-              type: "channel_turn_dispatch_end",
-              payload: {
-                turnId: canonicalTurn.turnId,
-                kind: canonicalTurn.kind,
-                agentSessionId: state.agentSessionId,
-                assistantChars: assistantText.length,
-                toolTurns: outputs.toolOutputs.length,
-              },
-            });
-
-            for (const toolOutput of outputs.toolOutputs) {
-              state.outboundSequence += 1;
-              const toolTurn = buildOutboundTurn({
-                inbound: canonicalTurn,
-                kind: "tool",
-                text: toolOutput.text,
-                agentSessionId: state.agentSessionId,
-                sequence: state.outboundSequence,
-                meta: {
-                  toolCallId: toolOutput.toolCallId,
-                  toolName: toolOutput.toolName,
-                  toolError: toolOutput.isError,
-                },
-              });
-              try {
-                await bundle.bridge.sendTurn(toolTurn);
-                outboundTurnsSent += 1;
-              } catch (error) {
-                runtime.events.record({
-                  sessionId: canonicalTurn.sessionId,
-                  type: "channel_turn_outbound_error",
-                  payload: {
-                    turnId: canonicalTurn.turnId,
-                    outboundKind: "tool",
-                    toolCallId: toolOutput.toolCallId,
-                    agentSessionId: state.agentSessionId,
-                    error: error instanceof Error ? error.message : String(error),
-                  },
-                });
-              }
-            }
-
-            if (assistantText) {
-              state.outboundSequence += 1;
-              const assistantTurn = buildOutboundTurn({
-                inbound: canonicalTurn,
-                kind: "assistant",
-                text: assistantText,
-                agentSessionId: state.agentSessionId,
-                sequence: state.outboundSequence,
-              });
-              try {
-                await bundle.bridge.sendTurn(assistantTurn);
-                outboundTurnsSent += 1;
-              } catch (error) {
-                runtime.events.record({
-                  sessionId: canonicalTurn.sessionId,
-                  type: "channel_turn_outbound_error",
-                  payload: {
-                    turnId: canonicalTurn.turnId,
-                    outboundKind: "assistant",
-                    agentSessionId: state.agentSessionId,
-                    error: error instanceof Error ? error.message : String(error),
-                  },
-                });
-              }
-            }
-
-            runtime.events.record({
-              sessionId: canonicalTurn.sessionId,
-              type: "channel_turn_outbound_complete",
-              payload: {
-                turnId: canonicalTurn.turnId,
-                agentSessionId: state.agentSessionId,
-                outboundTurnsSent,
-                toolTurns: outputs.toolOutputs.length,
-                hasAssistantTurn: assistantText.length > 0,
-              },
-            });
-          });
-        state.queueTail = next.catch(() => undefined);
+        await enqueueInboundTurn(turn);
       },
       onAdapterError: async (error) => {
         if (options.verbose) {
@@ -560,6 +628,39 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
     return;
+  }
+
+  const recovery = new TurnWALRecovery({
+    workspaceRoot: runtime.workspaceRoot,
+    config: runtime.config.infrastructure.turnWal,
+    scopeFilter: (scope) => scope === turnWalStore.scope,
+    recordEvent: (input) => {
+      runtime.events.record({
+        sessionId: input.sessionId,
+        type: input.type,
+        payload: input.payload,
+        skipTapeCheckpoint: true,
+      });
+    },
+    handlers: {
+      channel: async ({ record }) => {
+        await enqueueInboundTurn(record.envelope, { walId: record.walId });
+      },
+    },
+  });
+  await recovery.recover();
+  turnWalStore.compact();
+  if (turnWalStore.isEnabled) {
+    turnWalCompactTimer = setInterval(() => {
+      try {
+        turnWalStore.compact();
+      } catch (error) {
+        if (options.verbose) {
+          console.error(`[channel:${channel}:wal] compact failed: ${toErrorMessage(error)}`);
+        }
+      }
+    }, turnWalCompactIntervalMs);
+    turnWalCompactTimer.unref?.();
   }
 
   await bundle.bridge.start();
@@ -577,6 +678,10 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
       void (async () => {
         if (options.verbose) {
           console.error(`[channel] received ${signal}, stopping...`);
+        }
+        if (turnWalCompactTimer) {
+          clearInterval(turnWalCompactTimer);
+          turnWalCompactTimer = null;
         }
         await bundle.bridge.stop();
         await waitForAllSettledWithTimeout(

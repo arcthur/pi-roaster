@@ -1,3 +1,4 @@
+import type { TurnEnvelope } from "./channels/turn.js";
 import type { JsonValue } from "./utils/json.js";
 
 export type VerificationLevel = "quick" | "standard" | "strict";
@@ -198,6 +199,47 @@ export interface ScheduleIntentProjectionRecord {
   eventOffset: number;
 }
 
+export type TurnWALStatus = "pending" | "inflight" | "done" | "failed" | "expired";
+
+export type TurnWALSource = "channel" | "schedule" | "gateway" | "heartbeat";
+
+export interface TurnWALRecord {
+  schema: "brewva.turn-wal.v1";
+  walId: string;
+  turnId: string;
+  sessionId: string;
+  channel: string;
+  conversationId: string;
+  status: TurnWALStatus;
+  envelope: TurnEnvelope;
+  createdAt: number;
+  updatedAt: number;
+  attempts: number;
+  source: TurnWALSource;
+  error?: string;
+  ttlMs?: number;
+  dedupeKey?: string;
+}
+
+export interface TurnWALRecoverySummaryBySource {
+  scanned: number;
+  retried: number;
+  expired: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface TurnWALRecoveryResult {
+  recoveredAt: number;
+  scanned: number;
+  retried: number;
+  expired: number;
+  failed: number;
+  skipped: number;
+  compacted: number;
+  bySource: Record<TurnWALSource, TurnWALRecoverySummaryBySource>;
+}
+
 export interface ScheduleProjectionSnapshot {
   schema: "brewva.schedule.projection.v1";
   generatedAt: number;
@@ -389,6 +431,14 @@ export interface BrewvaConfig {
       alertThresholdRatio: number;
       actionOnExceed: "warn" | "block_tools";
     };
+    turnWal: {
+      enabled: boolean;
+      dir: string;
+      defaultTtlMs: number;
+      maxRetries: number;
+      compactAfterMs: number;
+      scheduleTurnTtlMs: number;
+    };
   };
 }
 
@@ -422,7 +472,12 @@ export interface BrewvaConfigFile {
   infrastructure?: Partial<
     Omit<
       BrewvaConfig["infrastructure"],
-      "events" | "contextBudget" | "toolFailureInjection" | "interruptRecovery" | "costTracking"
+      | "events"
+      | "contextBudget"
+      | "toolFailureInjection"
+      | "interruptRecovery"
+      | "costTracking"
+      | "turnWal"
     >
   > & {
     events?: Partial<BrewvaConfig["infrastructure"]["events"]>;
@@ -430,6 +485,7 @@ export interface BrewvaConfigFile {
     toolFailureInjection?: Partial<BrewvaConfig["infrastructure"]["toolFailureInjection"]>;
     interruptRecovery?: Partial<BrewvaConfig["infrastructure"]["interruptRecovery"]>;
     costTracking?: Partial<BrewvaConfig["infrastructure"]["costTracking"]>;
+    turnWal?: Partial<BrewvaConfig["infrastructure"]["turnWal"]>;
   };
 }
 

@@ -195,6 +195,23 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
     ? setInterval(() => emitSummaryWindow("tick"), 60_000)
     : null;
   summaryInterval?.unref?.();
+  const turnWalCompactIntervalMs = Math.max(
+    30_000,
+    Math.floor(runtime.config.infrastructure.turnWal.compactAfterMs / 2),
+  );
+  const turnWalCompactTimer = runtime.config.infrastructure.turnWal.enabled
+    ? setInterval(() => {
+        try {
+          runtime.turnWal.compact();
+        } catch (error) {
+          if (parsed.verbose) {
+            const text = error instanceof Error ? error.message : String(error);
+            console.error(`[daemon] turn wal compact failed: ${text}`);
+          }
+        }
+      }, turnWalCompactIntervalMs)
+    : null;
+  turnWalCompactTimer?.unref?.();
   const scheduler = new SchedulerService({
     runtime: {
       workspaceRoot: runtime.workspaceRoot,
@@ -205,6 +222,15 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
       subscribeEvents: (listener) => runtime.events.subscribe(listener),
       getTruthState: (sessionId) => runtime.truth.getState(sessionId),
       getTaskState: (sessionId) => runtime.task.getState(sessionId),
+      turnWal: {
+        appendPending: (envelope, source, options) =>
+          runtime.turnWal.appendPending(envelope, source, options),
+        markInflight: (walId) => runtime.turnWal.markInflight(walId),
+        markDone: (walId) => runtime.turnWal.markDone(walId),
+        markFailed: (walId, error) => runtime.turnWal.markFailed(walId, error),
+        markExpired: (walId) => runtime.turnWal.markExpired(walId),
+        listPending: () => runtime.turnWal.listPending(),
+      },
     },
     executeIntent: async (intent) => {
       const runIndex = intent.runCount + 1;
@@ -312,6 +338,9 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
       scheduler.stop();
       if (summaryInterval) {
         clearInterval(summaryInterval);
+      }
+      if (turnWalCompactTimer) {
+        clearInterval(turnWalCompactTimer);
       }
 
       const abortAll = async (): Promise<void> => {

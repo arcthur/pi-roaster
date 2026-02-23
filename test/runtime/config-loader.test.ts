@@ -44,6 +44,14 @@ describe("Brewva config loader normalization", () => {
           alertThresholdRatio: 2,
           actionOnExceed: "drop_session",
         },
+        turnWal: {
+          enabled: "yes",
+          dir: "",
+          defaultTtlMs: -1,
+          maxRetries: -5,
+          compactAfterMs: 0,
+          scheduleTurnTtlMs: -10,
+        },
       },
       schedule: {
         enabled: "yes",
@@ -95,6 +103,18 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.infrastructure.costTracking.alertThresholdRatio).toBe(1);
     expect(loaded.infrastructure.costTracking.actionOnExceed).toBe(
       defaults.infrastructure.costTracking.actionOnExceed,
+    );
+    expect(loaded.infrastructure.turnWal.enabled).toBe(defaults.infrastructure.turnWal.enabled);
+    expect(loaded.infrastructure.turnWal.dir).toBe(defaults.infrastructure.turnWal.dir);
+    expect(loaded.infrastructure.turnWal.defaultTtlMs).toBe(
+      defaults.infrastructure.turnWal.defaultTtlMs,
+    );
+    expect(loaded.infrastructure.turnWal.maxRetries).toBe(0);
+    expect(loaded.infrastructure.turnWal.compactAfterMs).toBe(
+      defaults.infrastructure.turnWal.compactAfterMs,
+    );
+    expect(loaded.infrastructure.turnWal.scheduleTurnTtlMs).toBe(
+      defaults.infrastructure.turnWal.scheduleTurnTtlMs,
     );
 
     expect(loaded.schedule.enabled).toBe(defaults.schedule.enabled);

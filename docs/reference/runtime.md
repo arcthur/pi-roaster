@@ -93,6 +93,17 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `listIntents(query?)`
 - `getProjectionSnapshot()`
 
+### `runtime.turnWal.*`
+
+- `appendPending(envelope, source, options?)`
+- `markInflight(walId)`
+- `markDone(walId)`
+- `markFailed(walId, error?)`
+- `markExpired(walId)`
+- `listPending()`
+- `recover()`
+- `compact()`
+
 ### `runtime.events.*`
 
 - `record(input)`
@@ -139,6 +150,7 @@ Common async calls:
 - `runtime.schedule.updateIntent(...)`
 - `runtime.schedule.listIntents(...)`
 - `runtime.schedule.getProjectionSnapshot()`
+- `runtime.turnWal.recover()`
 - `runtime.verification.verify(...)`
 
 ## Default Context Injection Semantics
@@ -168,6 +180,13 @@ Switching level changes observability granularity, not business decisions.
 - `convergenceCondition` supports structured predicates (including `all_of` / `any_of`) and is evaluated after fired runs.
 - Startup recovery is bounded by `schedule.maxRecoveryCatchUps`, with overflow deferral emitted as recovery events.
 
+## Turn WAL Notes
+
+- `runtime.turnWal` manages append-only turn durability rows persisted under `infrastructure.turnWal.dir`.
+- Status transitions are event-sourced (`pending` -> `inflight` -> terminal status).
+- `recover()` performs startup scan/classification and emits summary telemetry.
+- Component-owned replay (channel/gateway/scheduler) should still use source-aware handlers to re-enqueue work.
+
 ## Type Contracts
 
 All shared runtime data contracts are defined in `packages/brewva-runtime/src/types.ts`.
@@ -177,5 +196,6 @@ Examples:
 - `BrewvaConfig`
 - `TaskState`, `TruthState`
 - `ScheduleIntent*`
+- `TurnWALRecord`, `TurnWALRecoveryResult`
 - `BrewvaEventRecord`, `BrewvaStructuredEvent`
 - `MemorySearchResult`

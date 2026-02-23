@@ -140,6 +140,7 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
   const costTrackingInput = isRecord(infrastructureInput.costTracking)
     ? infrastructureInput.costTracking
     : {};
+  const turnWalInput = isRecord(infrastructureInput.turnWal) ? infrastructureInput.turnWal : {};
 
   const defaultContextBudget = defaults.infrastructure.contextBudget;
   const defaultToolFailureInjection = defaults.infrastructure.toolFailureInjection;
@@ -368,6 +369,26 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         actionOnExceed: VALID_COST_ACTIONS.has(costTrackingInput.actionOnExceed as string)
           ? (costTrackingInput.actionOnExceed as BrewvaConfig["infrastructure"]["costTracking"]["actionOnExceed"])
           : defaults.infrastructure.costTracking.actionOnExceed,
+      },
+      turnWal: {
+        enabled: normalizeBoolean(turnWalInput.enabled, defaults.infrastructure.turnWal.enabled),
+        dir: normalizeNonEmptyString(turnWalInput.dir, defaults.infrastructure.turnWal.dir),
+        defaultTtlMs: normalizePositiveInteger(
+          turnWalInput.defaultTtlMs,
+          defaults.infrastructure.turnWal.defaultTtlMs,
+        ),
+        maxRetries: normalizeNonNegativeInteger(
+          turnWalInput.maxRetries,
+          defaults.infrastructure.turnWal.maxRetries,
+        ),
+        compactAfterMs: normalizePositiveInteger(
+          turnWalInput.compactAfterMs,
+          defaults.infrastructure.turnWal.compactAfterMs,
+        ),
+        scheduleTurnTtlMs: normalizePositiveInteger(
+          turnWalInput.scheduleTurnTtlMs,
+          defaults.infrastructure.turnWal.scheduleTurnTtlMs,
+        ),
       },
     },
   };

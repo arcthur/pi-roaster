@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
+import { loadBrewvaConfig, resolveWorkspaceRootDir } from "@brewva/brewva-runtime";
+import { TurnWALStore } from "@brewva/brewva-runtime/channels";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { loadOrCreateGatewayToken, rotateGatewayToken } from "../auth.js";
 import { assertLoopbackHost, normalizeGatewayHost } from "../network.js";
@@ -228,6 +230,7 @@ export class GatewayDaemon {
   private readonly stateStore: GatewayStateStore;
   private readonly logger: StructuredLogger;
   private readonly supervisor: SessionBackend;
+  private readonly turnWalStore?: TurnWALStore;
   private readonly heartbeatScheduler: HeartbeatScheduler;
   private readonly heartbeatSessionByRule = new Map<string, string>();
   private readonly startedAt = Date.now();
@@ -266,6 +269,19 @@ export class GatewayDaemon {
     this.stateStore = options.stateStore ?? new FileGatewayStateStore();
 
     ensureDirectoryCwd(options.cwd);
+    const resolvedCwd = resolve(options.cwd);
+    const workspaceRoot = resolveWorkspaceRootDir(resolvedCwd);
+    const runtimeConfig = loadBrewvaConfig({
+      cwd: resolvedCwd,
+      configPath: options.configPath,
+    });
+    this.turnWalStore = options.sessionBackend
+      ? undefined
+      : new TurnWALStore({
+          workspaceRoot,
+          config: runtimeConfig.infrastructure.turnWal,
+          scope: "gateway",
+        });
     this.authToken = loadOrCreateGatewayToken(this.tokenFilePath, this.stateStore);
     this.logger = new StructuredLogger({
       logFilePath: this.logFilePath,
@@ -286,6 +302,11 @@ export class GatewayDaemon {
         maxWorkers: options.maxWorkers,
         maxPendingSessionOpens: options.maxPendingSessionOpens,
         stateStore: this.stateStore,
+        turnWalStore: this.turnWalStore,
+        turnWalCompactIntervalMs: Math.max(
+          30_000,
+          Math.floor(runtimeConfig.infrastructure.turnWal.compactAfterMs / 2),
+        ),
         onWorkerEvent: (event) => {
           this.handleWorkerEvent(event.event, event.payload);
         },
@@ -836,6 +857,7 @@ export class GatewayDaemon {
           payload = await this.supervisor.sendPrompt(sessionId, input.prompt, {
             turnId: input.turnId,
             waitForCompletion: false,
+            source: "gateway",
           });
         } catch (error) {
           if (isSessionBackendStateError(error)) {
@@ -981,6 +1003,7 @@ export class GatewayDaemon {
     await this.supervisor.openSession({ sessionId });
     const result = await this.supervisor.sendPrompt(sessionId, rule.prompt, {
       waitForCompletion: true,
+      source: "heartbeat",
     });
 
     this.broadcastEvent("heartbeat.fired", {

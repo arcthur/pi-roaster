@@ -29,6 +29,8 @@ export interface SessionWorkerInfo {
 export interface SendPromptOptions {
   turnId?: string;
   waitForCompletion?: boolean;
+  source?: "gateway" | "heartbeat";
+  walReplayId?: string;
 }
 
 export interface SendPromptOutput {

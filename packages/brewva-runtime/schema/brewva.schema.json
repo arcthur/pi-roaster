@@ -101,6 +101,30 @@
                   "type": "number"
                 }
               }
+            },
+            "turnWal": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "compactAfterMs": {
+                  "type": "number"
+                },
+                "defaultTtlMs": {
+                  "type": "number"
+                },
+                "dir": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "maxRetries": {
+                  "type": "number"
+                },
+                "scheduleTurnTtlMs": {
+                  "type": "number"
+                }
+              }
             }
           }
         },

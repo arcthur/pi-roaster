@@ -6,3 +6,5 @@ export * from "./channels/session-map.js";
 export * from "./channels/output-policy.js";
 export * from "./channels/registry.js";
 export * from "./channels/turn-bridge.js";
+export * from "./channels/turn-wal.js";
+export * from "./channels/turn-wal-recovery.js";
