@@ -36,7 +36,7 @@ export function createRuntimeChannelTurnBridge(
   return new RuntimeChannelTurnBridge(options.adapter, {
     onInboundTurn: options.onInboundTurn,
     onAdapterError: async (error) => {
-      options.runtime.recordEvent({
+      options.runtime.events.record({
         sessionId: "channel:system",
         type: "channel_turn_bridge_error",
         payload: {
@@ -49,7 +49,7 @@ export function createRuntimeChannelTurnBridge(
     onTurnIngested: async (turn) => {
       const resolvedSessionId = await options.resolveIngestedSessionId?.(turn);
       const eventSessionId = resolvedSessionId?.trim() || turn.sessionId;
-      options.runtime.recordEvent({
+      options.runtime.events.record({
         sessionId: eventSessionId,
         type: "channel_turn_ingested",
         payload: {
@@ -60,7 +60,7 @@ export function createRuntimeChannelTurnBridge(
       });
     },
     onTurnEmitted: async (input) => {
-      options.runtime.recordEvent({
+      options.runtime.events.record({
         sessionId: input.deliveredTurn.sessionId,
         type: "channel_turn_emitted",
         payload: {

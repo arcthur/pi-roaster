@@ -11,8 +11,8 @@ export function clampText(value: string | undefined, maxChars: number): string |
 }
 
 export function ensureSessionShutdownRecorded(runtime: BrewvaRuntime, sessionId: string): void {
-  if (runtime.queryEvents(sessionId, { type: "session_shutdown", last: 1 }).length > 0) return;
-  runtime.recordEvent({
+  if (runtime.events.query(sessionId, { type: "session_shutdown", last: 1 }).length > 0) return;
+  runtime.events.record({
     sessionId,
     type: "session_shutdown",
   });

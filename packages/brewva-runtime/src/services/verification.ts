@@ -24,6 +24,7 @@ import type { VerificationGate } from "../verification/gate.js";
 import type { RuntimeCallback } from "./callback.js";
 
 const VERIFIER_BLOCKER_PREFIX = "verifier:" as const;
+const COGNITIVE_MAX_REFLECTIONS_PER_VERIFICATION = 1;
 
 function normalizeVerifierCheckForId(name: string): string {
   const normalized = name.trim().toLowerCase();
@@ -95,7 +96,6 @@ export interface VerificationServiceOptions {
   config: BrewvaConfig;
   verification: VerificationGate;
   cognitiveMode: BrewvaConfig["memory"]["cognitive"]["mode"];
-  cognitiveMaxReflectionsPerVerification: number;
   cognitivePort?: CognitivePort;
   getCognitiveBudgetStatus?: (sessionId: string) => CognitiveTokenBudgetStatus;
   recordCognitiveUsage?: (input: {
@@ -205,7 +205,7 @@ export class VerificationService {
     this.cognitiveMode = options.cognitiveMode;
     this.cognitiveMaxReflectionsPerVerification = Math.max(
       0,
-      Math.trunc(options.cognitiveMaxReflectionsPerVerification),
+      COGNITIVE_MAX_REFLECTIONS_PER_VERIFICATION,
     );
     this.cognitivePort = options.cognitivePort;
     this.getCognitiveBudgetStatus = options.getCognitiveBudgetStatus;

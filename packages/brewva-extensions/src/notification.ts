@@ -5,12 +5,12 @@ function buildActionableNotification(
   runtime: BrewvaRuntime,
   sessionId: string,
 ): string | undefined {
-  const budget = runtime.getCostSummary(sessionId).budget;
+  const budget = runtime.cost.getSummary(sessionId).budget;
   if (budget.blocked) {
     return "Brewva: cost budget is blocking tools in this session.";
   }
 
-  const blockers = runtime.getTaskState(sessionId).blockers;
+  const blockers = runtime.task.getState(sessionId).blockers;
   if (blockers.length > 0) {
     return `Brewva: ${blockers.length} unresolved blocker(s) remain.`;
   }

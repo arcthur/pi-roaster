@@ -1,5 +1,6 @@
 import type { ParallelBudgetManager } from "../parallel/budget.js";
 import type { ParallelResultStore } from "../parallel/results.js";
+import { resolveSecurityPolicy } from "../security/mode.js";
 import type {
   BrewvaConfig,
   ParallelAcquireResult,
@@ -33,7 +34,7 @@ export interface ParallelServiceOptions {
 }
 
 export class ParallelService {
-  private readonly securityConfig: BrewvaConfig["security"];
+  private readonly securityPolicy: ReturnType<typeof resolveSecurityPolicy>;
   private readonly parallel: ParallelBudgetManager;
   private readonly parallelResults: ParallelResultStore;
   private readonly sessionState: RuntimeSessionStateStore;
@@ -42,7 +43,7 @@ export class ParallelService {
   private readonly recordEvent: ParallelServiceOptions["recordEvent"];
 
   constructor(options: ParallelServiceOptions) {
-    this.securityConfig = options.securityConfig;
+    this.securityPolicy = resolveSecurityPolicy(options.securityConfig.mode);
     this.parallel = options.parallel;
     this.parallelResults = options.parallelResults;
     this.sessionState = options.sessionState;
@@ -59,11 +60,11 @@ export class ParallelService {
       skill &&
       typeof maxParallel === "number" &&
       maxParallel > 0 &&
-      this.securityConfig.skillMaxParallelMode !== "off"
+      this.securityPolicy.skillMaxParallelMode !== "off"
     ) {
       const activeRuns = this.parallel.snapshotSession(sessionId)?.activeRunIds.length ?? 0;
       if (activeRuns >= maxParallel) {
-        const mode = this.securityConfig.skillMaxParallelMode;
+        const mode = this.securityPolicy.skillMaxParallelMode;
         if (mode === "warn") {
           const key = `maxParallel:${skill.name}`;
           const seen =

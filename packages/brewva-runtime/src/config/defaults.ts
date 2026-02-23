@@ -3,7 +3,6 @@ import type { BrewvaConfig } from "../types.js";
 export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
   ui: {
     quietStartup: true,
-    collapseChangelog: true,
   },
   skills: {
     roots: [],
@@ -12,7 +11,6 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     overrides: {},
     selector: {
       k: 4,
-      maxDigestTokens: 1200,
     },
   },
   verification: {
@@ -31,16 +29,10 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
   },
   ledger: {
     path: ".orchestrator/ledger/evidence.jsonl",
-    digestWindow: 12,
     checkpointEveryTurns: 20,
   },
   tape: {
     checkpointIntervalEntries: 120,
-    tapePressureThresholds: {
-      low: 80,
-      medium: 160,
-      high: 280,
-    },
   },
   memory: {
     enabled: true,
@@ -55,30 +47,19 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       recency: 0.25,
       confidence: 0.2,
     },
-    evolvesMode: "off",
+    evolvesMode: "shadow",
     cognitive: {
-      mode: "shadow",
-      maxInferenceCallsPerRefresh: 6,
-      maxRankCandidatesPerSearch: 8,
-      maxReflectionsPerVerification: 1,
+      mode: "active",
       maxTokensPerTurn: 0,
     },
     global: {
-      enabled: false,
+      enabled: true,
       minConfidence: 0.8,
-      minSessionRecurrence: 2,
-      decayIntervalDays: 7,
-      decayFactor: 0.95,
-      pruneBelowConfidence: 0.3,
     },
   },
   security: {
+    mode: "standard",
     sanitizeContext: true,
-    enforceDeniedTools: true,
-    allowedToolsMode: "warn",
-    skillMaxTokensMode: "warn",
-    skillMaxToolCallsMode: "warn",
-    skillMaxParallelMode: "warn",
   },
   schedule: {
     enabled: true,
@@ -93,21 +74,18 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
   parallel: {
     enabled: true,
     maxConcurrent: 3,
-    maxTotal: 10,
   },
   infrastructure: {
     events: {
       enabled: true,
       dir: ".orchestrator/events",
+      level: "ops",
     },
     contextBudget: {
       enabled: true,
       maxInjectionTokens: 1200,
       compactionThresholdPercent: 0.82,
       hardLimitPercent: 0.94,
-      minTurnsBetweenCompaction: 2,
-      minSecondsBetweenCompaction: 45,
-      pressureBypassPercent: 0.94,
       truncationStrategy: "summarize",
       compactionInstructions:
         "Summarize stale tool outputs and keep only active objectives, unresolved failures, and latest verification evidence.",
@@ -124,7 +102,6 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     costTracking: {
       enabled: true,
       maxCostUsdPerSession: 0,
-      maxCostUsdPerSkill: 0,
       alertThresholdRatio: 0.8,
       actionOnExceed: "warn",
     },

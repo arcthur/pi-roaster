@@ -488,7 +488,7 @@ function printReplayText(
 }
 
 function printCostSummary(sessionId: string, runtime: BrewvaRuntime): void {
-  const summary = runtime.getCostSummary(sessionId);
+  const summary = runtime.cost.getSummary(sessionId);
   if (summary.totalTokens <= 0 && summary.totalCostUsd <= 0) return;
 
   const topSkill = Object.entries(summary.skills).toSorted(
@@ -622,13 +622,13 @@ async function run(): Promise<void> {
       cwd: parsed.cwd,
       configPath: parsed.configPath,
     });
-    const targetSessionId = parsed.sessionId ?? runtime.listReplaySessions(1)[0]?.sessionId;
+    const targetSessionId = parsed.sessionId ?? runtime.events.listReplaySessions(1)[0]?.sessionId;
     if (!targetSessionId) {
       console.error("Error: no replayable session found.");
       process.exitCode = 1;
       return;
     }
-    const events = runtime.queryStructuredEvents(targetSessionId);
+    const events = runtime.events.queryStructured(targetSessionId);
     if (mode === "print-json") {
       for (const event of events) {
         await writeJsonLine(event);
@@ -644,12 +644,12 @@ async function run(): Promise<void> {
       cwd: parsed.cwd,
       configPath: parsed.configPath,
     });
-    const targetSessionId = runtime.resolveUndoSessionId(parsed.sessionId);
+    const targetSessionId = runtime.tools.resolveUndoSessionId(parsed.sessionId);
     if (!targetSessionId) {
       console.log("No rollback applied (no_patchset).");
       return;
     }
-    const rollback = runtime.rollbackLastPatchSet(targetSessionId);
+    const rollback = runtime.tools.rollbackLastPatchSet(targetSessionId);
     if (!rollback.ok) {
       const suffix = rollback.reason ? ` (${rollback.reason})` : "";
       console.log(`No rollback applied${suffix}.`);
@@ -695,7 +695,7 @@ async function run(): Promise<void> {
   const getSessionId = (): string => session.sessionManager.getSessionId();
   const initialSessionId = getSessionId();
   if (taskSpec) {
-    runtime.setTaskSpec(initialSessionId, taskSpec);
+    runtime.task.setSpec(initialSessionId, taskSpec);
   }
   const gracefulTimeoutMs = runtime.config.infrastructure.interruptRecovery.gracefulTimeoutMs;
   let terminatedBySignal = false;
@@ -712,7 +712,7 @@ async function run(): Promise<void> {
     terminatedBySignal = true;
 
     const sessionId = getSessionId();
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "session_interrupted",
       payload: { signal },
@@ -768,13 +768,13 @@ async function run(): Promise<void> {
       const sessionId = getSessionId();
       ensureSessionShutdownRecorded(runtime, sessionId);
       if (emitJsonBundle) {
-        const replayEvents = runtime.queryStructuredEvents(sessionId);
+        const replayEvents = runtime.events.queryStructured(sessionId);
         await writeJsonLine({
           schema: "brewva.stream.v1",
           type: "brewva_event_bundle",
           sessionId,
           events: replayEvents,
-          costSummary: runtime.getCostSummary(sessionId),
+          costSummary: runtime.cost.getSummary(sessionId),
         });
       }
       session.dispose();

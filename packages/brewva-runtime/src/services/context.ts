@@ -25,6 +25,7 @@ import type { RuntimeCallback } from "./callback.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 
 const OUTPUT_HEALTH_GUARD_LOOKBACK_EVENTS = 32;
+const RECENT_COMPACTION_WINDOW_TURNS = 2;
 const TOOL_FAILURE_INFRASTRUCTURE_TOOLS = new Set([
   "ledger_checkpoint",
   "brewva_cost",
@@ -228,9 +229,11 @@ export class ContextService {
   }
 
   private resolveRecentCompactionWindowTurns(): number {
-    const raw = this.config.infrastructure.contextBudget.minTurnsBetweenCompaction;
-    if (!Number.isFinite(raw)) return 1;
-    return Math.max(1, Math.floor(raw));
+    return RECENT_COMPACTION_WINDOW_TURNS;
+  }
+
+  getRecentCompactionWindowTurns(): number {
+    return this.resolveRecentCompactionWindowTurns();
   }
 
   getContextCompactionGateStatus(
@@ -347,23 +350,7 @@ export class ContextService {
     return failures;
   }
 
-  buildContextInjection(
-    sessionId: string,
-    prompt: string,
-    usage?: ContextBudgetUsage,
-    injectionScopeId?: string,
-  ): {
-    text: string;
-    accepted: boolean;
-    originalTokens: number;
-    finalTokens: number;
-    truncated: boolean;
-  } {
-    this.registerMemoryContextInjection(sessionId, prompt);
-    return this.finalizeContextInjection(sessionId, prompt, usage, injectionScopeId);
-  }
-
-  async buildContextInjectionAsync(
+  async buildContextInjection(
     sessionId: string,
     prompt: string,
     usage?: ContextBudgetUsage,
@@ -375,7 +362,7 @@ export class ContextService {
     finalTokens: number;
     truncated: boolean;
   }> {
-    await this.registerMemoryContextInjectionAsync(sessionId, prompt);
+    await this.registerMemoryContextInjection(sessionId, prompt);
     return this.finalizeContextInjection(sessionId, prompt, usage, injectionScopeId);
   }
 
@@ -400,18 +387,9 @@ export class ContextService {
         sanitizeInput: (text) => this.sanitizeInput(text),
         getTruthState: (id) => this.getTruthState(id),
         maybeAlignTaskStatus: (orchestrationInput) => this.maybeAlignTaskStatus(orchestrationInput),
-        getLatestOutputHealth: (id) => this.getLatestOutputHealth(id),
-        selectSkills: (text) => this.selectSkills(text),
-        buildSkillCandidateBlock: (selected) => this.buildSkillCandidateBlock(selected),
-        getLedgerDigest: (id) => this.getLedgerDigest(id),
         getRecentToolFailures: (id) => this.getRecentToolFailures(id),
-        getLatestCompactionSummary: (id) =>
-          this.sessionState.latestCompactionSummaryBySession.get(id),
         getTaskState: (id) => this.getTaskState(id),
         buildTaskStateBlock: (state) => this.buildTaskStateBlock(state),
-        recentFiles: (id, limit) => this.fileChanges.recentFiles(id, limit),
-        setViewportPolicy: (id, policy) =>
-          this.sessionState.viewportPolicyBySession.set(id, policy),
         registerContextInjection: (id, registerInput) =>
           this.registerContextInjection(id, registerInput),
         getCurrentTurn: (id) => this.getCurrentTurn(id),
@@ -440,67 +418,34 @@ export class ContextService {
     );
   }
 
-  private registerMemoryContextInjection(sessionId: string, prompt: string): void {
+  private async registerMemoryContextInjection(sessionId: string, prompt: string): Promise<void> {
     if (!this.config.memory.enabled) return;
     const taskGoal = this.getTaskState(sessionId).spec?.goal;
     this.memory.refreshIfNeeded({ sessionId });
 
+    const sections: string[] = [];
     const working = this.memory.getWorkingMemory(sessionId);
     if (working?.content.trim()) {
-      this.registerContextInjection(sessionId, {
-        source: "brewva.working-memory",
-        id: "working-memory",
-        priority: "critical",
-        content: working.content,
-      });
+      sections.push(working.content);
     }
 
     const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
-    const recall = this.memory.buildRecallBlock({
+    const recall = await this.memory.buildRecallBlock({
       sessionId,
       query: recallQuery,
       limit: this.config.memory.retrievalTopK,
     });
     if (recall.trim()) {
-      this.registerContextInjection(sessionId, {
-        source: "brewva.memory-recall",
-        id: "memory-recall",
-        priority: "high",
-        content: recall,
-      });
+      sections.push(recall);
     }
-  }
 
-  private async registerMemoryContextInjectionAsync(
-    sessionId: string,
-    prompt: string,
-  ): Promise<void> {
-    if (!this.config.memory.enabled) return;
-    const taskGoal = this.getTaskState(sessionId).spec?.goal;
-    this.memory.refreshIfNeeded({ sessionId });
-
-    const working = this.memory.getWorkingMemory(sessionId);
-    if (working?.content.trim()) {
+    const memoryBlock = sections.join("\n\n").trim();
+    if (memoryBlock) {
       this.registerContextInjection(sessionId, {
-        source: "brewva.working-memory",
-        id: "working-memory",
+        source: "brewva.memory",
+        id: "memory",
         priority: "critical",
-        content: working.content,
-      });
-    }
-
-    const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
-    const recall = await this.memory.buildRecallBlockAsync({
-      sessionId,
-      query: recallQuery,
-      limit: this.config.memory.retrievalTopK,
-    });
-    if (recall.trim()) {
-      this.registerContextInjection(sessionId, {
-        source: "brewva.memory-recall",
-        id: "memory-recall",
-        priority: "high",
-        content: recall,
+        content: memoryBlock,
       });
     }
   }

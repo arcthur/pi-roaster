@@ -10,6 +10,8 @@ interface SessionParallelState {
   totalStarted: number;
 }
 
+const PARALLEL_MAX_TOTAL_PER_SESSION = 10;
+
 export class ParallelBudgetManager {
   private readonly config: BrewvaConfig["parallel"];
   private readonly sessions = new Map<string, SessionParallelState>();
@@ -32,7 +34,7 @@ export class ParallelBudgetManager {
       return { accepted: false, reason: "max_concurrent" };
     }
 
-    if (state.totalStarted >= this.config.maxTotal) {
+    if (state.totalStarted >= PARALLEL_MAX_TOTAL_PER_SESSION) {
       return { accepted: false, reason: "max_total" };
     }
 

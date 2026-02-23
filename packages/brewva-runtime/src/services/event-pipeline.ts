@@ -1,6 +1,6 @@
 import { formatISO } from "date-fns";
 import { BrewvaEventStore } from "../events/store.js";
-import { TAPE_CHECKPOINT_EVENT_TYPE } from "../tape/events.js";
+import { TAPE_ANCHOR_EVENT_TYPE, TAPE_CHECKPOINT_EVENT_TYPE } from "../tape/events.js";
 import { TASK_EVENT_TYPE } from "../task/ledger.js";
 import { TRUTH_EVENT_TYPE } from "../truth/ledger.js";
 import type {
@@ -18,6 +18,39 @@ const REPLAY_INVALIDATION_EVENT_TYPES = new Set<string>([
   TAPE_CHECKPOINT_EVENT_TYPE,
 ]);
 
+const AUDIT_EVENT_TYPES = new Set<string>([
+  TAPE_ANCHOR_EVENT_TYPE,
+  TAPE_CHECKPOINT_EVENT_TYPE,
+  TASK_EVENT_TYPE,
+  TRUTH_EVENT_TYPE,
+  "tool_result_recorded",
+  "verification_outcome_recorded",
+  "verification_state_reset",
+  "schedule_intent",
+  "schedule_recovery_deferred",
+  "schedule_recovery_summary",
+  "schedule_wakeup",
+  "schedule_child_session_started",
+  "schedule_child_session_finished",
+  "schedule_child_session_failed",
+]);
+
+const DEBUG_EVENT_TYPES = new Set<string>([
+  "viewport_built",
+  "viewport_policy_evaluated",
+  "tool_parallel_read",
+  "cognitive_usage_recorded",
+  "cognitive_relation_inference",
+  "cognitive_relation_inference_skipped",
+  "cognitive_relation_inference_failed",
+  "cognitive_relevance_ranking",
+  "cognitive_relevance_ranking_skipped",
+  "cognitive_relevance_ranking_failed",
+  "cognitive_outcome_reflection",
+  "cognitive_outcome_reflection_skipped",
+  "cognitive_outcome_reflection_failed",
+]);
+
 export interface RuntimeRecordEventInput {
   sessionId: string;
   type: string;
@@ -29,6 +62,7 @@ export interface RuntimeRecordEventInput {
 
 export interface EventPipelineServiceOptions {
   events: BrewvaEventStore;
+  level: "audit" | "ops" | "debug";
   inferEventCategory: RuntimeCallback<[type: string], BrewvaEventCategory>;
   invalidateReplay: RuntimeCallback<[sessionId: string]>;
   ingestMemoryEvent: RuntimeCallback<[event: BrewvaEventRecord]>;
@@ -37,6 +71,7 @@ export interface EventPipelineServiceOptions {
 
 export class EventPipelineService {
   private readonly events: BrewvaEventStore;
+  private readonly level: "audit" | "ops" | "debug";
   private readonly inferEventCategory: (type: string) => BrewvaEventCategory;
   private readonly invalidateReplay: (sessionId: string) => void;
   private readonly ingestMemoryEvent: (event: BrewvaEventRecord) => void;
@@ -45,6 +80,7 @@ export class EventPipelineService {
 
   constructor(options: EventPipelineServiceOptions) {
     this.events = options.events;
+    this.level = options.level;
     this.inferEventCategory = options.inferEventCategory;
     this.invalidateReplay = options.invalidateReplay;
     this.ingestMemoryEvent = options.ingestMemoryEvent;
@@ -52,6 +88,10 @@ export class EventPipelineService {
   }
 
   recordEvent(input: RuntimeRecordEventInput): BrewvaEventRecord | undefined {
+    if (!this.shouldEmit(input.type)) {
+      return undefined;
+    }
+
     const row = this.events.append({
       sessionId: input.sessionId,
       type: input.type,
@@ -75,6 +115,21 @@ export class EventPipelineService {
       this.maybeRecordTapeCheckpoint(row);
     }
     return row;
+  }
+
+  private shouldEmit(type: string): boolean {
+    if (this.level === "debug") return true;
+    const eventLevel = this.classifyEventLevel(type);
+    if (this.level === "ops") return eventLevel !== "debug";
+    return eventLevel === "audit";
+  }
+
+  private classifyEventLevel(type: string): "audit" | "ops" | "debug" {
+    if (AUDIT_EVENT_TYPES.has(type)) return "audit";
+    if (DEBUG_EVENT_TYPES.has(type)) return "debug";
+    if (type.startsWith("viewport_")) return "debug";
+    if (type.startsWith("cognitive_")) return "debug";
+    return "ops";
   }
 
   queryEvents(sessionId: string, query: BrewvaEventQuery = {}): BrewvaEventRecord[] {

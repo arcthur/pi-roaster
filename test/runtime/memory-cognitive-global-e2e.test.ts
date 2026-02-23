@@ -41,17 +41,19 @@ function createConfig(input?: {
       cognitive: {
         ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
         mode: cognitiveMode,
-        maxReflectionsPerVerification: 1,
         maxTokensPerTurn: 0,
       },
       global: {
         ...DEFAULT_BREWVA_CONFIG.memory.global,
         enabled: true,
         minConfidence: 0.8,
-        minSessionRecurrence: 2,
-        decayIntervalDays: 7,
-        decayFactor: 0.95,
-        pruneBelowConfidence: 0.3,
+      },
+    },
+    infrastructure: {
+      ...DEFAULT_BREWVA_CONFIG.infrastructure,
+      events: {
+        ...DEFAULT_BREWVA_CONFIG.infrastructure.events,
+        level: "debug",
       },
     },
   };
@@ -80,28 +82,28 @@ describe("memory cognitive global e2e", () => {
     });
 
     const sessionA = "memory-e2e-session-a";
-    runtimeA.markToolCall(sessionA, "edit");
-    const failA = await runtimeA.verifyCompletion(sessionA, "standard", {
+    runtimeA.tools.markCall(sessionA, "edit");
+    const failA = await runtimeA.verification.verify(sessionA, "standard", {
       executeCommands: true,
       timeoutMs: 5_000,
     });
     expect(failA.passed).toBe(false);
 
-    const injectionA = runtimeA.buildContextInjection(
+    const injectionA = await runtimeA.context.buildInjection(
       sessionA,
       "stabilize verification failures and summarize lessons",
     );
     expect(injectionA.text.includes("[WorkingMemory]")).toBe(true);
     expect(injectionA.text.includes("Lessons Learned")).toBe(true);
 
-    const sessionAHits = runtimeA.searchMemory(sessionA, {
+    const sessionAHits = await runtimeA.memory.search(sessionA, {
       query: "fast and slow stages",
       limit: 8,
     });
     expect(sessionAHits.hits.length).toBeGreaterThan(0);
     expect(sessionAHits.hits.some((hit) => hit.sourceTier === "session")).toBe(true);
 
-    const sessionAEvents = runtimeA.queryEvents(sessionA);
+    const sessionAEvents = runtimeA.events.query(sessionA);
     expect(sessionAEvents.some((event) => event.type === "verification_outcome_recorded")).toBe(
       true,
     );
@@ -117,19 +119,19 @@ describe("memory cognitive global e2e", () => {
     });
 
     const sessionB = "memory-e2e-session-b";
-    runtimeB.markToolCall(sessionB, "edit");
-    const failB = await runtimeB.verifyCompletion(sessionB, "standard", {
+    runtimeB.tools.markCall(sessionB, "edit");
+    const failB = await runtimeB.verification.verify(sessionB, "standard", {
       executeCommands: true,
       timeoutMs: 5_000,
     });
     expect(failB.passed).toBe(false);
 
-    runtimeB.buildContextInjection(
+    await runtimeB.context.buildInjection(
       sessionB,
       "stabilize verification failures and summarize lessons",
     );
 
-    const sessionBSync = runtimeB.queryEvents(sessionB, { type: "memory_global_sync" });
+    const sessionBSync = runtimeB.events.query(sessionB, { type: "memory_global_sync" });
     expect(sessionBSync.some((event) => Number(event.payload?.promoted ?? 0) > 0)).toBe(true);
 
     const runtimeRead = new BrewvaRuntime({
@@ -139,7 +141,7 @@ describe("memory cognitive global e2e", () => {
     });
     const readSession = "memory-e2e-session-read";
 
-    const globalHitsBeforePass = runtimeRead.searchMemory(readSession, {
+    const globalHitsBeforePass = await runtimeRead.memory.search(readSession, {
       query: "verification:standard:none failed checks tests",
       limit: 12,
     });
@@ -153,7 +155,7 @@ describe("memory cognitive global e2e", () => {
     );
     expect(globalFacetHit).toBeDefined();
 
-    const recallBeforePass = runtimeRead.buildContextInjection(
+    const recallBeforePass = await runtimeRead.context.buildInjection(
       readSession,
       "verification:standard:none failed checks tests lessons",
     );
@@ -167,16 +169,16 @@ describe("memory cognitive global e2e", () => {
     });
 
     const passSession = "memory-e2e-session-pass";
-    runtimePass.markToolCall(passSession, "edit");
-    const passReport = await runtimePass.verifyCompletion(passSession, "standard", {
+    runtimePass.tools.markCall(passSession, "edit");
+    const passReport = await runtimePass.verification.verify(passSession, "standard", {
       executeCommands: true,
       timeoutMs: 5_000,
     });
     expect(passReport.passed).toBe(true);
 
-    runtimePass.buildContextInjection(passSession, "verification pass reconciliation");
+    await runtimePass.context.buildInjection(passSession, "verification pass reconciliation");
 
-    const passSync = runtimePass.queryEvents(passSession, { type: "memory_global_sync" });
+    const passSync = runtimePass.events.query(passSession, { type: "memory_global_sync" });
     expect(passSync.some((event) => Number(event.payload?.resolvedByPass ?? 0) > 0)).toBe(true);
 
     const runtimeAfterPass = new BrewvaRuntime({
@@ -185,7 +187,7 @@ describe("memory cognitive global e2e", () => {
       cognitivePort,
     });
 
-    const afterPassHits = runtimeAfterPass.searchMemory("memory-e2e-session-after-pass", {
+    const afterPassHits = await runtimeAfterPass.memory.search("memory-e2e-session-after-pass", {
       query: "verification failed failed checks tests",
       limit: 12,
     });

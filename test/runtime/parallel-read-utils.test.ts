@@ -15,7 +15,7 @@ import {
 describe("parallel-read utils", () => {
   test("resolveParallelReadConfig handles enabled, disabled, and capped budgets", () => {
     const disabledRuntime = {
-      config: { parallel: { enabled: false, maxConcurrent: 8, maxTotal: 16 } },
+      config: { parallel: { enabled: false, maxConcurrent: 8 } },
     } as unknown as BrewvaToolRuntime;
     const disabled = resolveParallelReadConfig(disabledRuntime);
     expect(disabled).toEqual({
@@ -25,7 +25,7 @@ describe("parallel-read utils", () => {
     });
 
     const enabledRuntime = {
-      config: { parallel: { enabled: true, maxConcurrent: 3, maxTotal: 16 } },
+      config: { parallel: { enabled: true, maxConcurrent: 3 } },
     } as unknown as BrewvaToolRuntime;
     const enabled = resolveParallelReadConfig(enabledRuntime);
     expect(enabled).toEqual({
@@ -34,16 +34,16 @@ describe("parallel-read utils", () => {
       reason: "runtime_parallel_budget",
     });
 
-    const cappedByTotalRuntime = {
-      config: { parallel: { enabled: true, maxConcurrent: 50, maxTotal: 2 } },
+    const lowBudgetRuntime = {
+      config: { parallel: { enabled: true, maxConcurrent: 1 } },
     } as unknown as BrewvaToolRuntime;
-    const cappedByTotal = resolveParallelReadConfig(cappedByTotalRuntime);
-    expect(cappedByTotal.batchSize).toBe(8);
-    expect(cappedByTotal.mode).toBe("parallel");
-    expect(cappedByTotal.reason).toBe("runtime_parallel_budget");
+    const lowBudget = resolveParallelReadConfig(lowBudgetRuntime);
+    expect(lowBudget.batchSize).toBe(4);
+    expect(lowBudget.mode).toBe("parallel");
+    expect(lowBudget.reason).toBe("runtime_parallel_budget");
 
     const cappedRuntime = {
-      config: { parallel: { enabled: true, maxConcurrent: 1000, maxTotal: 16 } },
+      config: { parallel: { enabled: true, maxConcurrent: 1000 } },
     } as unknown as BrewvaToolRuntime;
     const capped = resolveParallelReadConfig(cappedRuntime);
     expect(capped.batchSize).toBe(64);
@@ -83,11 +83,33 @@ describe("parallel-read utils", () => {
   test("recordParallelReadTelemetry emits only when runtime and session id are available", () => {
     const calls: Array<Record<string, unknown>> = [];
     const runtime = {
-      recordEvent(input: Record<string, unknown>) {
-        calls.push(input);
-        return undefined;
+      events: {
+        record(input: Record<string, unknown>) {
+          calls.push(input);
+          return undefined;
+        },
       },
     } as unknown as BrewvaToolRuntime;
+
+    recordParallelReadTelemetry(
+      {
+        events: undefined,
+      } as unknown as BrewvaToolRuntime,
+      "session-telemetry",
+      {
+        toolName: "lsp_symbols",
+        operation: "find_references",
+        batchSize: 8,
+        mode: "parallel",
+        reason: "runtime_parallel_budget",
+        scannedFiles: 10,
+        loadedFiles: 9,
+        failedFiles: 1,
+        batches: 2,
+        durationMs: 20,
+      },
+    );
+    expect(calls).toHaveLength(0);
 
     recordParallelReadTelemetry(runtime, undefined, {
       toolName: "lsp_symbols",

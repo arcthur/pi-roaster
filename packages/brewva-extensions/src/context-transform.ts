@@ -8,10 +8,6 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 const CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
 const CONTEXT_CONTRACT_MARKER = "[Brewva Context Contract]";
 
-export interface RegisterContextTransformOptions {
-  preferAsyncContextInjection?: boolean;
-}
-
 interface CompactionGateState {
   turnIndex: number;
   compactionRequired: boolean;
@@ -42,7 +38,7 @@ function emitRuntimeEvent(
     payload: Record<string, unknown>;
   },
 ): void {
-  runtime.recordEvent({
+  runtime.events.record({
     sessionId: input.sessionId,
     turn: input.turn,
     type: input.type,
@@ -56,9 +52,7 @@ function formatPercent(ratio: number | null): string {
 }
 
 function resolveRecentCompactionWindowTurns(runtime: BrewvaRuntime): number {
-  const raw = runtime.config.infrastructure.contextBudget.minTurnsBetweenCompaction;
-  if (!Number.isFinite(raw)) return 1;
-  return Math.max(1, Math.floor(raw));
+  return runtime.context.getCompactionWindowTurns();
 }
 
 function hydrateLastCompactionTurnFromTape(
@@ -67,7 +61,7 @@ function hydrateLastCompactionTurnFromTape(
   state: CompactionGateState,
 ): void {
   if (state.lastCompactionTurn !== null) return;
-  const latest = runtime.queryEvents(sessionId, {
+  const latest = runtime.events.query(sessionId, {
     type: "context_compacted",
     last: 1,
   })[0];
@@ -137,7 +131,6 @@ async function resolveContextInjection(
     usage: ReturnType<typeof coerceContextBudgetUsage>;
     injectionScopeId?: string;
   },
-  options: RegisterContextTransformOptions,
 ): Promise<{
   text: string;
   accepted: boolean;
@@ -145,34 +138,7 @@ async function resolveContextInjection(
   finalTokens: number;
   truncated: boolean;
 }> {
-  if (options.preferAsyncContextInjection !== false) {
-    const asyncBuilder = (
-      runtime as BrewvaRuntime & {
-        buildContextInjectionAsync?: (
-          sessionId: string,
-          prompt: string,
-          usage?: ReturnType<typeof coerceContextBudgetUsage>,
-          injectionScopeId?: string,
-        ) => Promise<{
-          text: string;
-          accepted: boolean;
-          originalTokens: number;
-          finalTokens: number;
-          truncated: boolean;
-        }>;
-      }
-    ).buildContextInjectionAsync;
-    if (typeof asyncBuilder === "function") {
-      return asyncBuilder.call(
-        runtime,
-        input.sessionId,
-        input.prompt,
-        input.usage,
-        input.injectionScopeId,
-      );
-    }
-  }
-  return runtime.buildContextInjection(
+  return runtime.context.buildInjection(
     input.sessionId,
     input.prompt,
     input.usage,
@@ -198,7 +164,7 @@ function buildTapeStatusBlock(input: {
   state: CompactionGateState;
   gateRequired: boolean;
 }): string {
-  const tapeStatus = input.runtime.getTapeStatus(input.sessionId);
+  const tapeStatus = input.runtime.events.getTapeStatus(input.sessionId);
   const usagePercent = formatPercent(input.pressure.usageRatio);
   const hardLimitPercent = formatPercent(input.pressure.hardLimitRatio);
   const windowTurns = resolveRecentCompactionWindowTurns(input.runtime);
@@ -230,9 +196,9 @@ function buildTapeStatusBlock(input: {
 }
 
 function buildContextContractBlock(runtime: BrewvaRuntime): string {
-  const tapeThresholds = runtime.config.tape.tapePressureThresholds;
-  const hardLimitPercent = formatPercent(runtime.getContextHardLimitRatio());
-  const highThresholdPercent = formatPercent(runtime.getContextCompactionThresholdRatio());
+  const tapeThresholds = runtime.events.getTapePressureThresholds();
+  const hardLimitPercent = formatPercent(runtime.context.getHardLimitRatio());
+  const highThresholdPercent = formatPercent(runtime.context.getCompactionThresholdRatio());
 
   return [
     CONTEXT_CONTRACT_MARKER,
@@ -263,18 +229,14 @@ function applyContextContract(systemPrompt: unknown, runtime: BrewvaRuntime): st
   return `${base}\n\n${contract}`;
 }
 
-export function registerContextTransform(
-  pi: ExtensionAPI,
-  runtime: BrewvaRuntime,
-  options: RegisterContextTransformOptions = {},
-): void {
+export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
   const gateStateBySession = new Map<string, CompactionGateState>();
 
   pi.on("turn_start", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
     state.turnIndex = Math.max(state.turnIndex, event.turnIndex);
-    runtime.onTurnStart(sessionId, event.turnIndex);
+    runtime.context.onTurnStart(sessionId, event.turnIndex);
     return undefined;
   });
 
@@ -282,9 +244,9 @@ export function registerContextTransform(
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
-    runtime.observeContextUsage(sessionId, usage);
+    runtime.context.observeUsage(sessionId, usage);
 
-    if (!runtime.shouldRequestCompaction(sessionId, usage)) {
+    if (!runtime.context.shouldRequestCompaction(sessionId, usage)) {
       return undefined;
     }
 
@@ -308,7 +270,7 @@ export function registerContextTransform(
     state.lastCompactionTurn = state.turnIndex;
     state.compactionRequired = false;
 
-    runtime.markContextCompacted(sessionId, {
+    runtime.context.markCompacted(sessionId, {
       fromTokens: null,
       toTokens: usage?.tokens ?? null,
       summary: extractCompactionSummary(event),
@@ -349,8 +311,8 @@ export function registerContextTransform(
     hydrateLastCompactionTurnFromTape(runtime, sessionId, state);
     const injectionScopeId = resolveInjectionScopeId(ctx.sessionManager);
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
-    runtime.observeContextUsage(sessionId, usage);
-    const pressure = runtime.getContextPressureStatus(sessionId, usage);
+    runtime.context.observeUsage(sessionId, usage);
+    const pressure = runtime.context.getPressureStatus(sessionId, usage);
 
     const gateRequired =
       runtime.config.infrastructure.contextBudget.enabled &&
@@ -385,16 +347,12 @@ export function registerContextTransform(
       });
     }
 
-    const injection = await resolveContextInjection(
-      runtime,
-      {
-        sessionId,
-        prompt: event.prompt,
-        usage,
-        injectionScopeId,
-      },
-      options,
-    );
+    const injection = await resolveContextInjection(runtime, {
+      sessionId,
+      prompt: event.prompt,
+      usage,
+      injectionScopeId,
+    });
     const blocks: string[] = [
       buildTapeStatusBlock({
         runtime,

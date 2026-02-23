@@ -21,24 +21,15 @@ describe("Brewva config loader normalization", () => {
     const rawConfig = {
       ui: {
         quietStartup: "yes",
-        collapseChangelog: 1,
       },
       tape: {
         checkpointIntervalEntries: -9,
-        tapePressureThresholds: {
-          low: 20,
-          medium: 10,
-          high: -5,
-        },
       },
       infrastructure: {
         contextBudget: {
           maxInjectionTokens: -100,
           hardLimitPercent: 1.6,
           compactionThresholdPercent: 1.8,
-          minTurnsBetweenCompaction: -5,
-          minSecondsBetweenCompaction: -10,
-          pressureBypassPercent: -0.3,
           truncationStrategy: "invalid_strategy",
         },
         toolFailureInjection: {
@@ -75,11 +66,7 @@ describe("Brewva config loader normalization", () => {
     const defaults = DEFAULT_BREWVA_CONFIG;
 
     expect(loaded.ui.quietStartup).toBe(defaults.ui.quietStartup);
-    expect(loaded.ui.collapseChangelog).toBe(defaults.ui.collapseChangelog);
     expect(loaded.tape.checkpointIntervalEntries).toBe(0);
-    expect(loaded.tape.tapePressureThresholds.low).toBe(20);
-    expect(loaded.tape.tapePressureThresholds.medium).toBe(20);
-    expect(loaded.tape.tapePressureThresholds.high).toBe(defaults.tape.tapePressureThresholds.high);
 
     expect(loaded.infrastructure.contextBudget.maxInjectionTokens).toBe(
       defaults.infrastructure.contextBudget.maxInjectionTokens,
@@ -88,9 +75,6 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.infrastructure.contextBudget.compactionThresholdPercent).toBeLessThanOrEqual(
       loaded.infrastructure.contextBudget.hardLimitPercent,
     );
-    expect(loaded.infrastructure.contextBudget.minTurnsBetweenCompaction).toBe(0);
-    expect(loaded.infrastructure.contextBudget.minSecondsBetweenCompaction).toBe(0);
-    expect(loaded.infrastructure.contextBudget.pressureBypassPercent).toBe(0);
     expect(loaded.infrastructure.contextBudget.truncationStrategy).toBe(
       defaults.infrastructure.contextBudget.truncationStrategy,
     );
@@ -147,18 +131,11 @@ describe("Brewva config loader normalization", () => {
             evolvesMode: "unsupported",
             cognitive: {
               mode: "unsupported",
-              maxInferenceCallsPerRefresh: -2,
-              maxRankCandidatesPerSearch: -4,
-              maxReflectionsPerVerification: -3,
               maxTokensPerTurn: -50,
             },
             global: {
               enabled: "yes",
               minConfidence: 9,
-              minSessionRecurrence: -4,
-              decayIntervalDays: -2,
-              decayFactor: -1,
-              pruneBelowConfidence: 2,
             },
           },
         },
@@ -182,28 +159,19 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.memory.retrievalWeights.confidence).toBe(0.5);
     expect(loaded.memory.evolvesMode).toBe(defaults.evolvesMode);
     expect(loaded.memory.cognitive.mode).toBe(defaults.cognitive.mode);
-    expect(loaded.memory.cognitive.maxInferenceCallsPerRefresh).toBe(0);
-    expect(loaded.memory.cognitive.maxRankCandidatesPerSearch).toBe(0);
-    expect(loaded.memory.cognitive.maxReflectionsPerVerification).toBe(0);
     expect(loaded.memory.cognitive.maxTokensPerTurn).toBe(0);
     expect(loaded.memory.global.enabled).toBe(defaults.global.enabled);
     expect(loaded.memory.global.minConfidence).toBe(1);
-    expect(loaded.memory.global.minSessionRecurrence).toBe(2);
-    expect(loaded.memory.global.decayIntervalDays).toBe(defaults.global.decayIntervalDays);
-    expect(loaded.memory.global.decayFactor).toBe(0);
-    expect(loaded.memory.global.pruneBelowConfidence).toBe(1);
   });
 
   test("returns isolated config instances when no config file exists", () => {
     const workspace = createWorkspace("isolation");
 
     const first = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
-    first.security.enforceDeniedTools = false;
+    first.security.mode = "permissive";
 
     const second = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
-    expect(second.security.enforceDeniedTools).toBe(
-      DEFAULT_BREWVA_CONFIG.security.enforceDeniedTools,
-    );
+    expect(second.security.mode).toBe(DEFAULT_BREWVA_CONFIG.security.mode);
   });
 
   test("normalizes skills roots arrays and selector values", () => {
@@ -215,7 +183,6 @@ describe("Brewva config loader normalization", () => {
         disabled: ["  review  ", "", null],
         selector: {
           k: 0,
-          maxDigestTokens: -1,
         },
       },
     };
@@ -230,9 +197,6 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.skills.packs).toEqual(["typescript"]);
     expect(loaded.skills.disabled).toEqual(["review"]);
     expect(loaded.skills.selector.k).toBe(DEFAULT_BREWVA_CONFIG.skills.selector.k);
-    expect(loaded.skills.selector.maxDigestTokens).toBe(
-      DEFAULT_BREWVA_CONFIG.skills.selector.maxDigestTokens,
-    );
   });
 
   test("loads explicit ui startup overrides", () => {
@@ -243,7 +207,6 @@ describe("Brewva config loader normalization", () => {
         {
           ui: {
             quietStartup: false,
-            collapseChangelog: false,
           },
         },
         null,
@@ -254,7 +217,6 @@ describe("Brewva config loader normalization", () => {
 
     const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
     expect(loaded.ui.quietStartup).toBe(false);
-    expect(loaded.ui.collapseChangelog).toBe(false);
   });
 
   test("tolerates $schema meta field in config files", () => {
@@ -276,7 +238,6 @@ describe("Brewva config loader normalization", () => {
 
     const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
     expect(loaded.ui.quietStartup).toBe(false);
-    expect(loaded.ui.collapseChangelog).toBe(DEFAULT_BREWVA_CONFIG.ui.collapseChangelog);
   });
 
   test("tolerates invalid JSON config and reports diagnostics", () => {
@@ -315,6 +276,37 @@ describe("Brewva config loader normalization", () => {
     expect((loaded as unknown as Record<string, unknown>).foo).toBeUndefined();
     expect(loaded.ui).toEqual(DEFAULT_BREWVA_CONFIG.ui);
     expect(loaded.verification.defaultLevel).toBe(DEFAULT_BREWVA_CONFIG.verification.defaultLevel);
+  });
+
+  test("reports removed memory tuning keys as schema diagnostics", () => {
+    const workspace = createWorkspace("removed-memory-keys");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          memory: {
+            cognitive: {
+              maxInferenceCallsPerRefresh: 3,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfigWithDiagnostics({
+      cwd: workspace,
+      configPath: ".brewva/brewva.json",
+    });
+    expect(
+      loaded.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === "config_schema_invalid" &&
+          diagnostic.message.includes('unknown property "maxInferenceCallsPerRefresh"'),
+      ),
+    ).toBe(true);
   });
 
   test("loads global and project configs with project override precedence", () => {

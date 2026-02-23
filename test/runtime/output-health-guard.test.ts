@@ -11,12 +11,12 @@ function createWorkspace(name: string): string {
 }
 
 describe("Output health guard", () => {
-  test("injects guard when drunk output detected", () => {
+  test("does not inject output guard by default even when drunk output is detected", async () => {
     const workspace = createWorkspace("output-health-guard");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "output-health-guard-1";
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "message_update",
       payload: {
@@ -31,16 +31,16 @@ describe("Output health guard", () => {
       },
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "next");
-    expect(injection.text.includes("[OutputHealthGuard]")).toBe(true);
+    const injection = await runtime.context.buildInjection(sessionId, "next");
+    expect(injection.text.includes("[OutputHealthGuard]")).toBe(false);
   });
 
-  test("skips guard for healthy output", () => {
+  test("skips guard for healthy output", async () => {
     const workspace = createWorkspace("output-health-ok");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "output-health-guard-ok-1";
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "message_update",
       payload: {
@@ -55,7 +55,7 @@ describe("Output health guard", () => {
       },
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "next");
+    const injection = await runtime.context.buildInjection(sessionId, "next");
     expect(injection.text.includes("[OutputHealthGuard]")).toBe(false);
   });
 });

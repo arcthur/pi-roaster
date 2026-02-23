@@ -16,15 +16,11 @@ export class MemoryAccessService {
     return this.memory.getWorkingMemory(sessionId);
   }
 
-  searchMemory(sessionId: string, input: { query: string; limit?: number }): MemorySearchResult {
-    return this.memory.search(sessionId, input);
-  }
-
-  async searchMemoryAsync(
+  async search(
     sessionId: string,
     input: { query: string; limit?: number },
   ): Promise<MemorySearchResult> {
-    return this.memory.searchAsync(sessionId, input);
+    return this.memory.search(sessionId, input);
   }
 
   dismissMemoryInsight(

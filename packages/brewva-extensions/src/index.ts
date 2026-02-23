@@ -12,18 +12,11 @@ import { registerQualityGate } from "./quality-gate.js";
 export interface CreateBrewvaExtensionOptions extends BrewvaRuntimeOptions {
   runtime?: BrewvaRuntime;
   registerTools?: boolean;
-  preferAsyncContextInjection?: boolean;
 }
 
-function registerAllHandlers(
-  pi: ExtensionAPI,
-  runtime: BrewvaRuntime,
-  options: Pick<CreateBrewvaExtensionOptions, "preferAsyncContextInjection"> = {},
-): void {
+function registerAllHandlers(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
   registerEventStream(pi, runtime);
-  registerContextTransform(pi, runtime, {
-    preferAsyncContextInjection: options.preferAsyncContextInjection,
-  });
+  registerContextTransform(pi, runtime);
   registerQualityGate(pi, runtime);
   registerLedgerWriter(pi, runtime);
   registerCompletionGuard(pi, runtime);
@@ -44,9 +37,7 @@ export function createBrewvaExtension(
       }
     }
 
-    registerAllHandlers(pi, runtime, {
-      preferAsyncContextInjection: options.preferAsyncContextInjection,
-    });
+    registerAllHandlers(pi, runtime);
   };
 }
 

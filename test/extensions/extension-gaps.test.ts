@@ -157,81 +157,191 @@ function withRuntimeConfig<T extends object>(
   const compactionThresholdRatio =
     normalizeRatio(config.infrastructure.contextBudget.compactionThresholdPercent) ??
     hardLimitRatio;
-  const defaults = {
-    recordEvent: () => undefined,
-    clearSessionState: () => undefined,
-    queryEvents: () => [],
-    getTapeStatus: () => ({
-      totalEntries: 0,
-      entriesSinceAnchor: 0,
-      entriesSinceCheckpoint: 0,
-      tapePressure: "none",
-      thresholds: {
-        low: config.tape.tapePressureThresholds.low,
-        medium: config.tape.tapePressureThresholds.medium,
-        high: config.tape.tapePressureThresholds.high,
-      },
-      lastAnchor: undefined,
-      lastCheckpointId: undefined,
-    }),
-    getContextHardLimitRatio: () => hardLimitRatio,
-    getContextCompactionThresholdRatio: () => compactionThresholdRatio,
-    getContextPressureStatus: (_sessionId: string, usage?: unknown) => {
-      const usageRatio = resolveUsageRatio(usage);
-      if (usageRatio === null) {
-        return {
-          level: "unknown",
-          usageRatio: null,
-          hardLimitRatio,
-          compactionThresholdRatio,
-        };
-      }
-
-      if (usageRatio >= hardLimitRatio) {
-        return {
-          level: "critical",
-          usageRatio,
-          hardLimitRatio,
-          compactionThresholdRatio,
-        };
-      }
-      if (usageRatio >= compactionThresholdRatio) {
-        return {
-          level: "high",
-          usageRatio,
-          hardLimitRatio,
-          compactionThresholdRatio,
-        };
-      }
-      const mediumThreshold = Math.max(0.5, compactionThresholdRatio * 0.75);
-      if (usageRatio >= mediumThreshold) {
-        return {
-          level: "medium",
-          usageRatio,
-          hardLimitRatio,
-          compactionThresholdRatio,
-        };
-      }
-      const lowThreshold = Math.max(0.25, compactionThresholdRatio * 0.5);
+  const resolvePressureStatus = (_sessionId: string, usage?: unknown) => {
+    const usageRatio = resolveUsageRatio(usage);
+    if (usageRatio === null) {
       return {
-        level: usageRatio >= lowThreshold ? "low" : "none",
+        level: "unknown",
+        usageRatio: null,
+        hardLimitRatio,
+        compactionThresholdRatio,
+      };
+    }
+
+    if (usageRatio >= hardLimitRatio) {
+      return {
+        level: "critical",
         usageRatio,
         hardLimitRatio,
         compactionThresholdRatio,
       };
+    }
+    if (usageRatio >= compactionThresholdRatio) {
+      return {
+        level: "high",
+        usageRatio,
+        hardLimitRatio,
+        compactionThresholdRatio,
+      };
+    }
+    const mediumThreshold = Math.max(0.5, compactionThresholdRatio * 0.75);
+    if (usageRatio >= mediumThreshold) {
+      return {
+        level: "medium",
+        usageRatio,
+        hardLimitRatio,
+        compactionThresholdRatio,
+      };
+    }
+    const lowThreshold = Math.max(0.25, compactionThresholdRatio * 0.5);
+    return {
+      level: usageRatio >= lowThreshold ? "low" : "none",
+      usageRatio,
+      hardLimitRatio,
+      compactionThresholdRatio,
+    };
+  };
+  const defaultTapeStatus = () => ({
+    totalEntries: 0,
+    entriesSinceAnchor: 0,
+    entriesSinceCheckpoint: 0,
+    tapePressure: "none",
+    thresholds: {
+      low: 80,
+      medium: 160,
+      high: 280,
     },
-    planSupplementalContextInjection: (_sessionId: string, inputText: string) => ({
-      accepted: true,
-      text: inputText,
+    lastAnchor: undefined,
+    lastCheckpointId: undefined,
+  });
+  const buildInjection =
+    (runtime as { context?: { buildInjection?: unknown } }).context?.buildInjection ??
+    (runtime as { buildContextInjection?: unknown }).buildContextInjection ??
+    (() => ({
+      text: "",
+      accepted: false,
       originalTokens: 0,
       finalTokens: 0,
       truncated: false,
-    }),
-    commitSupplementalContextInjection: () => undefined,
+    }));
+  const resolveGateStatus =
+    (runtime as { context?: { getCompactionGateStatus?: unknown } }).context
+      ?.getCompactionGateStatus ??
+    (runtime as { getContextCompactionGateStatus?: unknown }).getContextCompactionGateStatus ??
+    ((sessionId: string, usage?: unknown) => {
+      const pressure = resolvePressureStatus(sessionId, usage);
+      return {
+        required: pressure.level === "critical",
+        pressure,
+        recentCompaction: false,
+        windowTurns: 2,
+        lastCompactionTurn: null,
+        turnsSinceCompaction: null,
+      };
+    });
+
+  const context = {
+    onTurnStart:
+      (runtime as { context?: { onTurnStart?: unknown } }).context?.onTurnStart ??
+      (runtime as { onTurnStart?: unknown }).onTurnStart ??
+      (() => undefined),
+    sanitizeInput:
+      (runtime as { context?: { sanitizeInput?: unknown } }).context?.sanitizeInput ??
+      (runtime as { sanitizeInput?: unknown }).sanitizeInput ??
+      ((text: string) => text),
+    observeUsage:
+      (runtime as { context?: { observeUsage?: unknown } }).context?.observeUsage ??
+      (runtime as { observeContextUsage?: unknown }).observeContextUsage ??
+      (() => undefined),
+    getHardLimitRatio:
+      (runtime as { context?: { getHardLimitRatio?: unknown } }).context?.getHardLimitRatio ??
+      (runtime as { getContextHardLimitRatio?: unknown }).getContextHardLimitRatio ??
+      (() => hardLimitRatio),
+    getCompactionThresholdRatio:
+      (runtime as { context?: { getCompactionThresholdRatio?: unknown } }).context
+        ?.getCompactionThresholdRatio ??
+      (runtime as { getContextCompactionThresholdRatio?: unknown })
+        .getContextCompactionThresholdRatio ??
+      (() => compactionThresholdRatio),
+    getPressureStatus:
+      (runtime as { context?: { getPressureStatus?: unknown } }).context?.getPressureStatus ??
+      (runtime as { getContextPressureStatus?: unknown }).getContextPressureStatus ??
+      resolvePressureStatus,
+    getCompactionGateStatus: resolveGateStatus,
+    getCompactionWindowTurns:
+      (runtime as { context?: { getCompactionWindowTurns?: unknown } }).context
+        ?.getCompactionWindowTurns ?? (() => 2),
+    shouldRequestCompaction:
+      (runtime as { context?: { shouldRequestCompaction?: unknown } }).context
+        ?.shouldRequestCompaction ??
+      (runtime as { shouldRequestCompaction?: unknown }).shouldRequestCompaction ??
+      (() => false),
+    markCompacted:
+      (runtime as { context?: { markCompacted?: unknown } }).context?.markCompacted ??
+      (runtime as { markContextCompacted?: unknown }).markContextCompacted ??
+      (() => undefined),
+    buildInjection,
+    planSupplementalInjection:
+      (runtime as { context?: { planSupplementalInjection?: unknown } }).context
+        ?.planSupplementalInjection ??
+      (runtime as { planSupplementalContextInjection?: unknown })
+        .planSupplementalContextInjection ??
+      ((_sessionId: string, inputText: string) => ({
+        accepted: true,
+        text: inputText,
+        originalTokens: 0,
+        finalTokens: 0,
+        truncated: false,
+      })),
+    commitSupplementalInjection:
+      (runtime as { context?: { commitSupplementalInjection?: unknown } }).context
+        ?.commitSupplementalInjection ??
+      (runtime as { commitSupplementalContextInjection?: unknown })
+        .commitSupplementalContextInjection ??
+      (() => undefined),
+  };
+
+  const events = {
+    record:
+      (runtime as { events?: { record?: unknown } }).events?.record ??
+      (runtime as { recordEvent?: unknown }).recordEvent ??
+      (() => undefined),
+    query:
+      (runtime as { events?: { query?: unknown } }).events?.query ??
+      (runtime as { queryEvents?: unknown }).queryEvents ??
+      (() => []),
+    getTapeStatus:
+      (runtime as { events?: { getTapeStatus?: unknown } }).events?.getTapeStatus ??
+      (runtime as { getTapeStatus?: unknown }).getTapeStatus ??
+      defaultTapeStatus,
+    getTapePressureThresholds:
+      (runtime as { events?: { getTapePressureThresholds?: unknown } }).events
+        ?.getTapePressureThresholds ?? (() => defaultTapeStatus().thresholds),
+  };
+
+  const tools = {
+    start:
+      (runtime as { tools?: { start?: unknown } }).tools?.start ??
+      (runtime as { startToolCall?: unknown }).startToolCall ??
+      (() => ({ allowed: true })),
+    finish:
+      (runtime as { tools?: { finish?: unknown } }).tools?.finish ??
+      (runtime as { finishToolCall?: unknown }).finishToolCall ??
+      (() => undefined),
+  };
+
+  const session = {
+    clearState:
+      (runtime as { session?: { clearState?: unknown } }).session?.clearState ??
+      (runtime as { clearSessionState?: unknown }).clearSessionState ??
+      (() => undefined),
   };
   return {
-    ...defaults,
     ...runtime,
+    context,
+    events,
+    tools,
+    session,
     config,
   };
 }
@@ -382,7 +492,7 @@ describe("Extension gaps: context transform", () => {
     expect(scopes).toEqual(["leaf-1"]);
   });
 
-  test("prefers async context injection when runtime supports it", async () => {
+  test("uses async context injection from runtime context API", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const calls: string[] = [];
     const runtime = withRuntimeConfig({
@@ -390,17 +500,7 @@ describe("Extension gaps: context transform", () => {
       observeContextUsage: () => undefined,
       shouldRequestCompaction: () => false,
       markContextCompacted: () => undefined,
-      buildContextInjection: () => {
-        calls.push("sync");
-        return {
-          text: "[sync]",
-          accepted: true,
-          originalTokens: 1,
-          finalTokens: 1,
-          truncated: false,
-        };
-      },
-      buildContextInjectionAsync: async () => {
+      buildContextInjection: async () => {
         calls.push("async");
         return {
           text: "[async]",
@@ -438,7 +538,7 @@ describe("Extension gaps: context transform", () => {
     expect(result.message.content.includes("[async]")).toBe(true);
   });
 
-  test("allows forcing sync context injection when async is available", async () => {
+  test("createBrewvaExtension wires async context injection", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const calls: string[] = [];
     const runtime = withRuntimeConfig({
@@ -446,73 +546,7 @@ describe("Extension gaps: context transform", () => {
       observeContextUsage: () => undefined,
       shouldRequestCompaction: () => false,
       markContextCompacted: () => undefined,
-      buildContextInjection: () => {
-        calls.push("sync");
-        return {
-          text: "[sync]",
-          accepted: true,
-          originalTokens: 1,
-          finalTokens: 1,
-          truncated: false,
-        };
-      },
-      buildContextInjectionAsync: async () => {
-        calls.push("async");
-        return {
-          text: "[async]",
-          accepted: true,
-          originalTokens: 2,
-          finalTokens: 2,
-          truncated: false,
-        };
-      },
-    } as any);
-
-    registerContextTransform(api, runtime, { preferAsyncContextInjection: false });
-
-    const result = await invokeHandlerAsync<{
-      message: {
-        content: string;
-      };
-    }>(
-      handlers,
-      "before_agent_start",
-      {
-        type: "before_agent_start",
-        prompt: "force sync",
-        systemPrompt: "base prompt",
-      },
-      {
-        sessionManager: {
-          getSessionId: () => "s-sync-pref",
-        },
-        getContextUsage: () => undefined,
-      },
-    );
-
-    expect(calls).toEqual(["sync"]);
-    expect(result.message.content.includes("[sync]")).toBe(true);
-  });
-
-  test("passes async preference through createBrewvaExtension", async () => {
-    const { api, handlers } = createMockExtensionAPI();
-    const calls: string[] = [];
-    const runtime = withRuntimeConfig({
-      onTurnStart: () => undefined,
-      observeContextUsage: () => undefined,
-      shouldRequestCompaction: () => false,
-      markContextCompacted: () => undefined,
-      buildContextInjection: () => {
-        calls.push("sync");
-        return {
-          text: "[sync]",
-          accepted: true,
-          originalTokens: 1,
-          finalTokens: 1,
-          truncated: false,
-        };
-      },
-      buildContextInjectionAsync: async () => {
+      buildContextInjection: async () => {
         calls.push("async");
         return {
           text: "[async]",
@@ -527,7 +561,6 @@ describe("Extension gaps: context transform", () => {
     const extension = createBrewvaExtension({
       runtime,
       registerTools: false,
-      preferAsyncContextInjection: false,
     });
     await extension(api);
 
@@ -540,19 +573,19 @@ describe("Extension gaps: context transform", () => {
       "before_agent_start",
       {
         type: "before_agent_start",
-        prompt: "factory force sync",
+        prompt: "factory async path",
         systemPrompt: "base prompt",
       },
       {
         sessionManager: {
-          getSessionId: () => "s-factory-sync",
+          getSessionId: () => "s-factory-async",
         },
         getContextUsage: () => undefined,
       },
     );
 
-    expect(calls).toEqual(["sync"]);
-    expect(result.message.content.includes("[sync]")).toBe(true);
+    expect(calls).toEqual(["async"]);
+    expect(result.message.content.includes("[async]")).toBe(true);
   });
 
   test("records non-interactive compaction skip when compaction is requested", () => {
@@ -802,7 +835,6 @@ describe("Extension gaps: context transform", () => {
         infrastructure: {
           contextBudget: {
             hardLimitPercent: 0.8,
-            minTurnsBetweenCompaction: 2,
           },
         },
       },
@@ -904,7 +936,6 @@ describe("Extension gaps: context transform", () => {
         infrastructure: {
           contextBudget: {
             hardLimitPercent: 0.8,
-            minTurnsBetweenCompaction: 2,
           },
         },
       },
@@ -1321,18 +1352,21 @@ describe("Extension integration: observability", () => {
     expect(ledgerRows).toHaveLength(1);
     expect(ledgerRows[0]?.tool).toBe("edit");
 
-    const recorded = runtime.queryEvents(sessionId, { type: "tool_result_recorded", last: 1 })[0];
+    const recorded = runtime.events.query(sessionId, { type: "tool_result_recorded", last: 1 })[0];
     expect(recorded).toBeDefined();
     const payload = recorded?.payload as { ledgerId?: string } | undefined;
     expect(payload?.ledgerId).toBe(ledgerRows[0]?.id);
-    expect(runtime.queryEvents(sessionId, { type: "tool_result", last: 1 })).toHaveLength(0);
+    expect(runtime.events.query(sessionId, { type: "tool_result", last: 1 })).toHaveLength(0);
 
-    const snapshot = runtime.queryEvents(sessionId, { type: "file_snapshot_captured", last: 1 })[0];
+    const snapshot = runtime.events.query(sessionId, {
+      type: "file_snapshot_captured",
+      last: 1,
+    })[0];
     expect(snapshot).toBeDefined();
     const snapshotPayload = snapshot?.payload as { files?: string[] } | undefined;
     expect(snapshotPayload?.files).toContain("src/a.ts");
 
-    const patchRecorded = runtime.queryEvents(sessionId, { type: "patch_recorded", last: 1 })[0];
+    const patchRecorded = runtime.events.query(sessionId, { type: "patch_recorded", last: 1 })[0];
     expect(patchRecorded).toBeDefined();
     const patchPayload = patchRecorded?.payload as
       | { changes?: Array<{ path: string; action: string }> }
@@ -1340,7 +1374,7 @@ describe("Extension integration: observability", () => {
     expect(patchPayload?.changes).toEqual([{ path: "src/a.ts", action: "modify" }]);
 
     const reloaded = new BrewvaRuntime({ cwd: workspace });
-    expect(reloaded.queryEvents(sessionId).length).toBeGreaterThan(0);
+    expect(reloaded.events.query(sessionId).length).toBeGreaterThan(0);
     expect(reloaded.ledger.list(sessionId)).toHaveLength(1);
   });
 
@@ -1349,14 +1383,14 @@ describe("Extension integration: observability", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "ext-shutdown-clean-1";
 
-    runtime.onTurnStart(sessionId, 1);
-    runtime.markToolCall(sessionId, "edit");
-    runtime.observeContextUsage(sessionId, {
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.tools.markCall(sessionId, "edit");
+    runtime.context.observeUsage(sessionId, {
       tokens: 128,
       contextWindow: 4096,
       percent: 0.03125,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo ok" },
@@ -1417,7 +1451,7 @@ patching`,
 
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "ext-blocked-1";
-    expect(runtime.activateSkill(sessionId, "patching").ok).toBe(true);
+    expect(runtime.skills.activate(sessionId, "patching").ok).toBe(true);
 
     const { api, handlers } = createMockExtensionAPI();
     registerEventStream(api, runtime);
@@ -1444,10 +1478,10 @@ patching`,
     );
 
     expect(results.some((result) => (result as any)?.block === true)).toBe(true);
-    expect(runtime.queryEvents(sessionId, { type: "tool_call", last: 1 })).toHaveLength(1);
-    expect(runtime.queryEvents(sessionId, { type: "tool_call_marked", last: 1 })).toHaveLength(0);
+    expect(runtime.events.query(sessionId, { type: "tool_call", last: 1 })).toHaveLength(1);
+    expect(runtime.events.query(sessionId, { type: "tool_call_marked", last: 1 })).toHaveLength(0);
     expect(
-      runtime.queryEvents(sessionId, { type: "file_snapshot_captured", last: 1 }),
+      runtime.events.query(sessionId, { type: "file_snapshot_captured", last: 1 }),
     ).toHaveLength(0);
   });
 
@@ -1474,13 +1508,12 @@ maxcalls`,
     );
 
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
-    config.security.allowedToolsMode = "off";
-    config.security.skillMaxToolCallsMode = "enforce";
+    config.security.mode = "strict";
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "ext-max-tool-calls-1";
-    expect(runtime.activateSkill(sessionId, "maxcalls").ok).toBe(true);
-    expect(runtime.getActiveSkill(sessionId)?.contract.budget.maxToolCalls).toBe(1);
+    expect(runtime.skills.activate(sessionId, "maxcalls").ok).toBe(true);
+    expect(runtime.skills.getActive(sessionId)?.contract.budget.maxToolCalls).toBe(1);
 
     const { api, handlers } = createMockExtensionAPI();
     registerEventStream(api, runtime);
@@ -1493,15 +1526,15 @@ maxcalls`,
       },
     };
 
-    runtime.markToolCall(sessionId, "read");
+    runtime.tools.markCall(sessionId, "read");
 
     const blocked = invokeHandlers(
       handlers,
       "tool_call",
       {
         toolCallId: "tc-grep-1",
-        toolName: "grep",
-        input: { pattern: "x", include: "*.ts" },
+        toolName: "edit",
+        input: { file_path: "src/a.ts", old_string: "a", new_string: "b" },
       },
       ctx,
       { stopOnBlock: true },
@@ -1521,9 +1554,9 @@ maxcalls`,
     );
     expect(lifecycle.some((result) => (result as { block?: boolean })?.block === true)).toBe(false);
 
-    expect(runtime.queryEvents(sessionId, { type: "tool_call" })).toHaveLength(2);
-    expect(runtime.queryEvents(sessionId, { type: "tool_call_marked" })).toHaveLength(2);
-    const blockedEvents = runtime.queryEvents(sessionId, { type: "tool_call_blocked" });
+    expect(runtime.events.query(sessionId, { type: "tool_call" })).toHaveLength(2);
+    expect(runtime.events.query(sessionId, { type: "tool_call_marked" })).toHaveLength(2);
+    const blockedEvents = runtime.events.query(sessionId, { type: "tool_call_blocked" });
     expect(
       blockedEvents.some(
         (event) =>
@@ -1593,7 +1626,7 @@ maxcalls`,
       Date.now = originalNow;
     }
 
-    const updates = runtime.queryEvents(sessionId, { type: "message_update" });
+    const updates = runtime.events.query(sessionId, { type: "message_update" });
     expect(updates.length).toBe(2);
     const payload = updates[0]?.payload as any;
     expect(payload.deltaChars).toBe(1);

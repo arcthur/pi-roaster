@@ -29,13 +29,13 @@ export function createSessionCompactTool(options: BrewvaToolOptions): ToolDefini
       const sessionId = getSessionId(ctx);
       const reason = normalizeReason(params.reason);
       const usage = ctx.getContextUsage();
-      const customInstructions = options.runtime.getCompactionInstructions?.();
+      const customInstructions = options.runtime.context.getCompactionInstructions?.();
 
       try {
         ctx.compact({
           customInstructions,
         });
-        options.runtime.recordEvent?.({
+        options.runtime.events.record?.({
           sessionId,
           type: "session_compact_requested",
           payload: {
@@ -46,7 +46,7 @@ export function createSessionCompactTool(options: BrewvaToolOptions): ToolDefini
         });
       } catch (error) {
         const errorMessage = normalizeErrorMessage(error);
-        options.runtime.recordEvent?.({
+        options.runtime.events.record?.({
           sessionId,
           type: "session_compact_request_failed",
           payload: {

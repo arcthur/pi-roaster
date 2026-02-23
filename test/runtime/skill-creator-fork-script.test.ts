@@ -80,7 +80,7 @@ describe("skill-creator fork script", () => {
 
       process.env.XDG_CONFIG_HOME = xdgRoot;
       const runtime = new BrewvaRuntime({ cwd: workspace });
-      expect(runtime.getSkill("chaincraft")?.filePath).toBe(resolve(destination));
+      expect(runtime.skills.get("chaincraft")?.filePath).toBe(resolve(destination));
     } finally {
       if (previousXdg === undefined) {
         delete process.env.XDG_CONFIG_HOME;

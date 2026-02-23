@@ -27,7 +27,7 @@ export function createCostViewTool(options: BrewvaToolOptions): ToolDefinition {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
       const top = typeof params.top === "number" ? Math.max(1, Math.trunc(params.top)) : 5;
-      const summary = options.runtime.getCostSummary(sessionId);
+      const summary = options.runtime.cost.getSummary(sessionId);
 
       const skillRows = Object.entries(summary.skills).toSorted(
         (a, b) => b[1].totalCostUsd - a[1].totalCostUsd,

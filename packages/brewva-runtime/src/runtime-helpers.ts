@@ -92,16 +92,9 @@ export function buildContextSourceTokenLimits(
   );
 
   return {
-    "brewva.truth": fromRatio(0.05, 48, 200),
-    "brewva.truth-facts": fromRatio(0.12, 72, 320),
-    "brewva.viewport-policy": fromRatio(0.12, 96, 320),
+    "brewva.truth": fromRatio(0.18, 96, 420),
     "brewva.task-state": fromRatio(0.15, 96, 360),
-    "brewva.viewport": fromRatio(0.7, 240, budget),
-    "brewva.skill-candidates": fromRatio(0.28, 64, 320),
-    "brewva.compaction-summary": fromRatio(0.45, 120, 600),
-    "brewva.ledger-digest": fromRatio(0.2, 96, 360),
     "brewva.tool-failures": toolFailureLimit,
-    "brewva.working-memory": fromRatio(0.32, 120, 640),
-    "brewva.memory-recall": fromRatio(0.28, 96, 520),
+    "brewva.memory": fromRatio(0.52, 220, budget),
   };
 }

@@ -1,4 +1,5 @@
 import type { SessionCostTracker } from "../cost/tracker.js";
+import { resolveSecurityPolicy } from "../security/mode.js";
 import { checkToolAccess as evaluateSkillToolAccess } from "../security/tool-policy.js";
 import type { BrewvaConfig, ContextBudgetUsage, SkillDocument } from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
@@ -93,7 +94,7 @@ export interface ToolGateServiceOptions {
 }
 
 export class ToolGateService {
-  private readonly securityConfig: BrewvaConfig["security"];
+  private readonly securityPolicy: ReturnType<typeof resolveSecurityPolicy>;
   private readonly costTracker: SessionCostTracker;
   private readonly sessionState: RuntimeSessionStateStore;
   private readonly alwaysAllowedTools: string[];
@@ -109,7 +110,7 @@ export class ToolGateService {
   private readonly trackToolCallEnd: ToolGateServiceOptions["trackToolCallEnd"];
 
   constructor(options: ToolGateServiceOptions) {
-    this.securityConfig = options.securityConfig;
+    this.securityPolicy = resolveSecurityPolicy(options.securityConfig.mode);
     this.costTracker = options.costTracker;
     this.sessionState = options.sessionState;
     this.alwaysAllowedTools = options.alwaysAllowedTools;
@@ -148,8 +149,8 @@ export class ToolGateService {
     }
 
     const access = evaluateSkillToolAccess(skill?.contract, toolName, {
-      enforceDeniedTools: this.securityConfig.enforceDeniedTools,
-      allowedToolsMode: this.securityConfig.allowedToolsMode,
+      enforceDeniedTools: this.securityPolicy.enforceDeniedTools,
+      allowedToolsMode: this.securityPolicy.allowedToolsMode,
       alwaysAllowedTools: this.alwaysAllowedTools,
     });
 
@@ -167,7 +168,7 @@ export class ToolGateService {
           payload: {
             skill: skill.name,
             toolName: normalizedToolName,
-            mode: this.securityConfig.allowedToolsMode,
+            mode: this.securityPolicy.allowedToolsMode,
             reason: access.warning,
           },
         });
@@ -211,14 +212,14 @@ export class ToolGateService {
     }
 
     if (
-      this.securityConfig.skillMaxTokensMode !== "off" &&
+      this.securityPolicy.skillMaxTokensMode !== "off" &&
       !this.alwaysAllowedToolSet.has(normalizedToolName)
     ) {
       const maxTokens = skill.contract.budget.maxTokens;
       const usedTokens = this.costTracker.getSkillTotalTokens(sessionId, skill.name);
       if (usedTokens >= maxTokens) {
         const reason = `Skill '${skill.name}' exceeded maxTokens=${maxTokens} (used=${usedTokens}).`;
-        if (this.securityConfig.skillMaxTokensMode === "warn") {
+        if (this.securityPolicy.skillMaxTokensMode === "warn") {
           const key = `maxTokens:${skill.name}`;
           const seen =
             this.sessionState.skillBudgetWarningsBySession.get(sessionId) ?? new Set<string>();
@@ -234,11 +235,11 @@ export class ToolGateService {
                 usedTokens,
                 maxTokens,
                 budget: "tokens",
-                mode: this.securityConfig.skillMaxTokensMode,
+                mode: this.securityPolicy.skillMaxTokensMode,
               },
             });
           }
-        } else if (this.securityConfig.skillMaxTokensMode === "enforce") {
+        } else if (this.securityPolicy.skillMaxTokensMode === "enforce") {
           this.recordEvent({
             sessionId,
             type: "tool_call_blocked",
@@ -255,14 +256,14 @@ export class ToolGateService {
     }
 
     if (
-      this.securityConfig.skillMaxToolCallsMode !== "off" &&
+      this.securityPolicy.skillMaxToolCallsMode !== "off" &&
       !this.alwaysAllowedToolSet.has(normalizedToolName)
     ) {
       const maxToolCalls = skill.contract.budget.maxToolCalls;
       const usedCalls = this.sessionState.toolCallsBySession.get(sessionId) ?? 0;
       if (usedCalls >= maxToolCalls) {
         const reason = `Skill '${skill.name}' exceeded maxToolCalls=${maxToolCalls} (used=${usedCalls}).`;
-        if (this.securityConfig.skillMaxToolCallsMode === "warn") {
+        if (this.securityPolicy.skillMaxToolCallsMode === "warn") {
           const key = `maxToolCalls:${skill.name}`;
           const seen =
             this.sessionState.skillBudgetWarningsBySession.get(sessionId) ?? new Set<string>();
@@ -278,11 +279,11 @@ export class ToolGateService {
                 usedToolCalls: usedCalls,
                 maxToolCalls,
                 budget: "tool_calls",
-                mode: this.securityConfig.skillMaxToolCallsMode,
+                mode: this.securityPolicy.skillMaxToolCallsMode,
               },
             });
           }
-        } else if (this.securityConfig.skillMaxToolCallsMode === "enforce") {
+        } else if (this.securityPolicy.skillMaxToolCallsMode === "enforce") {
           this.recordEvent({
             sessionId,
             type: "tool_call_blocked",

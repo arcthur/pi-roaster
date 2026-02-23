@@ -96,22 +96,322 @@ export interface VerifyCompletionOptions {
   timeoutMs?: number;
 }
 
+type RuntimeConfigState = {
+  config: BrewvaConfig;
+  diagnostics: BrewvaConfigDiagnostic[];
+};
+
+type RuntimeCoreDependencies = {
+  skillRegistry: SkillRegistry;
+  ledger: EvidenceLedger;
+  verificationGate: VerificationGate;
+  parallel: ParallelBudgetManager;
+  parallelResults: ParallelResultStore;
+  eventStore: BrewvaEventStore;
+  contextBudget: ContextBudgetManager;
+  contextInjection: ContextInjectionCollector;
+  turnReplay: TurnReplayEngine;
+  fileChanges: FileChangeTracker;
+  costTracker: SessionCostTracker;
+  memoryEngine: MemoryEngine;
+};
+
+type RuntimeServiceDependencies = {
+  skillLifecycleService: SkillLifecycleService;
+  taskService: TaskService;
+  truthService: TruthService;
+  ledgerService: LedgerService;
+  parallelService: ParallelService;
+  costService: CostService;
+  verificationService: VerificationService;
+  contextService: ContextService;
+  tapeService: TapeService;
+  eventPipeline: EventPipelineService;
+  memoryAccessService: MemoryAccessService;
+  scheduleIntentService: ScheduleIntentService;
+  fileChangeService: FileChangeService;
+  sessionLifecycleService: SessionLifecycleService;
+  toolGateService: ToolGateService;
+};
+
 export class BrewvaRuntime {
   readonly cwd: string;
   readonly workspaceRoot: string;
   readonly config: BrewvaConfig;
   readonly configDiagnostics: BrewvaConfigDiagnostic[];
-  readonly skills: SkillRegistry;
+  readonly skills: {
+    refresh(): void;
+    list(): SkillDocument[];
+    get(name: string): SkillDocument | undefined;
+    select(message: string): SkillSelection[];
+    activate(
+      sessionId: string,
+      name: string,
+    ): { ok: boolean; reason?: string; skill?: SkillDocument };
+    getActive(sessionId: string): SkillDocument | undefined;
+    validateOutputs(
+      sessionId: string,
+      outputs: Record<string, unknown>,
+    ): { ok: boolean; missing: string[] };
+    validateComposePlan(plan: {
+      steps: Array<{ skill: string; consumes?: string[]; produces?: string[] }>;
+    }): { valid: boolean; warnings: string[]; errors: string[] };
+    complete(
+      sessionId: string,
+      output: Record<string, unknown>,
+      options?: { proof?: string; summary?: string; notes?: string },
+    ): { ok: boolean; missing: string[] };
+    getOutputs(sessionId: string, skillName: string): Record<string, unknown> | undefined;
+    getConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown>;
+  };
+  readonly context: {
+    onTurnStart(sessionId: string, turnIndex: number): void;
+    sanitizeInput(text: string): string;
+    observeUsage(sessionId: string, usage: ContextBudgetUsage | undefined): void;
+    getUsage(sessionId: string): ContextBudgetUsage | undefined;
+    getUsageRatio(usage: ContextBudgetUsage | undefined): number | null;
+    getHardLimitRatio(): number;
+    getCompactionThresholdRatio(): number;
+    getPressureStatus(sessionId: string, usage?: ContextBudgetUsage): ContextPressureStatus;
+    getPressureLevel(sessionId: string, usage?: ContextBudgetUsage): ContextPressureLevel;
+    getCompactionGateStatus(
+      sessionId: string,
+      usage?: ContextBudgetUsage,
+    ): ContextCompactionGateStatus;
+    checkCompactionGate(
+      sessionId: string,
+      toolName: string,
+      usage?: ContextBudgetUsage,
+    ): { allowed: boolean; reason?: string };
+    buildInjection(
+      sessionId: string,
+      prompt: string,
+      usage?: ContextBudgetUsage,
+      injectionScopeId?: string,
+    ): Promise<{
+      text: string;
+      accepted: boolean;
+      originalTokens: number;
+      finalTokens: number;
+      truncated: boolean;
+    }>;
+    planSupplementalInjection(
+      sessionId: string,
+      inputText: string,
+      usage?: ContextBudgetUsage,
+      injectionScopeId?: string,
+    ): {
+      accepted: boolean;
+      text: string;
+      originalTokens: number;
+      finalTokens: number;
+      truncated: boolean;
+      droppedReason?: "hard_limit" | "budget_exhausted";
+    };
+    commitSupplementalInjection(
+      sessionId: string,
+      finalTokens: number,
+      injectionScopeId?: string,
+    ): void;
+    shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean;
+    getCompactionInstructions(): string;
+    getCompactionWindowTurns(): number;
+    markCompacted(
+      sessionId: string,
+      input: {
+        fromTokens?: number | null;
+        toTokens?: number | null;
+        summary?: string;
+        entryId?: string;
+      },
+    ): void;
+  };
+  readonly tools: {
+    checkAccess(sessionId: string, toolName: string): { allowed: boolean; reason?: string };
+    start(input: {
+      sessionId: string;
+      toolCallId: string;
+      toolName: string;
+      args?: Record<string, unknown>;
+      usage?: ContextBudgetUsage;
+      recordLifecycleEvent?: boolean;
+    }): { allowed: boolean; reason?: string };
+    finish(input: {
+      sessionId: string;
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      outputText: string;
+      success: boolean;
+      verdict?: "pass" | "fail" | "inconclusive";
+      metadata?: Record<string, unknown>;
+    }): void;
+    acquireParallelSlot(sessionId: string, runId: string): ParallelAcquireResult;
+    releaseParallelSlot(sessionId: string, runId: string): void;
+    markCall(sessionId: string, toolName: string): void;
+    trackCallStart(input: {
+      sessionId: string;
+      toolCallId: string;
+      toolName: string;
+      args?: Record<string, unknown>;
+    }): void;
+    trackCallEnd(input: {
+      sessionId: string;
+      toolCallId: string;
+      toolName: string;
+      success: boolean;
+    }): void;
+    rollbackLastPatchSet(sessionId: string): RollbackResult;
+    resolveUndoSessionId(preferredSessionId?: string): string | undefined;
+    recordResult(input: {
+      sessionId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      outputText: string;
+      success: boolean;
+      verdict?: "pass" | "fail" | "inconclusive";
+      metadata?: Record<string, unknown>;
+    }): string;
+  };
+  readonly task: {
+    setSpec(sessionId: string, spec: TaskSpec): void;
+    addItem(
+      sessionId: string,
+      input: { text: string; status?: TaskItemStatus; id?: string },
+    ): { ok: boolean; itemId?: string; error?: string };
+    updateItem(
+      sessionId: string,
+      input: { id: string; text?: string; status?: TaskItemStatus },
+    ): { ok: boolean; error?: string };
+    recordBlocker(
+      sessionId: string,
+      input: { id?: string; message: string; source?: string; truthFactId?: string },
+    ): { ok: boolean; blockerId?: string; error?: string };
+    resolveBlocker(sessionId: string, blockerId: string): { ok: boolean; error?: string };
+    getState(sessionId: string): TaskState;
+  };
+  readonly truth: {
+    getState(sessionId: string): TruthState;
+    getLedgerDigest(sessionId: string): string;
+    queryLedger(sessionId: string, query: EvidenceQuery): string;
+    upsertFact(
+      sessionId: string,
+      input: {
+        id: string;
+        kind: string;
+        severity: TruthFactSeverity;
+        summary: string;
+        details?: Record<string, unknown>;
+        evidenceIds?: string[];
+        status?: TruthFactStatus;
+      },
+    ): { ok: boolean; fact?: TruthFact; error?: string };
+    resolveFact(sessionId: string, truthFactId: string): { ok: boolean; error?: string };
+  };
+  readonly memory: {
+    getWorking(sessionId: string): WorkingMemorySnapshot | undefined;
+    search(
+      sessionId: string,
+      input: { query: string; limit?: number },
+    ): Promise<MemorySearchResult>;
+    dismissInsight(
+      sessionId: string,
+      insightId: string,
+    ): { ok: boolean; error?: "missing_id" | "not_found" };
+    reviewEvolvesEdge(
+      sessionId: string,
+      input: { edgeId: string; decision: "accept" | "reject" },
+    ): { ok: boolean; error?: "missing_id" | "not_found" | "already_set" };
+    refreshIfNeeded(input: {
+      sessionId: string;
+      force?: boolean;
+    }): WorkingMemorySnapshot | undefined;
+    clearSessionCache(sessionId: string): void;
+  };
+  readonly schedule: {
+    createIntent(
+      sessionId: string,
+      input: ScheduleIntentCreateInput,
+    ): Promise<ScheduleIntentCreateResult>;
+    cancelIntent(
+      sessionId: string,
+      input: ScheduleIntentCancelInput,
+    ): Promise<ScheduleIntentCancelResult>;
+    updateIntent(
+      sessionId: string,
+      input: ScheduleIntentUpdateInput,
+    ): Promise<ScheduleIntentUpdateResult>;
+    listIntents(query?: ScheduleIntentListQuery): Promise<ScheduleIntentProjectionRecord[]>;
+    getProjectionSnapshot(): Promise<ScheduleProjectionSnapshot>;
+  };
+  readonly events: {
+    record(input: RuntimeRecordEventInput): BrewvaEventRecord | undefined;
+    query(sessionId: string, query?: BrewvaEventQuery): BrewvaEventRecord[];
+    queryStructured(sessionId: string, query?: BrewvaEventQuery): BrewvaStructuredEvent[];
+    getTapeStatus(sessionId: string): TapeStatusState;
+    getTapePressureThresholds(): TapeStatusState["thresholds"];
+    recordTapeHandoff(
+      sessionId: string,
+      input: { name: string; summary?: string; nextSteps?: string },
+    ): {
+      ok: boolean;
+      eventId?: string;
+      createdAt?: number;
+      error?: string;
+      tapeStatus?: TapeStatusState;
+    };
+    searchTape(
+      sessionId: string,
+      input: { query: string; scope?: TapeSearchScope; limit?: number },
+    ): TapeSearchResult;
+    listReplaySessions(limit?: number): BrewvaReplaySession[];
+    subscribe(listener: (event: BrewvaStructuredEvent) => void): () => void;
+    toStructured(event: BrewvaEventRecord): BrewvaStructuredEvent;
+    list(sessionId: string, query?: BrewvaEventQuery): BrewvaEventRecord[];
+    listSessionIds(): string[];
+  };
+  readonly verification: {
+    evaluate(sessionId: string, level?: VerificationLevel): VerificationReport;
+    verify(
+      sessionId: string,
+      level?: VerificationLevel,
+      options?: VerifyCompletionOptions,
+    ): Promise<VerificationReport>;
+  };
+  readonly cost: {
+    recordAssistantUsage(input: {
+      sessionId: string;
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheWriteTokens: number;
+      totalTokens: number;
+      costUsd: number;
+      stopReason?: string;
+    }): void;
+    getSummary(sessionId: string): SessionCostSummary;
+  };
+  readonly session: {
+    recordWorkerResult(sessionId: string, result: WorkerResult): void;
+    listWorkerResults(sessionId: string): WorkerResult[];
+    mergeWorkerResults(sessionId: string): WorkerMergeReport;
+    clearWorkerResults(sessionId: string): void;
+    clearState(sessionId: string): void;
+  };
+
   readonly ledger: EvidenceLedger;
-  readonly verification: VerificationGate;
   readonly parallel: ParallelBudgetManager;
   readonly parallelResults: ParallelResultStore;
-  readonly events: BrewvaEventStore;
   readonly contextBudget: ContextBudgetManager;
   readonly contextInjection: ContextInjectionCollector;
-  readonly memory: MemoryEngine;
   readonly fileChanges: FileChangeTracker;
   readonly costTracker: SessionCostTracker;
+
+  private readonly skillRegistry: SkillRegistry;
+  private readonly verificationGate: VerificationGate;
+  private readonly eventStore: BrewvaEventStore;
+  private readonly memoryEngine: MemoryEngine;
 
   private readonly sessionState = new RuntimeSessionStateStore();
   private readonly contextService: ContextService;
@@ -134,33 +434,86 @@ export class BrewvaRuntime {
   constructor(options: BrewvaRuntimeOptions = {}) {
     this.cwd = resolve(options.cwd ?? process.cwd());
     this.workspaceRoot = resolveWorkspaceRootDir(this.cwd);
-    if (options.config) {
-      this.config = options.config;
-      this.configDiagnostics = [];
-    } else {
-      const loaded = loadBrewvaConfigWithDiagnostics({
-        cwd: this.cwd,
-        configPath: options.configPath,
-      });
-      this.config = loaded.config;
-      this.configDiagnostics = loaded.diagnostics;
-    }
+    const configState = this.resolveRuntimeConfig(options);
+    this.config = configState.config;
+    this.configDiagnostics = configState.diagnostics;
+    const coreDependencies = this.createCoreDependencies(options);
+    this.skillRegistry = coreDependencies.skillRegistry;
+    this.ledger = coreDependencies.ledger;
+    this.verificationGate = coreDependencies.verificationGate;
+    this.parallel = coreDependencies.parallel;
+    this.parallelResults = coreDependencies.parallelResults;
+    this.eventStore = coreDependencies.eventStore;
+    this.contextBudget = coreDependencies.contextBudget;
+    this.contextInjection = coreDependencies.contextInjection;
+    this.turnReplay = coreDependencies.turnReplay;
+    this.fileChanges = coreDependencies.fileChanges;
+    this.costTracker = coreDependencies.costTracker;
+    this.memoryEngine = coreDependencies.memoryEngine;
 
-    this.skills = new SkillRegistry({
+    const serviceDependencies = this.createServiceDependencies(options);
+    this.skillLifecycleService = serviceDependencies.skillLifecycleService;
+    this.taskService = serviceDependencies.taskService;
+    this.truthService = serviceDependencies.truthService;
+    this.ledgerService = serviceDependencies.ledgerService;
+    this.parallelService = serviceDependencies.parallelService;
+    this.costService = serviceDependencies.costService;
+    this.verificationService = serviceDependencies.verificationService;
+    this.contextService = serviceDependencies.contextService;
+    this.tapeService = serviceDependencies.tapeService;
+    this.eventPipeline = serviceDependencies.eventPipeline;
+    this.memoryAccessService = serviceDependencies.memoryAccessService;
+    this.scheduleIntentService = serviceDependencies.scheduleIntentService;
+    this.fileChangeService = serviceDependencies.fileChangeService;
+    this.sessionLifecycleService = serviceDependencies.sessionLifecycleService;
+    this.toolGateService = serviceDependencies.toolGateService;
+
+    const domainApis = this.createDomainApis();
+    this.skills = domainApis.skills;
+    this.context = domainApis.context;
+    this.tools = domainApis.tools;
+    this.task = domainApis.task;
+    this.truth = domainApis.truth;
+    this.memory = domainApis.memory;
+    this.schedule = domainApis.schedule;
+    this.events = domainApis.events;
+    this.verification = domainApis.verification;
+    this.cost = domainApis.cost;
+    this.session = domainApis.session;
+  }
+
+  private resolveRuntimeConfig(options: BrewvaRuntimeOptions): RuntimeConfigState {
+    if (options.config) {
+      return {
+        config: options.config,
+        diagnostics: [],
+      };
+    }
+    const loaded = loadBrewvaConfigWithDiagnostics({
+      cwd: this.cwd,
+      configPath: options.configPath,
+    });
+    return {
+      config: loaded.config,
+      diagnostics: loaded.diagnostics,
+    };
+  }
+
+  private createCoreDependencies(options: BrewvaRuntimeOptions): RuntimeCoreDependencies {
+    const skillRegistry = new SkillRegistry({
       rootDir: this.cwd,
       config: this.config,
     });
-    this.skills.load();
-    this.skills.writeIndex();
+    skillRegistry.load();
+    skillRegistry.writeIndex();
 
-    const ledgerPath = resolve(this.workspaceRoot, this.config.ledger.path);
-    this.ledger = new EvidenceLedger(ledgerPath);
-    this.verification = new VerificationGate(this.config);
-    this.parallel = new ParallelBudgetManager(this.config.parallel);
-    this.parallelResults = new ParallelResultStore();
-    this.events = new BrewvaEventStore(this.config.infrastructure.events, this.workspaceRoot);
-    this.contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
-    this.contextInjection = new ContextInjectionCollector({
+    const ledger = new EvidenceLedger(resolve(this.workspaceRoot, this.config.ledger.path));
+    const verificationGate = new VerificationGate(this.config);
+    const parallel = new ParallelBudgetManager(this.config.parallel);
+    const parallelResults = new ParallelResultStore();
+    const eventStore = new BrewvaEventStore(this.config.infrastructure.events, this.workspaceRoot);
+    const contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
+    const contextInjection = new ContextInjectionCollector({
       sourceTokenLimits: this.isContextBudgetEnabled()
         ? buildContextSourceTokenLimits(
             this.config.infrastructure.contextBudget.maxInjectionTokens,
@@ -171,17 +524,17 @@ export class BrewvaRuntime {
         : {},
       truncationStrategy: this.config.infrastructure.contextBudget.truncationStrategy,
     });
-    this.turnReplay = new TurnReplayEngine({
-      listEvents: (sessionId) => this.events.list(sessionId),
+    const turnReplay = new TurnReplayEngine({
+      listEvents: (sessionId) => eventStore.list(sessionId),
       getTurn: (sessionId) => this.getCurrentTurn(sessionId),
     });
-    this.fileChanges = new FileChangeTracker(this.cwd, {
+    const fileChanges = new FileChangeTracker(this.cwd, {
       artifactsBaseDir: this.workspaceRoot,
     });
-    this.costTracker = new SessionCostTracker(this.config.infrastructure.costTracking, {
+    const costTracker = new SessionCostTracker(this.config.infrastructure.costTracking, {
       cognitiveTokensBudget: this.config.memory.cognitive.maxTokensPerTurn,
     });
-    this.memory = new MemoryEngine({
+    const memoryEngine = new MemoryEngine({
       enabled: this.config.memory.enabled,
       rootDir: resolve(this.workspaceRoot, this.config.memory.dir),
       workingFile: this.config.memory.workingFile,
@@ -192,693 +545,410 @@ export class BrewvaRuntime {
       retrievalWeights: this.config.memory.retrievalWeights,
       evolvesMode: this.config.memory.evolvesMode,
       cognitiveMode: this.config.memory.cognitive.mode,
-      cognitiveMaxInferenceCallsPerRefresh:
-        this.config.memory.cognitive.maxInferenceCallsPerRefresh,
-      cognitiveMaxRankCandidatesPerSearch: this.config.memory.cognitive.maxRankCandidatesPerSearch,
       cognitivePort: options.cognitivePort,
       getCognitiveBudgetStatus: (sessionId) => this.getCognitiveBudgetStatus(sessionId),
       recordCognitiveUsage: (input) => this.recordCognitiveUsage(input),
       globalEnabled: this.config.memory.global.enabled,
       globalMinConfidence: this.config.memory.global.minConfidence,
-      globalMinSessionRecurrence: this.config.memory.global.minSessionRecurrence,
-      globalDecayIntervalDays: this.config.memory.global.decayIntervalDays,
-      globalDecayFactor: this.config.memory.global.decayFactor,
-      globalPruneBelowConfidence: this.config.memory.global.pruneBelowConfidence,
       recordEvent: (eventInput) => this.recordEvent(eventInput),
     });
-    this.skillLifecycleService = new SkillLifecycleService({
-      skills: this.skills,
+
+    return {
+      skillRegistry,
+      ledger,
+      verificationGate,
+      parallel,
+      parallelResults,
+      eventStore,
+      contextBudget,
+      contextInjection,
+      turnReplay,
+      fileChanges,
+      costTracker,
+      memoryEngine,
+    };
+  }
+
+  private createServiceDependencies(options: BrewvaRuntimeOptions): RuntimeServiceDependencies {
+    const skillLifecycleService = new SkillLifecycleService({
+      skills: this.skillRegistry,
       sessionState: this.sessionState,
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.taskService = new TaskService({
+    const taskService = new TaskService({
       config: this.config,
       isContextBudgetEnabled: () => this.isContextBudgetEnabled(),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       evaluateCompletion: (sessionId, level) => this.evaluateCompletion(sessionId, level),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.truthService = new TruthService({
+    const truthService = new TruthService({
       getTruthState: (sessionId) => this.getTruthState(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.ledgerService = new LedgerService({
+    const ledgerService = new LedgerService({
       cwd: this.cwd,
       config: this.config,
       ledger: this.ledger,
-      verification: this.verification,
+      verification: this.verificationGate,
       sessionState: this.sessionState,
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
-      getActiveSkill: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId),
+      getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
-      upsertTruthFact: (sessionId, input) => this.truthService.upsertTruthFact(sessionId, input),
+      upsertTruthFact: (sessionId, input) => truthService.upsertTruthFact(sessionId, input),
       resolveTruthFact: (sessionId, truthFactId) =>
-        this.truthService.resolveTruthFact(sessionId, truthFactId),
-      recordTaskBlocker: (sessionId, input) => this.taskService.recordTaskBlocker(sessionId, input),
+        truthService.resolveTruthFact(sessionId, truthFactId),
+      recordTaskBlocker: (sessionId, input) => taskService.recordTaskBlocker(sessionId, input),
       resolveTaskBlocker: (sessionId, blockerId) =>
-        this.taskService.resolveTaskBlocker(sessionId, blockerId),
+        taskService.resolveTaskBlocker(sessionId, blockerId),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.parallelService = new ParallelService({
+    const parallelService = new ParallelService({
       securityConfig: this.config.security,
       parallel: this.parallel,
       parallelResults: this.parallelResults,
       sessionState: this.sessionState,
-      getActiveSkill: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId),
+      getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.costService = new CostService({
+    const costService = new CostService({
       costTracker: this.costTracker,
       ledger: this.ledger,
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
-      getActiveSkill: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId),
+      getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.verificationService = new VerificationService({
+    const verificationService = new VerificationService({
       cwd: this.cwd,
       config: this.config,
-      verification: this.verification,
+      verification: this.verificationGate,
       cognitiveMode: this.config.memory.cognitive.mode,
-      cognitiveMaxReflectionsPerVerification:
-        this.config.memory.cognitive.maxReflectionsPerVerification,
       cognitivePort: options.cognitivePort,
       getCognitiveBudgetStatus: (sessionId) => this.getCognitiveBudgetStatus(sessionId),
       recordCognitiveUsage: (input) => this.recordCognitiveUsage(input),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
-      getActiveSkillName: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId)?.name,
+      getActiveSkillName: (sessionId) => skillLifecycleService.getActiveSkill(sessionId)?.name,
       recordEvent: (input) => this.recordEvent(input),
-      upsertTruthFact: (sessionId, input) => this.truthService.upsertTruthFact(sessionId, input),
+      upsertTruthFact: (sessionId, input) => truthService.upsertTruthFact(sessionId, input),
       resolveTruthFact: (sessionId, truthFactId) =>
-        this.truthService.resolveTruthFact(sessionId, truthFactId),
-      recordTaskBlocker: (sessionId, input) => this.taskService.recordTaskBlocker(sessionId, input),
+        truthService.resolveTruthFact(sessionId, truthFactId),
+      recordTaskBlocker: (sessionId, input) => taskService.recordTaskBlocker(sessionId, input),
       resolveTaskBlocker: (sessionId, blockerId) =>
-        this.taskService.resolveTaskBlocker(sessionId, blockerId),
-      recordToolResult: (input) => this.ledgerService.recordToolResult(input),
+        taskService.resolveTaskBlocker(sessionId, blockerId),
+      recordToolResult: (input) => ledgerService.recordToolResult(input),
     });
-    this.contextService = new ContextService({
+    const contextService = new ContextService({
       cwd: this.cwd,
       config: this.config,
       contextBudget: this.contextBudget,
       contextInjection: this.contextInjection,
-      memory: this.memory,
+      memory: this.memoryEngine,
       fileChanges: this.fileChanges,
       ledger: this.ledger,
       sessionState: this.sessionState,
-      queryEvents: (sessionId, query) => this.events.list(sessionId, query),
+      queryEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
       selectSkills: (message) => this.selectSkills(message),
       buildSkillCandidateBlock: (selected) => buildSkillCandidateBlock(selected),
       buildTaskStateBlock: (state) => buildTaskStateBlock(state),
-      maybeAlignTaskStatus: (input) => this.taskService.maybeAlignTaskStatus(input),
-      getLedgerDigest: (sessionId) => this.ledgerService.getLedgerDigest(sessionId),
+      maybeAlignTaskStatus: (input) => taskService.maybeAlignTaskStatus(input),
+      getLedgerDigest: (sessionId) => ledgerService.getLedgerDigest(sessionId),
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
-      getActiveSkill: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId),
+      getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       sanitizeInput: (text) => this.sanitizeInput(text),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.tapeService = new TapeService({
+    const tapeService = new TapeService({
       tapeConfig: this.config.tape,
       sessionState: this.sessionState,
-      queryEvents: (sessionId, query) => this.events.list(sessionId, query),
+      queryEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.eventPipeline = new EventPipelineService({
-      events: this.events,
+    const eventPipeline = new EventPipelineService({
+      events: this.eventStore,
+      level: this.config.infrastructure.events.level,
       inferEventCategory,
       invalidateReplay: (sessionId) => this.turnReplay.invalidate(sessionId),
-      ingestMemoryEvent: (event) => this.memory.ingestEvent(event),
-      maybeRecordTapeCheckpoint: (event) => this.tapeService.maybeRecordTapeCheckpoint(event),
+      ingestMemoryEvent: (event) => this.memoryEngine.ingestEvent(event),
+      maybeRecordTapeCheckpoint: (event) => tapeService.maybeRecordTapeCheckpoint(event),
     });
-    this.memoryAccessService = new MemoryAccessService({
-      memory: this.memory,
+    const memoryAccessService = new MemoryAccessService({
+      memory: this.memoryEngine,
     });
-    this.scheduleIntentService = new ScheduleIntentService({
+    const scheduleIntentService = new ScheduleIntentService({
       createManager: () =>
         new SchedulerService({
           runtime: {
             workspaceRoot: this.workspaceRoot,
             scheduleConfig: this.config.schedule,
-            listSessionIds: () => this.events.listSessionIds(),
-            listEvents: (sessionId, query) => this.events.list(sessionId, query),
-            recordEvent: (input) => this.eventPipeline.recordEvent(input),
-            subscribeEvents: (listener) => this.eventPipeline.subscribeEvents(listener),
+            listSessionIds: () => this.eventStore.listSessionIds(),
+            listEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
+            recordEvent: (input) => eventPipeline.recordEvent(input),
+            subscribeEvents: (listener) => eventPipeline.subscribeEvents(listener),
             getTruthState: (sessionId) => this.getTruthState(sessionId),
             getTaskState: (sessionId) => this.getTaskState(sessionId),
           },
           enableExecution: false,
         }),
     });
-    this.fileChangeService = new FileChangeService({
+    const fileChangeService = new FileChangeService({
       sessionState: this.sessionState,
       fileChanges: this.fileChanges,
       costTracker: this.costTracker,
-      verification: this.verification,
+      verification: this.verificationGate,
       ledger: this.ledger,
-      getActiveSkill: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId),
+      getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });
-    this.sessionLifecycleService = new SessionLifecycleService({
+    const sessionLifecycleService = new SessionLifecycleService({
       sessionState: this.sessionState,
       contextBudget: this.contextBudget,
       contextInjection: this.contextInjection,
       clearReservedInjectionTokensForSession: (sessionId) =>
-        this.contextService.clearReservedInjectionTokensForSession(sessionId),
+        contextService.clearReservedInjectionTokensForSession(sessionId),
       fileChanges: this.fileChanges,
-      verification: this.verification,
+      verification: this.verificationGate,
       parallel: this.parallel,
       parallelResults: this.parallelResults,
       costTracker: this.costTracker,
-      memory: this.memory,
+      memory: this.memoryEngine,
       turnReplay: this.turnReplay,
-      events: this.events,
+      events: this.eventStore,
       ledger: this.ledger,
     });
-    this.toolGateService = new ToolGateService({
+    const toolGateService = new ToolGateService({
       securityConfig: this.config.security,
       costTracker: this.costTracker,
       sessionState: this.sessionState,
       alwaysAllowedTools: ALWAYS_ALLOWED_TOOLS,
-      getActiveSkill: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId),
+      getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       recordEvent: (input) => this.recordEvent(input),
       checkContextCompactionGate: (sessionId, toolName, usage) =>
-        this.contextService.checkContextCompactionGate(sessionId, toolName, usage),
+        contextService.checkContextCompactionGate(sessionId, toolName, usage),
       observeContextUsage: (sessionId, usage) =>
-        this.contextService.observeContextUsage(sessionId, usage),
-      markToolCall: (sessionId, toolName) =>
-        this.fileChangeService.markToolCall(sessionId, toolName),
-      trackToolCallStart: (input) => this.fileChangeService.trackToolCallStart(input),
-      recordToolResult: (input) => this.ledgerService.recordToolResult(input),
-      trackToolCallEnd: (input) => this.fileChangeService.trackToolCallEnd(input),
+        contextService.observeContextUsage(sessionId, usage),
+      markToolCall: (sessionId, toolName) => fileChangeService.markToolCall(sessionId, toolName),
+      trackToolCallStart: (input) => fileChangeService.trackToolCallStart(input),
+      recordToolResult: (input) => ledgerService.recordToolResult(input),
+      trackToolCallEnd: (input) => fileChangeService.trackToolCallEnd(input),
     });
+
+    return {
+      skillLifecycleService,
+      taskService,
+      truthService,
+      ledgerService,
+      parallelService,
+      costService,
+      verificationService,
+      contextService,
+      tapeService,
+      eventPipeline,
+      memoryAccessService,
+      scheduleIntentService,
+      fileChangeService,
+      sessionLifecycleService,
+      toolGateService,
+    };
   }
 
-  refreshSkills(): void {
-    this.skills.load();
-    this.skills.writeIndex();
+  private createDomainApis(): {
+    skills: BrewvaRuntime["skills"];
+    context: BrewvaRuntime["context"];
+    tools: BrewvaRuntime["tools"];
+    task: BrewvaRuntime["task"];
+    truth: BrewvaRuntime["truth"];
+    memory: BrewvaRuntime["memory"];
+    schedule: BrewvaRuntime["schedule"];
+    events: BrewvaRuntime["events"];
+    verification: BrewvaRuntime["verification"];
+    cost: BrewvaRuntime["cost"];
+    session: BrewvaRuntime["session"];
+  } {
+    return {
+      skills: {
+        refresh: () => {
+          this.skillRegistry.load();
+          this.skillRegistry.writeIndex();
+        },
+        list: () => this.skillRegistry.list(),
+        get: (name) => this.skillRegistry.get(name),
+        select: (message) => this.selectSkills(message),
+        activate: (sessionId, name) => this.skillLifecycleService.activateSkill(sessionId, name),
+        getActive: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId),
+        validateOutputs: (sessionId, outputs) =>
+          this.skillLifecycleService.validateSkillOutputs(sessionId, outputs),
+        validateComposePlan: (plan) => this.skillLifecycleService.validateComposePlan(plan),
+        complete: (sessionId, output) =>
+          this.skillLifecycleService.completeSkill(sessionId, output),
+        getOutputs: (sessionId, skillName) =>
+          this.skillLifecycleService.getSkillOutputs(sessionId, skillName),
+        getConsumedOutputs: (sessionId, targetSkillName) =>
+          this.skillLifecycleService.getAvailableConsumedOutputs(sessionId, targetSkillName),
+      },
+      context: {
+        onTurnStart: (sessionId, turnIndex) =>
+          this.sessionLifecycleService.onTurnStart(sessionId, turnIndex),
+        sanitizeInput: (text) => this.sanitizeInput(text),
+        observeUsage: (sessionId, usage) =>
+          this.contextService.observeContextUsage(sessionId, usage),
+        getUsage: (sessionId) => this.contextService.getContextUsage(sessionId),
+        getUsageRatio: (usage) => this.contextService.getContextUsageRatio(usage),
+        getHardLimitRatio: () => this.contextService.getContextHardLimitRatio(),
+        getCompactionThresholdRatio: () => this.contextService.getContextCompactionThresholdRatio(),
+        getPressureStatus: (sessionId, usage) =>
+          this.contextService.getContextPressureStatus(sessionId, usage),
+        getPressureLevel: (sessionId, usage) =>
+          this.contextService.getContextPressureLevel(sessionId, usage),
+        getCompactionGateStatus: (sessionId, usage) =>
+          this.contextService.getContextCompactionGateStatus(sessionId, usage),
+        checkCompactionGate: (sessionId, toolName, usage) =>
+          this.contextService.checkContextCompactionGate(sessionId, toolName, usage),
+        buildInjection: (sessionId, prompt, usage, injectionScopeId) =>
+          this.contextService.buildContextInjection(sessionId, prompt, usage, injectionScopeId),
+        planSupplementalInjection: (sessionId, inputText, usage, injectionScopeId) =>
+          this.contextService.planSupplementalContextInjection(
+            sessionId,
+            inputText,
+            usage,
+            injectionScopeId,
+          ),
+        commitSupplementalInjection: (sessionId, finalTokens, injectionScopeId) =>
+          this.contextService.commitSupplementalContextInjection(
+            sessionId,
+            finalTokens,
+            injectionScopeId,
+          ),
+        shouldRequestCompaction: (sessionId, usage) =>
+          this.contextService.shouldRequestCompaction(sessionId, usage),
+        getCompactionInstructions: () => this.contextService.getCompactionInstructions(),
+        getCompactionWindowTurns: () => this.contextService.getRecentCompactionWindowTurns(),
+        markCompacted: (sessionId, input) =>
+          this.contextService.markContextCompacted(sessionId, input),
+      },
+      tools: {
+        checkAccess: (sessionId, toolName) =>
+          this.toolGateService.checkToolAccess(sessionId, toolName),
+        start: (input) => this.toolGateService.startToolCall(input),
+        finish: (input) => {
+          this.toolGateService.finishToolCall(input);
+        },
+        acquireParallelSlot: (sessionId, runId) =>
+          this.parallelService.acquireParallelSlot(sessionId, runId),
+        releaseParallelSlot: (sessionId, runId) =>
+          this.parallelService.releaseParallelSlot(sessionId, runId),
+        markCall: (sessionId, toolName) => this.fileChangeService.markToolCall(sessionId, toolName),
+        trackCallStart: (input) => this.fileChangeService.trackToolCallStart(input),
+        trackCallEnd: (input) => this.fileChangeService.trackToolCallEnd(input),
+        rollbackLastPatchSet: (sessionId) => this.fileChangeService.rollbackLastPatchSet(sessionId),
+        resolveUndoSessionId: (preferredSessionId) =>
+          this.fileChangeService.resolveUndoSessionId(preferredSessionId),
+        recordResult: (input) => this.ledgerService.recordToolResult(input),
+      },
+      task: {
+        setSpec: (sessionId, spec) => this.taskService.setTaskSpec(sessionId, spec),
+        addItem: (sessionId, input) => this.taskService.addTaskItem(sessionId, input),
+        updateItem: (sessionId, input) => this.taskService.updateTaskItem(sessionId, input),
+        recordBlocker: (sessionId, input) => this.taskService.recordTaskBlocker(sessionId, input),
+        resolveBlocker: (sessionId, blockerId) =>
+          this.taskService.resolveTaskBlocker(sessionId, blockerId),
+        getState: (sessionId) => this.turnReplay.getTaskState(sessionId),
+      },
+      truth: {
+        getState: (sessionId) => this.turnReplay.getTruthState(sessionId),
+        getLedgerDigest: (sessionId) => this.ledgerService.getLedgerDigest(sessionId),
+        queryLedger: (sessionId, query) => this.ledgerService.queryLedger(sessionId, query),
+        upsertFact: (sessionId, input) => this.truthService.upsertTruthFact(sessionId, input),
+        resolveFact: (sessionId, truthFactId) =>
+          this.truthService.resolveTruthFact(sessionId, truthFactId),
+      },
+      memory: {
+        getWorking: (sessionId) => this.memoryAccessService.getWorkingMemory(sessionId),
+        search: (sessionId, input) => this.memoryAccessService.search(sessionId, input),
+        dismissInsight: (sessionId, insightId) =>
+          this.memoryAccessService.dismissMemoryInsight(sessionId, insightId),
+        reviewEvolvesEdge: (sessionId, input) =>
+          this.memoryAccessService.reviewMemoryEvolvesEdge(sessionId, input),
+        refreshIfNeeded: (input) => this.memoryEngine.refreshIfNeeded(input),
+        clearSessionCache: (sessionId) => this.memoryEngine.clearSessionCache(sessionId),
+      },
+      schedule: {
+        createIntent: (sessionId, input) =>
+          this.scheduleIntentService.createScheduleIntent(sessionId, input),
+        cancelIntent: (sessionId, input) =>
+          this.scheduleIntentService.cancelScheduleIntent(sessionId, input),
+        updateIntent: (sessionId, input) =>
+          this.scheduleIntentService.updateScheduleIntent(sessionId, input),
+        listIntents: (query) => this.scheduleIntentService.listScheduleIntents(query),
+        getProjectionSnapshot: () => this.scheduleIntentService.getScheduleProjectionSnapshot(),
+      },
+      events: {
+        record: (input) => this.eventPipeline.recordEvent(input),
+        query: (sessionId, query) => this.eventPipeline.queryEvents(sessionId, query),
+        queryStructured: (sessionId, query) =>
+          this.eventPipeline.queryStructuredEvents(sessionId, query),
+        getTapeStatus: (sessionId) => this.tapeService.getTapeStatus(sessionId),
+        getTapePressureThresholds: () => this.tapeService.getPressureThresholds(),
+        recordTapeHandoff: (sessionId, input) =>
+          this.tapeService.recordTapeHandoff(sessionId, input),
+        searchTape: (sessionId, input) => this.tapeService.searchTape(sessionId, input),
+        listReplaySessions: (limit) => this.eventPipeline.listReplaySessions(limit),
+        subscribe: (listener) => this.eventPipeline.subscribeEvents(listener),
+        toStructured: (event) => this.eventPipeline.toStructuredEvent(event),
+        list: (sessionId, query) => this.eventStore.list(sessionId, query),
+        listSessionIds: () => this.eventStore.listSessionIds(),
+      },
+      verification: {
+        evaluate: (sessionId, level) => this.verificationGate.evaluate(sessionId, level),
+        verify: (sessionId, level, options) =>
+          this.verificationService.verifyCompletion(sessionId, level, options ?? {}),
+      },
+      cost: {
+        recordAssistantUsage: (input) => this.costService.recordAssistantUsage(input),
+        getSummary: (sessionId) => this.costService.getCostSummary(sessionId),
+      },
+      session: {
+        recordWorkerResult: (sessionId, result) =>
+          this.parallelService.recordWorkerResult(sessionId, result),
+        listWorkerResults: (sessionId) => this.parallelService.listWorkerResults(sessionId),
+        mergeWorkerResults: (sessionId) => this.parallelService.mergeWorkerResults(sessionId),
+        clearWorkerResults: (sessionId) => this.parallelService.clearWorkerResults(sessionId),
+        clearState: (sessionId) => this.sessionLifecycleService.clearSessionState(sessionId),
+      },
+    };
   }
 
-  listSkills(): SkillDocument[] {
-    return this.skills.list();
-  }
-
-  getSkill(name: string): SkillDocument | undefined {
-    return this.skills.get(name);
-  }
-
-  selectSkills(message: string): SkillSelection[] {
+  private selectSkills(message: string): SkillSelection[] {
     const input = this.config.security.sanitizeContext ? sanitizeContextText(message) : message;
-    return selectTopKSkills(input, this.skills.buildIndex(), this.config.skills.selector.k);
+    return selectTopKSkills(input, this.skillRegistry.buildIndex(), this.config.skills.selector.k);
   }
-
-  onTurnStart(sessionId: string, turnIndex: number): void {
-    this.sessionLifecycleService.onTurnStart(sessionId, turnIndex);
-  }
-
-  observeContextUsage(sessionId: string, usage: ContextBudgetUsage | undefined): void {
-    this.contextService.observeContextUsage(sessionId, usage);
-  }
-
-  getContextUsage(sessionId: string): ContextBudgetUsage | undefined {
-    return this.contextService.getContextUsage(sessionId);
-  }
-
-  getContextUsageRatio(usage: ContextBudgetUsage | undefined): number | null {
-    return this.contextService.getContextUsageRatio(usage);
-  }
-
-  getContextHardLimitRatio(): number {
-    return this.contextService.getContextHardLimitRatio();
-  }
-
-  getContextCompactionThresholdRatio(): number {
-    return this.contextService.getContextCompactionThresholdRatio();
-  }
-
-  getContextPressureStatus(sessionId: string, usage?: ContextBudgetUsage): ContextPressureStatus {
-    return this.contextService.getContextPressureStatus(sessionId, usage);
-  }
-
-  getContextPressureLevel(sessionId: string, usage?: ContextBudgetUsage): ContextPressureLevel {
-    return this.contextService.getContextPressureLevel(sessionId, usage);
-  }
-
-  getContextCompactionGateStatus(
-    sessionId: string,
-    usage?: ContextBudgetUsage,
-  ): ContextCompactionGateStatus {
-    return this.contextService.getContextCompactionGateStatus(sessionId, usage);
-  }
-
-  checkContextCompactionGate(
-    sessionId: string,
-    toolName: string,
-    usage?: ContextBudgetUsage,
-  ): { allowed: boolean; reason?: string } {
-    return this.contextService.checkContextCompactionGate(sessionId, toolName, usage);
-  }
-
-  buildContextInjection(
-    sessionId: string,
-    prompt: string,
-    usage?: ContextBudgetUsage,
-    injectionScopeId?: string,
-  ): {
-    text: string;
-    accepted: boolean;
-    originalTokens: number;
-    finalTokens: number;
-    truncated: boolean;
-  } {
-    return this.contextService.buildContextInjection(sessionId, prompt, usage, injectionScopeId);
-  }
-
-  async buildContextInjectionAsync(
-    sessionId: string,
-    prompt: string,
-    usage?: ContextBudgetUsage,
-    injectionScopeId?: string,
-  ): Promise<{
-    text: string;
-    accepted: boolean;
-    originalTokens: number;
-    finalTokens: number;
-    truncated: boolean;
-  }> {
-    return this.contextService.buildContextInjectionAsync(
-      sessionId,
-      prompt,
-      usage,
-      injectionScopeId,
-    );
-  }
-
-  planSupplementalContextInjection(
-    sessionId: string,
-    inputText: string,
-    usage?: ContextBudgetUsage,
-    injectionScopeId?: string,
-  ): {
-    accepted: boolean;
-    text: string;
-    originalTokens: number;
-    finalTokens: number;
-    truncated: boolean;
-    droppedReason?: "hard_limit" | "budget_exhausted";
-  } {
-    return this.contextService.planSupplementalContextInjection(
-      sessionId,
-      inputText,
-      usage,
-      injectionScopeId,
-    );
-  }
-
-  commitSupplementalContextInjection(
-    sessionId: string,
-    finalTokens: number,
-    injectionScopeId?: string,
-  ): void {
-    this.contextService.commitSupplementalContextInjection(
-      sessionId,
-      finalTokens,
-      injectionScopeId,
-    );
-  }
-
-  shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean {
-    return this.contextService.shouldRequestCompaction(sessionId, usage);
-  }
-
-  getCompactionInstructions(): string {
-    return this.contextService.getCompactionInstructions();
-  }
-
-  markContextCompacted(
-    sessionId: string,
-    input: {
-      fromTokens?: number | null;
-      toTokens?: number | null;
-      summary?: string;
-      entryId?: string;
-    },
-  ): void {
-    this.contextService.markContextCompacted(sessionId, input);
-  }
-
-  activateSkill(
-    sessionId: string,
-    name: string,
-  ): { ok: boolean; reason?: string; skill?: SkillDocument } {
-    return this.skillLifecycleService.activateSkill(sessionId, name);
-  }
-
-  getActiveSkill(sessionId: string): SkillDocument | undefined {
-    return this.skillLifecycleService.getActiveSkill(sessionId);
-  }
-
-  validateSkillOutputs(
-    sessionId: string,
-    outputs: Record<string, unknown>,
-  ): { ok: boolean; missing: string[] } {
-    return this.skillLifecycleService.validateSkillOutputs(sessionId, outputs);
-  }
-
-  validateComposePlan(plan: {
-    steps: Array<{ skill: string; consumes?: string[]; produces?: string[] }>;
-  }): { valid: boolean; errors: string[]; warnings: string[] } {
-    return this.skillLifecycleService.validateComposePlan(plan);
-  }
-
-  completeSkill(
-    sessionId: string,
-    outputs: Record<string, unknown>,
-  ): { ok: boolean; missing: string[] } {
-    return this.skillLifecycleService.completeSkill(sessionId, outputs);
-  }
-
-  getSkillOutputs(sessionId: string, skillName: string): Record<string, unknown> | undefined {
-    return this.skillLifecycleService.getSkillOutputs(sessionId, skillName);
-  }
-
-  getAvailableConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown> {
-    return this.skillLifecycleService.getAvailableConsumedOutputs(sessionId, targetSkillName);
-  }
-
-  checkToolAccess(sessionId: string, toolName: string): { allowed: boolean; reason?: string } {
-    return this.toolGateService.checkToolAccess(sessionId, toolName);
-  }
-
-  startToolCall(input: {
-    sessionId: string;
-    toolCallId: string;
-    toolName: string;
-    args?: Record<string, unknown>;
-    usage?: ContextBudgetUsage;
-    recordLifecycleEvent?: boolean;
-  }): { allowed: boolean; reason?: string } {
-    return this.toolGateService.startToolCall(input);
-  }
-
-  finishToolCall(input: {
-    sessionId: string;
-    toolCallId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    outputText: string;
-    success: boolean;
-    verdict?: "pass" | "fail" | "inconclusive";
-    metadata?: Record<string, unknown>;
-  }): string {
-    return this.toolGateService.finishToolCall(input);
-  }
-
-  acquireParallelSlot(sessionId: string, runId: string): ParallelAcquireResult {
-    return this.parallelService.acquireParallelSlot(sessionId, runId);
-  }
-
-  releaseParallelSlot(sessionId: string, runId: string): void {
-    this.parallelService.releaseParallelSlot(sessionId, runId);
-  }
-
-  markToolCall(sessionId: string, toolName: string): void {
-    this.fileChangeService.markToolCall(sessionId, toolName);
-  }
-
-  trackToolCallStart(input: {
-    sessionId: string;
-    toolCallId: string;
-    toolName: string;
-    args?: Record<string, unknown>;
-  }): void {
-    this.fileChangeService.trackToolCallStart(input);
-  }
-
-  trackToolCallEnd(input: {
-    sessionId: string;
-    toolCallId: string;
-    toolName: string;
-    success: boolean;
-  }): void {
-    this.fileChangeService.trackToolCallEnd(input);
-  }
-
-  rollbackLastPatchSet(sessionId: string): RollbackResult {
-    return this.fileChangeService.rollbackLastPatchSet(sessionId);
-  }
-
-  resolveUndoSessionId(preferredSessionId?: string): string | undefined {
-    return this.fileChangeService.resolveUndoSessionId(preferredSessionId);
-  }
-
-  recordToolResult(input: {
-    sessionId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    outputText: string;
-    success: boolean;
-    verdict?: "pass" | "fail" | "inconclusive";
-    metadata?: Record<string, unknown>;
-  }): string {
-    return this.ledgerService.recordToolResult(input);
-  }
-
-  getLedgerDigest(sessionId: string): string {
-    return this.ledgerService.getLedgerDigest(sessionId);
-  }
-
-  queryLedger(sessionId: string, query: EvidenceQuery): string {
-    return this.ledgerService.queryLedger(sessionId, query);
-  }
-
-  setTaskSpec(sessionId: string, spec: TaskSpec): void {
-    this.taskService.setTaskSpec(sessionId, spec);
-  }
-
-  addTaskItem(
-    sessionId: string,
-    input: { id?: string; text: string; status?: TaskItemStatus },
-  ): { ok: boolean; itemId?: string; error?: string } {
-    return this.taskService.addTaskItem(sessionId, input);
-  }
-
-  updateTaskItem(
-    sessionId: string,
-    input: { id: string; text?: string; status?: TaskItemStatus },
-  ): { ok: boolean; error?: string } {
-    return this.taskService.updateTaskItem(sessionId, input);
-  }
-
-  recordTaskBlocker(
-    sessionId: string,
-    input: {
-      id?: string;
-      message: string;
-      source?: string;
-      truthFactId?: string;
-    },
-  ): { ok: boolean; blockerId?: string; error?: string } {
-    return this.taskService.recordTaskBlocker(sessionId, input);
-  }
-
-  resolveTaskBlocker(sessionId: string, blockerId: string): { ok: boolean; error?: string } {
-    return this.taskService.resolveTaskBlocker(sessionId, blockerId);
-  }
-
-  getTapeStatus(sessionId: string): TapeStatusState {
-    return this.tapeService.getTapeStatus(sessionId);
-  }
-
-  recordTapeHandoff(
-    sessionId: string,
-    input: { name: string; summary?: string; nextSteps?: string },
-  ): {
-    ok: boolean;
-    eventId?: string;
-    createdAt?: number;
-    error?: string;
-    tapeStatus?: TapeStatusState;
-  } {
-    return this.tapeService.recordTapeHandoff(sessionId, input);
-  }
-
-  searchTape(
-    sessionId: string,
-    input: { query: string; scope?: TapeSearchScope; limit?: number },
-  ): TapeSearchResult {
-    return this.tapeService.searchTape(sessionId, input);
-  }
-
-  getTaskState(sessionId: string): TaskState {
+  private getTaskState(sessionId: string): TaskState {
     return this.turnReplay.getTaskState(sessionId);
   }
 
-  getTruthState(sessionId: string): TruthState {
+  private getTruthState(sessionId: string): TruthState {
     return this.turnReplay.getTruthState(sessionId);
   }
 
-  getWorkingMemory(sessionId: string): WorkingMemorySnapshot | undefined {
-    return this.memoryAccessService.getWorkingMemory(sessionId);
-  }
-
-  searchMemory(sessionId: string, input: { query: string; limit?: number }): MemorySearchResult {
-    return this.memoryAccessService.searchMemory(sessionId, input);
-  }
-
-  async searchMemoryAsync(
-    sessionId: string,
-    input: { query: string; limit?: number },
-  ): Promise<MemorySearchResult> {
-    return this.memoryAccessService.searchMemoryAsync(sessionId, input);
-  }
-
-  dismissMemoryInsight(
-    sessionId: string,
-    insightId: string,
-  ): { ok: boolean; error?: "missing_id" | "not_found" } {
-    return this.memoryAccessService.dismissMemoryInsight(sessionId, insightId);
-  }
-
-  reviewMemoryEvolvesEdge(
-    sessionId: string,
-    input: { edgeId: string; decision: "accept" | "reject" },
-  ): { ok: boolean; error?: "missing_id" | "not_found" | "already_set" } {
-    return this.memoryAccessService.reviewMemoryEvolvesEdge(sessionId, input);
-  }
-
-  upsertTruthFact(
-    sessionId: string,
-    input: {
-      id: string;
-      kind: string;
-      severity: TruthFactSeverity;
-      summary: string;
-      details?: Record<string, unknown>;
-      evidenceIds?: string[];
-      status?: TruthFactStatus;
-    },
-  ): { ok: boolean; fact?: TruthFact; error?: string } {
-    return this.truthService.upsertTruthFact(sessionId, input);
-  }
-
-  resolveTruthFact(sessionId: string, truthFactId: string): { ok: boolean; error?: string } {
-    return this.truthService.resolveTruthFact(sessionId, truthFactId);
-  }
-
-  async createScheduleIntent(
-    sessionId: string,
-    input: ScheduleIntentCreateInput,
-  ): Promise<ScheduleIntentCreateResult> {
-    return this.scheduleIntentService.createScheduleIntent(sessionId, input);
-  }
-
-  async cancelScheduleIntent(
-    sessionId: string,
-    input: ScheduleIntentCancelInput,
-  ): Promise<ScheduleIntentCancelResult> {
-    return this.scheduleIntentService.cancelScheduleIntent(sessionId, input);
-  }
-
-  async updateScheduleIntent(
-    sessionId: string,
-    input: ScheduleIntentUpdateInput,
-  ): Promise<ScheduleIntentUpdateResult> {
-    return this.scheduleIntentService.updateScheduleIntent(sessionId, input);
-  }
-
-  async listScheduleIntents(
-    query: ScheduleIntentListQuery = {},
-  ): Promise<ScheduleIntentProjectionRecord[]> {
-    return this.scheduleIntentService.listScheduleIntents(query);
-  }
-
-  async getScheduleProjectionSnapshot(): Promise<ScheduleProjectionSnapshot> {
-    return this.scheduleIntentService.getScheduleProjectionSnapshot();
-  }
-
-  recordEvent(input: RuntimeRecordEventInput): BrewvaEventRecord | undefined {
+  private recordEvent(input: RuntimeRecordEventInput): BrewvaEventRecord | undefined {
     return this.eventPipeline.recordEvent(input);
   }
 
-  queryEvents(sessionId: string, query: BrewvaEventQuery = {}): BrewvaEventRecord[] {
-    return this.eventPipeline.queryEvents(sessionId, query);
+  private evaluateCompletion(sessionId: string, level?: VerificationLevel): VerificationReport {
+    return this.verificationGate.evaluate(sessionId, level);
   }
 
-  queryStructuredEvents(sessionId: string, query: BrewvaEventQuery = {}): BrewvaStructuredEvent[] {
-    return this.eventPipeline.queryStructuredEvents(sessionId, query);
-  }
-
-  listReplaySessions(limit = 20): BrewvaReplaySession[] {
-    return this.eventPipeline.listReplaySessions(limit);
-  }
-
-  subscribeEvents(listener: (event: BrewvaStructuredEvent) => void): () => void {
-    return this.eventPipeline.subscribeEvents(listener);
-  }
-
-  toStructuredEvent(event: BrewvaEventRecord): BrewvaStructuredEvent {
-    return this.eventPipeline.toStructuredEvent(event);
-  }
-
-  recordAssistantUsage(input: {
-    sessionId: string;
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    totalTokens: number;
-    costUsd: number;
-    stopReason?: string;
-  }): SessionCostSummary {
-    return this.costService.recordAssistantUsage(input);
-  }
-  getCostSummary(sessionId: string): SessionCostSummary {
-    return this.costService.getCostSummary(sessionId);
-  }
-
-  evaluateCompletion(sessionId: string, level?: VerificationLevel): VerificationReport {
-    return this.verification.evaluate(sessionId, level);
-  }
-
-  recordWorkerResult(sessionId: string, result: WorkerResult): void {
-    this.parallelService.recordWorkerResult(sessionId, result);
-  }
-
-  listWorkerResults(sessionId: string): WorkerResult[] {
-    return this.parallelService.listWorkerResults(sessionId);
-  }
-
-  mergeWorkerResults(sessionId: string): WorkerMergeReport {
-    return this.parallelService.mergeWorkerResults(sessionId);
-  }
-
-  clearWorkerResults(sessionId: string): void {
-    this.parallelService.clearWorkerResults(sessionId);
-  }
-
-  clearSessionState(sessionId: string): void {
-    this.sessionLifecycleService.clearSessionState(sessionId);
-  }
-
-  async verifyCompletion(
-    sessionId: string,
-    level?: VerificationLevel,
-    options: VerifyCompletionOptions = {},
-  ): Promise<VerificationReport> {
-    return this.verificationService.verifyCompletion(sessionId, level, options);
-  }
-
-  sanitizeInput(text: string): string {
+  private sanitizeInput(text: string): string {
     if (!this.config.security.sanitizeContext) {
       return text;
     }

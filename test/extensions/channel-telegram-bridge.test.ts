@@ -5,7 +5,9 @@ import type { TurnEnvelope } from "@brewva/brewva-runtime/channels";
 import { resolveRequestUrl } from "../helpers.js";
 
 interface RuntimeLike {
-  recordEvent: (input: Record<string, unknown>) => void;
+  events: {
+    record: (input: Record<string, unknown>) => void;
+  };
 }
 
 interface Deferred<T> {
@@ -48,8 +50,10 @@ describe("runtime telegram channel bridge helper", () => {
   test("wires telegram polling ingress through runtime bridge", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
-      recordEvent: (input) => {
-        events.push(input);
+      events: {
+        record: (input) => {
+          events.push(input);
+        },
       },
     };
     const inboundTurns: TurnEnvelope[] = [];
@@ -119,8 +123,10 @@ describe("runtime telegram channel bridge helper", () => {
   test("wires outbound telegram send through runtime bridge telemetry", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
-      recordEvent: (input) => {
-        events.push(input);
+      events: {
+        record: (input) => {
+          events.push(input);
+        },
       },
     };
     const fetchImpl = async (

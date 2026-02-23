@@ -10,7 +10,7 @@ function createWorkspace(name: string): string {
 }
 
 describe("Viewport LoopPolicy (SNR-driven)", () => {
-  test("skips viewport injection when signal is near-zero", () => {
+  test("does not inject viewport policy blocks on default profile", async () => {
     const workspace = createWorkspace("viewport-policy-skip");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "viewport-policy-skip-1";
@@ -32,26 +32,22 @@ describe("Viewport LoopPolicy (SNR-driven)", () => {
       goal: "Fix failing runtime tests",
       targets: { files: ["src/irrelevant.ts"] },
     };
-    runtime.setTaskSpec(sessionId, spec);
+    runtime.task.setSpec(sessionId, spec);
 
-    const injection = runtime.buildContextInjection(sessionId, "run");
-    expect(injection.text.includes("[ViewportPolicy]")).toBe(true);
+    const injection = await runtime.context.buildInjection(sessionId, "run");
+    expect(injection.text.includes("[ViewportPolicy]")).toBe(false);
     expect(injection.text.includes("[Viewport]")).toBe(false);
 
-    const viewport = runtime.queryEvents(sessionId, { type: "viewport_built" });
-    expect(viewport.length).toBe(1);
-    const payload = viewport[0]?.payload ?? {};
-    expect(payload.variant).toBe("skipped");
-    expect(payload.injected).toBe(false);
+    const viewport = runtime.events.query(sessionId, { type: "viewport_built" });
+    expect(viewport.length).toBe(0);
 
-    const policy = runtime.queryEvents(sessionId, {
+    const policy = runtime.events.query(sessionId, {
       type: "viewport_policy_evaluated",
     });
-    expect(policy.length).toBe(1);
-    expect(policy[0]?.payload?.variant).toBe("skipped");
+    expect(policy.length).toBe(0);
   });
 
-  test("drops neighborhood probe when it dominates SNR", () => {
+  test("keeps task-state injection without neighborhood probe details", async () => {
     const workspace = createWorkspace("viewport-policy-no-neighborhood");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "viewport-policy-no-neighborhood-1";
@@ -91,15 +87,14 @@ describe("Viewport LoopPolicy (SNR-driven)", () => {
       goal: "Fix foo wiring",
       targets: { files: ["src/foo.ts"] },
     };
-    runtime.setTaskSpec(sessionId, spec);
+    runtime.task.setSpec(sessionId, spec);
 
-    const injection = runtime.buildContextInjection(sessionId, "run");
-    expect(injection.text.includes("[Viewport]")).toBe(true);
+    const injection = await runtime.context.buildInjection(sessionId, "run");
+    expect(injection.text.includes("[Viewport]")).toBe(false);
+    expect(injection.text.includes("[TaskLedger]")).toBe(true);
     expect(injection.text.includes("neighborhood:")).toBe(false);
 
-    const viewport = runtime.queryEvents(sessionId, { type: "viewport_built" });
-    expect(viewport.length).toBe(1);
-    const payload = viewport[0]?.payload ?? {};
-    expect(payload.variant).toBe("no_neighborhood");
+    const viewport = runtime.events.query(sessionId, { type: "viewport_built" });
+    expect(viewport.length).toBe(0);
   });
 });

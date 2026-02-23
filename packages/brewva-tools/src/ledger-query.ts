@@ -21,7 +21,7 @@ export function createLedgerQueryTool(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const text = options.runtime.queryLedger(sessionId, params);
+      const text = options.runtime.truth.queryLedger(sessionId, params);
       return textResult(text, { sessionId, query: params });
     },
   });

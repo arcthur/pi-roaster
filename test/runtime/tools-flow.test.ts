@@ -56,15 +56,15 @@ describe("S-008 patching e2e loop", () => {
     const loadedText = extractTextContent(loaded);
     expect(loadedText.includes("Skill Loaded: patching")).toBe(true);
 
-    runtime.markToolCall(sessionId, "edit");
-    runtime.recordToolResult({
+    runtime.tools.markCall(sessionId, "edit");
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { severity: "all" },
       outputText: "No diagnostics found",
       success: true,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -88,7 +88,7 @@ describe("S-008 patching e2e loop", () => {
 
     const completedText = extractTextContent(completed);
     expect(completedText.includes("verification gate passed")).toBe(true);
-    expect(runtime.getActiveSkill(sessionId)).toBeUndefined();
+    expect(runtime.skills.getActive(sessionId)).toBeUndefined();
   });
 
   test("skill_complete keeps skill active when verification is blocked", async () => {
@@ -108,7 +108,7 @@ describe("S-008 patching e2e loop", () => {
       undefined,
       fakeContext(sessionId),
     );
-    runtime.markToolCall(sessionId, "edit");
+    runtime.tools.markCall(sessionId, "edit");
 
     const completed = await completeTool.execute(
       "tc-2",
@@ -126,7 +126,7 @@ describe("S-008 patching e2e loop", () => {
 
     const completedText = extractTextContent(completed);
     expect(completedText.includes("Verification gate blocked")).toBe(true);
-    expect(runtime.getActiveSkill(sessionId)?.name).toBe("patching");
+    expect(runtime.skills.getActive(sessionId)?.name).toBe("patching");
   });
 });
 
@@ -138,16 +138,16 @@ describe("S-009 rollback tool flow", () => {
 
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "s9";
-    runtime.onTurnStart(sessionId, 1);
+    runtime.context.onTurnStart(sessionId, 1);
 
-    runtime.trackToolCallStart({
+    runtime.tools.trackCallStart({
       sessionId,
       toolCallId: "tc-write",
       toolName: "edit",
       args: { file_path: "src/example.ts" },
     });
     writeFileSync(join(workspace, "src/example.ts"), "export const n = 2;\n", "utf8");
-    runtime.trackToolCallEnd({
+    runtime.tools.trackCallEnd({
       sessionId,
       toolCallId: "tc-write",
       toolName: "edit",
@@ -173,9 +173,9 @@ describe("S-010 cost view tool flow", () => {
   test("cost_view returns session/skill/tool breakdown", async () => {
     const runtime = new BrewvaRuntime({ cwd: process.cwd() });
     const sessionId = "s10";
-    runtime.onTurnStart(sessionId, 1);
-    runtime.markToolCall(sessionId, "read");
-    runtime.recordAssistantUsage({
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.tools.markCall(sessionId, "read");
+    runtime.cost.recordAssistantUsage({
       sessionId,
       model: "test/model",
       inputTokens: 10,
@@ -227,7 +227,7 @@ describe("S-011 session compact tool flow", () => {
     const text = extractTextContent(result);
     expect(text.includes("Session compaction requested")).toBe(true);
     expect(compactCalls).toBe(1);
-    expect(capturedInstructions).toBe(runtime.getCompactionInstructions());
+    expect(capturedInstructions).toBe(runtime.context.getCompactionInstructions());
   });
 });
 
@@ -236,9 +236,9 @@ describe("S-012 tape tools flow", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-tape-info-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "s12";
-    runtime.onTurnStart(sessionId, 1);
+    runtime.context.onTurnStart(sessionId, 1);
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "validate tape tools",
     });
@@ -263,7 +263,7 @@ describe("S-012 tape tools flow", () => {
 
     const handoffText = extractTextContent(handoffResult);
     expect(handoffText.includes("Tape handoff recorded")).toBe(true);
-    expect(runtime.queryEvents(sessionId, { type: "anchor" }).length).toBe(1);
+    expect(runtime.events.query(sessionId, { type: "anchor" }).length).toBe(1);
 
     const infoResult = await tapeInfo!.execute("tc-info", {}, undefined, undefined, {
       ...fakeContext(sessionId),
@@ -279,14 +279,14 @@ describe("S-012 tape tools flow", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-tape-search-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "s12-search";
-    runtime.onTurnStart(sessionId, 1);
+    runtime.context.onTurnStart(sessionId, 1);
 
-    runtime.recordTapeHandoff(sessionId, {
+    runtime.events.recordTapeHandoff(sessionId, {
       name: "investigation",
       summary: "Collected flaky test evidence.",
       nextSteps: "Implement fix.",
     });
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "task_event",
       payload: {
@@ -321,19 +321,19 @@ describe("S-013 memory insight tool flow", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "s13";
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Dismiss noisy insight",
     });
-    runtime.recordTaskBlocker(sessionId, {
+    runtime.task.recordBlocker(sessionId, {
       message: "verification may fail because fixtures are missing",
       source: "test",
     });
-    runtime.recordTaskBlocker(sessionId, {
+    runtime.task.recordBlocker(sessionId, {
       message: "verification may fail because network is flaky",
       source: "test",
     });
-    runtime.buildContextInjection(sessionId, "continue implementation");
+    await runtime.context.buildInjection(sessionId, "continue implementation");
 
     const insightsPath = join(workspace, ".orchestrator/memory/insights.jsonl");
     const insightRows = readFileSync(insightsPath, "utf8")
@@ -375,15 +375,15 @@ describe("S-013 memory insight tool flow", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "s13e";
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Use sqlite for current task.",
     });
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Use postgres instead of sqlite for current task.",
     });
-    runtime.buildContextInjection(sessionId, "continue implementation");
+    await runtime.context.buildInjection(sessionId, "continue implementation");
 
     const evolvesPath = join(workspace, ".orchestrator/memory/evolves.jsonl");
     const rows = readFileSync(evolvesPath, "utf8")
@@ -456,7 +456,7 @@ describe("S-014 schedule intent tool flow", () => {
     const createText = extractTextContent(createResult);
     expect(createText.includes("Schedule intent created.")).toBe(true);
 
-    const createdIntents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const createdIntents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     expect(createdIntents.length).toBe(1);
     const createdIntentId = createdIntents[0]?.intentId;
     expect(typeof createdIntentId).toBe("string");
@@ -488,7 +488,7 @@ describe("S-014 schedule intent tool flow", () => {
     const cancelText = extractTextContent(cancelResult);
     expect(cancelText.includes("Schedule intent cancelled")).toBe(true);
 
-    const events = runtime.queryEvents(sessionId, { type: "schedule_intent" });
+    const events = runtime.events.query(sessionId, { type: "schedule_intent" });
     const kinds = events
       .map((event) => parseScheduleIntentEvent(event)?.kind)
       .filter((kind): kind is NonNullable<typeof kind> => Boolean(kind));
@@ -521,7 +521,7 @@ describe("S-014 schedule intent tool flow", () => {
     const createText = extractTextContent(createResult);
     expect(createText.includes("Schedule intent created.")).toBe(true);
 
-    const intents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const intents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     expect(intents.length).toBe(1);
     expect(intents[0]?.convergenceCondition).toEqual({
       kind: "task_phase",
@@ -554,7 +554,7 @@ describe("S-014 schedule intent tool flow", () => {
     expect(createText.includes("cron: */10 * * * *")).toBe(true);
     expect(createText.includes("timeZone: Asia/Shanghai")).toBe(true);
 
-    const intents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const intents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     expect(intents.length).toBe(1);
     expect(intents[0]?.cron).toBe("*/10 * * * *");
     expect(intents[0]?.timeZone).toBe("Asia/Shanghai");
@@ -583,7 +583,7 @@ describe("S-014 schedule intent tool flow", () => {
     const createText = extractTextContent(createResult);
     expect(createText.includes("Schedule intent created.")).toBe(true);
 
-    const createdIntents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const createdIntents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     expect(createdIntents.length).toBe(1);
     const intentId = createdIntents[0]?.intentId;
     if (!intentId) return;
@@ -607,14 +607,14 @@ describe("S-014 schedule intent tool flow", () => {
     expect(updateText.includes("cron: */15 * * * *")).toBe(true);
     expect(updateText.includes("timeZone: Asia/Shanghai")).toBe(true);
 
-    const intents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const intents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     expect(intents.length).toBe(1);
     expect(intents[0]?.cron).toBe("*/15 * * * *");
     expect(intents[0]?.timeZone).toBe("Asia/Shanghai");
     expect(intents[0]?.maxRuns).toBe(8);
     expect(intents[0]?.runAt).toBeUndefined();
 
-    const events = runtime.queryEvents(sessionId, { type: "schedule_intent" });
+    const events = runtime.events.query(sessionId, { type: "schedule_intent" });
     const kinds = events
       .map((event) => parseScheduleIntentEvent(event)?.kind)
       .filter((kind): kind is NonNullable<typeof kind> => Boolean(kind));
@@ -640,7 +640,7 @@ describe("S-014 schedule intent tool flow", () => {
     );
     expect(extractTextContent(createResult).includes("Schedule intent created.")).toBe(true);
 
-    const createdIntents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const createdIntents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     const intentId = createdIntents[0]?.intentId;
     if (!intentId) return;
 
@@ -702,7 +702,7 @@ describe("S-014 schedule intent tool flow", () => {
     );
     expect(extractTextContent(createResult).includes("Schedule intent created.")).toBe(true);
 
-    const createdIntents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const createdIntents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     const intentId = createdIntents[0]?.intentId;
     if (!intentId) return;
 
@@ -722,7 +722,7 @@ describe("S-014 schedule intent tool flow", () => {
     expect(updateText.includes("cron: 0 9 * * *")).toBe(true);
     expect(updateText.includes("timeZone: America/New_York")).toBe(true);
 
-    const intents = await runtime.listScheduleIntents({ parentSessionId: sessionId });
+    const intents = await runtime.schedule.listIntents({ parentSessionId: sessionId });
     expect(intents.length).toBe(1);
     expect(intents[0]?.cron).toBe("0 9 * * *");
     expect(intents[0]?.timeZone).toBe("America/New_York");

@@ -18,6 +18,9 @@ import type { VerificationGate } from "../verification/gate.js";
 import type { RuntimeCallback } from "./callback.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 
+const LEDGER_DIGEST_WINDOW = 12;
+const LEDGER_MAX_DIGEST_TOKENS = 1200;
+
 export interface LedgerServiceOptions {
   cwd: string;
   config: BrewvaConfig;
@@ -197,8 +200,8 @@ export class LedgerService {
     const digest = buildLedgerDigest(
       sessionId,
       rows,
-      this.config.ledger.digestWindow,
-      this.config.skills.selector.maxDigestTokens,
+      LEDGER_DIGEST_WINDOW,
+      LEDGER_MAX_DIGEST_TOKENS,
     );
 
     const lines: string[] = [
@@ -225,7 +228,7 @@ export class LedgerService {
       return;
     }
 
-    const keepLast = Math.max(2, Math.min(this.config.ledger.digestWindow, every - 1));
+    const keepLast = Math.max(2, Math.min(LEDGER_DIGEST_WINDOW, every - 1));
     const result = this.ledger.compactSession(sessionId, {
       keepLast,
       reason: `turn-${turn}`,

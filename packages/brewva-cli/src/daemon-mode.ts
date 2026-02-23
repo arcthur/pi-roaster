@@ -25,7 +25,7 @@ function inheritScheduleContext(
   truthFactsCopied: number;
   parentAnchor?: { id: string; name?: string; summary?: string; nextSteps?: string };
 } {
-  const parentAnchor = runtime.getTapeStatus(input.parentSessionId).lastAnchor;
+  const parentAnchor = runtime.events.getTapeStatus(input.parentSessionId).lastAnchor;
   if (input.continuityMode !== "inherit") {
     return {
       taskSpecCopied: false,
@@ -34,15 +34,15 @@ function inheritScheduleContext(
     };
   }
 
-  const parentTask = runtime.getTaskState(input.parentSessionId);
+  const parentTask = runtime.task.getState(input.parentSessionId);
   if (parentTask.spec) {
-    runtime.setTaskSpec(input.childSessionId, parentTask.spec);
+    runtime.task.setSpec(input.childSessionId, parentTask.spec);
   }
 
-  const parentTruth = runtime.getTruthState(input.parentSessionId);
+  const parentTruth = runtime.truth.getState(input.parentSessionId);
   let copied = 0;
   for (const fact of parentTruth.facts) {
-    const result = runtime.upsertTruthFact(input.childSessionId, {
+    const result = runtime.truth.upsertFact(input.childSessionId, {
       id: fact.id,
       kind: fact.kind,
       severity: fact.severity,
@@ -57,7 +57,7 @@ function inheritScheduleContext(
   }
 
   if (parentAnchor) {
-    runtime.recordTapeHandoff(input.childSessionId, {
+    runtime.events.recordTapeHandoff(input.childSessionId, {
       name: `schedule:inherit:${parentAnchor.name ?? "parent"}`,
       summary: parentAnchor.summary,
       nextSteps: parentAnchor.nextSteps,
@@ -152,7 +152,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
     summaryWindow.childFinished = 0;
     summaryWindow.childFailed = 0;
   };
-  const unsubscribeEvents = runtime.subscribeEvents((event) => {
+  const unsubscribeEvents = runtime.events.subscribe((event) => {
     if (event.type === "schedule_recovery_deferred") {
       summaryWindow.deferredIntents += 1;
       return;
@@ -196,7 +196,16 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
     : null;
   summaryInterval?.unref?.();
   const scheduler = new SchedulerService({
-    runtime,
+    runtime: {
+      workspaceRoot: runtime.workspaceRoot,
+      scheduleConfig: runtime.config.schedule,
+      listSessionIds: () => runtime.events.listSessionIds(),
+      listEvents: (sessionId, query) => runtime.events.list(sessionId, query),
+      recordEvent: (input) => runtime.events.record(input),
+      subscribeEvents: (listener) => runtime.events.subscribe(listener),
+      getTruthState: (sessionId) => runtime.truth.getState(sessionId),
+      getTaskState: (sessionId) => runtime.task.getState(sessionId),
+    },
     executeIntent: async (intent) => {
       const runIndex = intent.runCount + 1;
       const child = await createBrewvaSession({
@@ -220,7 +229,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
         inherited,
       });
 
-      runtime.recordEvent({
+      runtime.events.record({
         sessionId: childSessionId,
         type: "schedule_wakeup",
         payload: {
@@ -237,7 +246,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
           parentAnchorId: inherited.parentAnchor?.id ?? null,
         },
       });
-      runtime.recordEvent({
+      runtime.events.record({
         sessionId: intent.parentSessionId,
         type: "schedule_child_session_started",
         payload: {
@@ -250,7 +259,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
       try {
         await child.session.sendUserMessage(wakeupMessage);
         await child.session.agent.waitForIdle();
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId: intent.parentSessionId,
           type: "schedule_child_session_finished",
           payload: {
@@ -261,7 +270,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
         });
         return { evaluationSessionId: childSessionId };
       } catch (error) {
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId: intent.parentSessionId,
           type: "schedule_child_session_failed",
           payload: {

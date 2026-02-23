@@ -7,7 +7,7 @@ export function registerQualityGate(pi: ExtensionAPI, runtime: BrewvaRuntime): v
     const usage = coerceContextBudgetUsage(
       typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined,
     );
-    const started = runtime.startToolCall({
+    const started = runtime.tools.start({
       sessionId,
       toolCallId: event.toolCallId,
       toolName: event.toolName,
@@ -24,7 +24,7 @@ export function registerQualityGate(pi: ExtensionAPI, runtime: BrewvaRuntime): v
   });
 
   pi.on("input", (event) => {
-    const sanitized = runtime.sanitizeInput(event.text);
+    const sanitized = runtime.context.sanitizeInput(event.text);
     if (sanitized === event.text) {
       return { action: "continue" };
     }

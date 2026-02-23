@@ -407,7 +407,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
         outboundSequence: 0,
       };
       sessions.set(key, state);
-      runtime.recordEvent({
+      runtime.events.record({
         sessionId: state.agentSessionId,
         type: "channel_session_bound",
         payload: {
@@ -451,7 +451,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
               return;
             }
 
-            runtime.recordEvent({
+            runtime.events.record({
               sessionId: canonicalTurn.sessionId,
               type: "channel_turn_dispatch_start",
               payload: {
@@ -465,7 +465,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
             const assistantText = normalizeText(outputs.assistantText);
             let outboundTurnsSent = 0;
 
-            runtime.recordEvent({
+            runtime.events.record({
               sessionId: canonicalTurn.sessionId,
               type: "channel_turn_dispatch_end",
               payload: {
@@ -495,7 +495,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
                 await bundle.bridge.sendTurn(toolTurn);
                 outboundTurnsSent += 1;
               } catch (error) {
-                runtime.recordEvent({
+                runtime.events.record({
                   sessionId: canonicalTurn.sessionId,
                   type: "channel_turn_outbound_error",
                   payload: {
@@ -522,7 +522,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
                 await bundle.bridge.sendTurn(assistantTurn);
                 outboundTurnsSent += 1;
               } catch (error) {
-                runtime.recordEvent({
+                runtime.events.record({
                   sessionId: canonicalTurn.sessionId,
                   type: "channel_turn_outbound_error",
                   payload: {
@@ -535,7 +535,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
               }
             }
 
-            runtime.recordEvent({
+            runtime.events.record({
               sessionId: canonicalTurn.sessionId,
               type: "channel_turn_outbound_complete",
               payload: {

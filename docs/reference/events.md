@@ -3,28 +3,74 @@
 Event system sources:
 
 - Persistent store: `packages/brewva-runtime/src/events/store.ts`
-- Runtime conversion and queries: `packages/brewva-runtime/src/runtime.ts`
+- Event pipeline/filtering: `packages/brewva-runtime/src/services/event-pipeline.ts`
+- Runtime facade: `packages/brewva-runtime/src/runtime.ts`
 - Extension bridge: `packages/brewva-extensions/src/event-stream.ts`
 
 ## Event Schemas
+
+Core event contracts are defined in `packages/brewva-runtime/src/types.ts`:
 
 - `BrewvaEventRecord`
 - `BrewvaStructuredEvent`
 - `BrewvaEventCategory`
 - `BrewvaReplaySession`
 
-Defined in `packages/brewva-runtime/src/types.ts`.
+## Emission Levels (`infrastructure.events.level`)
 
-## Common Event Types
+The runtime filters emitted events by level:
 
-This list is intentionally non-exhaustive. Treat unknown event types and payload
-fields as forward-compatible.
+- `audit`
+- `ops` (default)
+- `debug`
+
+### `audit`
+
+Audit level keeps replay/audit-critical events only:
+
+- `anchor`
+- `checkpoint`
+- `task_event`
+- `truth_event`
+- `tool_result_recorded`
+- `verification_outcome_recorded`
+- `verification_state_reset`
+- `schedule_intent`
+- `schedule_recovery_deferred`
+- `schedule_recovery_summary`
+- `schedule_wakeup`
+- `schedule_child_session_started`
+- `schedule_child_session_finished`
+- `schedule_child_session_failed`
+
+### `ops`
+
+Ops level includes all audit events plus operational transitions and warnings (for example context pressure, budget alerts, channel lifecycle, etc.).
+
+### `debug`
+
+Debug level includes the full stream, including high-noise diagnostics such as:
+
+- `viewport_*`
+- `cognitive_*`
+- `tool_parallel_read`
+
+Switching event level changes observability density, not runtime decision logic.
+
+## Common Event Families
+
+This list is intentionally non-exhaustive. Unknown event types/fields should be treated as forward-compatible.
+
+### Session/Turn
 
 - `session_start`
 - `session_shutdown`
-- `channel_session_bound`
 - `turn_start`
 - `turn_end`
+
+### Channel Gateway
+
+- `channel_session_bound`
 - `channel_turn_ingested`
 - `channel_turn_dispatch_start`
 - `channel_turn_dispatch_end`
@@ -32,22 +78,25 @@ fields as forward-compatible.
 - `channel_turn_outbound_complete`
 - `channel_turn_outbound_error`
 - `channel_turn_bridge_error`
+
+### Tool and Ledger
+
 - `tool_call`
 - `tool_result_recorded`
 - `tool_parallel_read`
-- `skill_completed`
+- `ledger_compacted`
+
+`tool_result` itself is treated as an SDK hook boundary. Persisted semantic result records are emitted as `tool_result_recorded`.
+
+### Task/Truth/Verification
+
 - `task_event`
 - `truth_event`
 - `verification_state_reset`
-- `memory_unit_upserted`
-- `memory_unit_superseded`
-- `memory_crystal_compiled`
-- `memory_working_published`
-- `memory_insight_recorded`
-- `memory_insight_dismissed`
-- `memory_evolves_edge_reviewed`
-- `anchor`
-- `checkpoint`
+- `verification_outcome_recorded`
+
+### Context and Compaction
+
 - `context_usage`
 - `context_injected`
 - `context_injection_dropped`
@@ -60,12 +109,38 @@ fields as forward-compatible.
 - `context_compacted`
 - `session_compact_requested`
 - `session_compact_request_failed`
-- `cost_update`
-- `budget_alert`
-- `skill_budget_warning`
-- `ledger_compacted`
-- `viewport_built`
-- `viewport_policy_evaluated`
+
+### Memory and Cognitive
+
+- `memory_unit_upserted`
+- `memory_unit_superseded`
+- `memory_crystal_compiled`
+- `memory_working_published`
+- `memory_insight_recorded`
+- `memory_insight_dismissed`
+- `memory_evolves_edge_reviewed`
+- `memory_global_sync`
+- `memory_global_recall`
+- `cognitive_usage_recorded`
+- `cognitive_relation_inference`
+- `cognitive_relation_inference_skipped`
+- `cognitive_relation_inference_failed`
+- `cognitive_relevance_ranking`
+- `cognitive_relevance_ranking_skipped`
+- `cognitive_relevance_ranking_failed`
+- `cognitive_outcome_reflection`
+- `cognitive_outcome_reflection_skipped`
+- `cognitive_outcome_reflection_failed`
+
+Note: runtime API is async-first, but cognitive ranking can still emit `asyncResult` and skip metadata for internal non-applied ranking paths.
+
+### Tape
+
+- `anchor`
+- `checkpoint`
+
+### Schedule
+
 - `schedule_intent`
 - `schedule_recovery_deferred`
 - `schedule_recovery_summary`
@@ -74,311 +149,11 @@ fields as forward-compatible.
 - `schedule_child_session_finished`
 - `schedule_child_session_failed`
 
-## Channel Gateway Events
-
-### `channel_session_bound`
-
-Emitted by channel mode when a `(channel, conversationId)` pair is bound to an
-agent session.
-
-Payload fields:
-
-- `channel`
-- `conversationId`
-- `channelConversationKey`
-- `channelTurnSessionId`
-- `agentSessionId`
-
-### `channel_turn_ingested`
-
-Emitted when adapter ingress yields a normalized turn envelope.
-
-Payload fields:
-
-- `adapterId`
-- `turnSessionId`
-- `turnId`
-- `kind`
-- `channel`
-- `conversationId`
-- `messageId`
-- `threadId`
-- `partTypes`
-- `partCount`
-- `timestamp`
-
-### `channel_turn_dispatch_start`
-
-Emitted when CLI channel orchestration starts dispatching an inbound turn to the
-agent session.
-
-Payload fields:
-
-- `turnId`
-- `kind`
-- `agentSessionId`
-
-### `channel_turn_dispatch_end`
-
-Emitted when CLI channel orchestration completes one inbound dispatch cycle.
-
-Payload fields:
-
-- `turnId`
-- `kind`
-- `agentSessionId`
-- `assistantChars`
-- `toolTurns`
-
-### `channel_turn_emitted`
-
-Emitted when a prepared outbound turn is delivered through the adapter.
-
-Payload fields:
-
-- `adapterId`
-- `turnId`
-- `kind`
-- `channel`
-- `conversationId`
-- `messageId`
-- `threadId`
-- `partTypes`
-- `partCount`
-- `timestamp`
-- `requestedTurnId`
-- `providerMessageId`
-
-### `channel_turn_outbound_complete`
-
-Emitted when all outbound turns produced from one inbound dispatch are handled.
-
-Payload fields:
-
-- `turnId`
-- `agentSessionId`
-- `outboundTurnsSent`
-- `toolTurns`
-- `hasAssistantTurn`
-
-### `channel_turn_outbound_error`
-
-Emitted when sending an outbound turn fails.
-
-Payload fields:
-
-- `turnId`
-- `outboundKind`
-- `toolCallId` (optional, tool turn only)
-- `agentSessionId`
-- `error`
-
-### `channel_turn_bridge_error`
-
-Emitted when bridge send/adapter operations throw.
-
-Payload fields:
-
-- `adapterId`
-- `error`
-
-## Raw vs Semantic Tool Events
-
-- `tool_call` is the raw lifecycle event recorded by `event-stream`.
-- Tool results are persisted as semantic runtime events (`tool_result_recorded`)
-  through `ledger-writer -> runtime.recordToolResult()`.
-- `tool_result` itself is treated as an SDK hook boundary, not a persisted tape
-  event, to avoid duplicate result records in long sessions.
-
-## Viewport Events
-
-The runtime builds a lightweight "viewport" to ground the model in the most
-relevant source text. It is derived from TaskSpec `targets.files` (or, when
-missing, a small set of recently changed files) plus optional `targets.symbols`.
-
-A simple signal-to-noise policy can downshift the viewport (or skip injecting it)
-when the extracted context is likely to be misleading.
-
-### `viewport_built`
-
-Emitted when the runtime constructs a viewport candidate during
-`buildContextInjection()`.
-
-Payload fields:
-
-- `goal`: The goal string used to extract relevant lines.
-- `variant`: `full | no_neighborhood | minimal | skipped`
-- `quality`: `good | ok | low | unknown`
-- `score`: Policy decision score (`0..1`) or `null` when unavailable.
-- `snr`: Keyword-based SNR reported by `buildViewportContext()` (`0..1`) or `null`.
-- `effectiveSnr`: Effective SNR that treats symbol/neighborhood hits as signal.
-- `policyReason`: Policy decision reason string.
-- `injected`: Whether the viewport text was injected as a `brewva.viewport`
-  context block.
-- `requestedFiles`: Target files requested by the runtime (relative paths).
-- `includedFiles`: Files that were successfully loaded and included.
-- `unavailableFiles`: Files that were requested but could not be read.
-- `importsExportsLines`: Count of import/export entries included in the viewport.
-- `relevantTotalLines`: Count of relevant lines extracted (including fallback).
-- `relevantHitLines`: Count of keyword-hit lines (0 in fallback mode).
-- `symbolLines`: Count of symbol definition lines included.
-- `neighborhoodLines`: Count of neighborhood definition lines included.
-- `totalChars`: Final viewport text length (after truncation).
-- `truncated`: Whether the viewport text was truncated to fit the budget.
-
-Variants:
-
-- `full`: Includes per-file imports/exports, relevant lines, symbols, and a small
-  neighborhood expansion.
-- `no_neighborhood`: Omits the neighborhood expansion to reduce noise.
-- `minimal`: Omits both imports/exports and neighborhood to keep only the most
-  directly relevant lines.
-- `skipped`: Does not inject the viewport text; a `brewva.viewport-policy` guard
-  block may be injected to force a verification-first posture.
-
-### `viewport_policy_evaluated`
-
-Emitted when the viewport policy makes a non-default choice (`variant != full`)
-or when the selected `quality` is `low`.
-
-Payload fields:
-
-- `goal`, `variant`, `quality`, `score`, `snr`, `effectiveSnr`: Same semantics as
-  `viewport_built`.
-- `reason`: Policy decision reason string.
-- `evaluated`: Array of evaluated viewport variants (always includes `full`).
-  Each entry includes:
-  - `variant`, `score`, `snr`, `effectiveSnr`
-  - `truncated`, `totalChars`
-  - `importsExportsLines`, `relevantTotalLines`, `relevantHitLines`
-  - `symbolLines`, `neighborhoodLines`
-
-## Tape Events
-
-### `anchor`
-
-Semantic boundary marker written by tape handoff flows.
-
-Payload fields:
-
-- `schema`: `brewva.tape.anchor.v1`
-- `name`: phase/boundary name
-- `summary`: optional structured phase summary
-- `nextSteps`: optional next-step hint
-- `createdAt`: event creation timestamp (epoch ms)
-
-### `checkpoint`
-
-Machine recovery baseline written by runtime checkpoint policy.
-
-Payload fields:
-
-- `schema`: `brewva.tape.checkpoint.v1`
-- `state.task`: checkpointed task state
-- `state.truth`: checkpointed truth state
-- `basedOnEventId`: event id the checkpoint was derived from
-- `latestAnchorEventId`: nearest semantic anchor id when available
-- `reason`: checkpoint trigger reason
-- `createdAt`: event creation timestamp (epoch ms)
-
-## Schedule Events
-
-### `schedule_intent`
-
-Primary scheduling stream with payload schema `brewva.schedule.v1`.
-`kind` values:
-
-- `intent_created`
-- `intent_updated`
-- `intent_cancelled`
-- `intent_fired`
-- `intent_converged`
-
-Common fields (some optional by `kind`):
-
-- `intentId`
-- `parentSessionId`
-- `reason`
-- `continuityMode` (`inherit | fresh`)
-- `maxRuns`
-- `runAt`
-- `cron`
-- `timeZone`
-- `nextRunAt`
-- `goalRef`
-- `convergenceCondition`
-
-Additional fields on `intent_fired`:
-
-- `runIndex`
-- `firedAt`
-- `childSessionId`
-- `error`
-
-### `schedule_recovery_deferred`
-
-Emitted when startup recovery finds more missed intents than
-`schedule.maxRecoveryCatchUps`.
-
-Payload schema: `brewva.schedule-recovery.v1`
-
-- `intentId`
-- `reason` (`max_recovery_catchups_exceeded`)
-- `deferredFrom`
-- `deferredTo`
-- `queueSequence`
-- `backlogSize`
-
-### `schedule_recovery_summary`
-
-Per-parent-session catch-up summary emitted after recovery.
-
-Payload schema: `brewva.schedule-recovery.v1`
-
-- `recoveredAt`
-- `parentSessionId`
-- `dueIntents`
-- `firedIntents`
-- `deferredIntents`
-- `maxRecoveryCatchUps`
-
-### `schedule_wakeup`
-
-Wakeup-context event emitted when daemon starts a child session.
-
-Payload schema: `brewva.schedule-wakeup.v1`
-
-- `intentId`
-- `parentSessionId`
-- `runIndex`
-- `reason`
-- `continuityMode`
-- `timeZone`
-- `goalRef`
-- `inheritedTaskSpec`
-- `inheritedTruthFacts`
-- `parentAnchorId`
-
-### `schedule_child_session_started|finished|failed`
-
-Parent-session lifecycle events for daemon-managed child sessions.
-
-Common fields:
-
-- `intentId`
-- `childSessionId`
-- `runIndex`
-
-Additional field on `schedule_child_session_failed`:
-
-- `error`
-
-## Task and Truth Ledger Events
+## Key Payload Notes
 
 ### `task_event`
 
-Event-sourced task ledger updates (`brewva.task.ledger.v1`) used to rebuild task state.
-Payload `kind` includes:
+Event-sourced task ledger stream (`brewva.task.ledger.v1`), including:
 
 - `spec_set`
 - `checkpoint_set`
@@ -390,469 +165,58 @@ Payload `kind` includes:
 
 ### `truth_event`
 
-Event-sourced truth ledger updates (`brewva.truth.ledger.v1`) used to rebuild truth state.
-Payload `kind` includes:
+Event-sourced truth ledger stream (`brewva.truth.ledger.v1`), including:
 
 - `fact_upserted`
 - `fact_resolved`
 
-### `verification_state_reset`
+### `schedule_intent`
 
-Emitted when runtime verification state is explicitly cleared (for example after
-rollback) before subsequent verification runs rebuild fresh evidence.
+Primary schedule stream (`brewva.schedule.v1`) with `kind`:
 
-Payload fields:
+- `intent_created`
+- `intent_updated`
+- `intent_cancelled`
+- `intent_fired`
+- `intent_converged`
 
-- `reason`: reset trigger reason (currently `rollback`).
+Common fields include:
 
-Example payload:
-
-```json
-{
-  "reason": "rollback"
-}
-```
+- `intentId`
+- `parentSessionId`
+- `reason`
+- `continuityMode`
+- `maxRuns`
+- `runAt`
+- `cron`
+- `timeZone`
+- `nextRunAt`
+- `goalRef`
+- `convergenceCondition`
 
 ### `verification_outcome_recorded`
 
-Emitted by `verifyCompletion()` after verification result is folded into runtime state.
-
-Payload fields:
-
-- `schema`: `brewva.verification.outcome.v1`
-- `level`: verification level (`quick | standard | strict`)
-- `outcome`: `pass | fail`
-- `lessonKey`: normalized lesson key used for memory/global reconciliation
-- `pattern`: normalized strategy pattern key
-- `rootCause`: summarized root cause
-- `recommendation`: summarized recommendation
-- `taskGoal`: task goal snapshot (or `null`)
-- `strategy`: compact strategy summary
-- `failedChecks`: failed check names
-- `missingEvidence`: missing evidence ids
-- `evidence`: compact failed-evidence text
-- `evidenceIds`: linked ledger evidence ids
-
-Example payload:
-
-```json
-{
-  "schema": "brewva.verification.outcome.v1",
-  "level": "standard",
-  "outcome": "fail",
-  "lessonKey": "verification:standard:debugging:type-check+tests",
-  "pattern": "verification:standard:debugging",
-  "rootCause": "failed checks: tests",
-  "recommendation": "stabilize checks (tests) and rerun standard verification"
-}
-```
-
-## Memory Projection Events
-
-### `skill_completed`
-
-Emitted when `completeSkill()` accepts outputs and finalizes an active skill.
-
-Payload fields:
-
-- `skillName`: completed skill name.
-- `outputKeys`: sorted output keys submitted by `skill_complete` (trimmed list).
-- `completedAt`: completion timestamp (epoch ms).
-
-Example payload:
-
-```json
-{
-  "skillName": "debugging",
-  "outputKeys": ["root_cause", "verification"],
-  "completedAt": 1730000000000
-}
-```
-
-### `memory_unit_upserted`
-
-Emitted when memory extractor writes/merges a `Unit` projection row.
-
-Payload fields:
-
-- `unitId`: memory unit id.
-- `topic`: normalized unit topic.
-- `unitType`: `fact | decision | constraint | preference | pattern | hypothesis | learning | risk`.
-- `created`: whether this was a first insert vs merge update.
-- `confidence`: normalized unit confidence (`0..1`).
-- `unit`: full unit snapshot row at write time (for tape-driven projection rebuild).
-
-Example payload:
-
-```json
-{
-  "unitId": "memu_1730000000000_ab12cd34",
-  "topic": "verification",
-  "unitType": "risk",
-  "created": false,
-  "confidence": 0.92
-}
-```
-
-### `memory_unit_superseded`
-
-Emitted when a memory unit transitions to status `superseded`, typically as a side-effect of accepting a proposed evolves edge.
-
-Payload fields:
-
-- `unitId`: superseded unit id.
-- `supersededAt`: supersede transition time (epoch ms).
-- `supersededByUnitId`: the newer unit id that superseded this one (when available).
-- `edgeId`: evolves edge id that triggered the change (when available).
-- `relation`: evolves relation label (`replaces | enriches | confirms | challenges`).
-- `unit`: full superseded unit snapshot after status transition.
-
-Example payload:
-
-```json
-{
-  "unitId": "memu_old",
-  "supersededAt": 1730000001000,
-  "supersededByUnitId": "memu_new",
-  "edgeId": "meme_1730000000700_qr78st90",
-  "relation": "replaces"
-}
-```
-
-### `memory_crystal_compiled`
-
-Emitted when memory compiler writes/updates a `Crystal` aggregate.
-
-Payload fields:
-
-- `crystalId`: crystal id.
-- `topic`: crystal topic.
-- `unitCount`: number of backing units.
-- `confidence`: aggregate confidence (`0..1`).
-- `crystal`: full crystal snapshot row at write time.
-
-Example payload:
-
-```json
-{
-  "crystalId": "memc_1730000000000_ef56gh78",
-  "topic": "database architecture",
-  "unitCount": 6,
-  "confidence": 0.84
-}
-```
-
-### `memory_working_published`
-
-Emitted when working memory markdown is regenerated and published to disk.
-
-Payload fields:
-
-- `generatedAt`: publication timestamp (epoch ms).
-- `units`: number of source units used.
-- `crystals`: number of source crystals used.
-- `insights`: number of included insights.
-- `chars`: final published text length.
-- `working`: full working-memory snapshot payload.
-
-Example payload:
-
-```json
-{
-  "generatedAt": 1730000000123,
-  "units": 18,
-  "crystals": 4,
-  "insights": 2,
-  "chars": 2140
-}
-```
-
-### `memory_insight_recorded`
-
-Emitted when memory pipeline writes an insight (for example conflict/evolves pending).
-
-Payload fields:
-
-- `insightId`: insight id.
-- `kind`: `conflict | evolves_pending`.
-- `message`: rendered insight text.
-- `relatedUnitIds`: associated unit ids (when available).
-- `edgeId`: evolves edge id (only for `evolves_pending` when available).
-- `relation`: evolves relation label (`replaces | enriches | confirms | challenges`) for evolves insight.
-- `insight`: full insight snapshot row at write time.
-- `edge`: evolves edge snapshot when emitted from evolves proposal path.
-
-Kind-specific field matrix:
-
-| `kind`            | `relatedUnitIds`           | `edgeId`                                       | `relation`                                  |
-| ----------------- | -------------------------- | ---------------------------------------------- | ------------------------------------------- |
-| `conflict`        | optional (usually present) | not used                                       | not used                                    |
-| `evolves_pending` | optional                   | optional (present when an evolves edge exists) | optional (present when `edgeId` is present) |
-
-Example payload:
-
-```json
-{
-  "insightId": "memi_1730000000456_ij90kl12",
-  "kind": "conflict",
-  "message": "Potential conflict in topic 'verification' with 2 active statements.",
-  "relatedUnitIds": ["memu_1730000000000_ab12cd34", "memu_1730000000010_cd34ef56"]
-}
-```
-
-Example payload (`evolves_pending`):
-
-```json
-{
-  "insightId": "memi_1730000000789_mn34op56",
-  "kind": "evolves_pending",
-  "edgeId": "meme_1730000000700_qr78st90",
-  "relation": "challenges",
-  "message": "Pending evolves: edge=meme_1730000000700_qr78st90 topic='verification' relation=challenges (memu_new -> memu_old)."
-}
-```
-
-### `memory_insight_dismissed`
-
-Emitted when an open memory insight is explicitly dismissed.
-
-Payload fields:
-
-- `insightId`: dismissed insight id.
-- `insight`: full insight snapshot row after dismissal.
-
-Example payload:
-
-```json
-{
-  "insightId": "memi_1730000000456_ij90kl12"
-}
-```
-
-### `memory_evolves_edge_reviewed`
-
-Emitted when a proposed evolves edge is manually accepted/rejected.
-
-Payload fields:
-
-- `edgeId`: evolves edge id.
-- `status`: `accepted | rejected`.
-- `relation`: evolves relation label (`replaces | enriches | confirms | challenges`).
-- `sourceUnitId`: source (newer) unit id.
-- `targetUnitId`: target (older) unit id.
-- `edge`: full evolves edge snapshot row after review decision.
-
-Example payload:
-
-```json
-{
-  "edgeId": "meme_1730000000700_qr78st90",
-  "status": "accepted",
-  "relation": "challenges",
-  "sourceUnitId": "memu_new",
-  "targetUnitId": "memu_old"
-}
-```
+Verification outcome summary (`brewva.verification.outcome.v1`) used by replay and memory learning loops.
 
 ### `memory_global_sync`
 
-Emitted when global-memory lifecycle applies promotion/decay/reconciliation and writes a new global snapshot.
-
-Payload fields:
-
-- `stage`: currently `refresh`
-- lifecycle counters:
-  - `scannedCandidates`
-  - `promoted`
-  - `refreshed`
-  - `decayed`
-  - `pruned`
-  - `resolvedByPass`
-  - `crystalsCompiled`
-  - `crystalsRemoved`
-- `promotedUnitIds`: promoted/refreshed global unit ids
-- `globalSummary`: lightweight global snapshot summary
-  - `schema`: global snapshot schema (`brewva.memory.global.v1`)
-  - `generatedAt`: snapshot timestamp (epoch ms)
-  - `unitCount`: active global unit count
-  - `crystalCount`: global crystal count
-- `globalSnapshotRef`: snapshot file reference (relative path under memory root, for example `global-sync/snapshot-*.json`) or `null` when persistence fails
-
-Notes:
-
-- Full snapshot rows are persisted to the snapshot file referenced by `globalSnapshotRef`.
-- Replay/import reads from `globalSnapshotRef`; if the file is missing/unreadable, replay skips global import for that event.
-
-### `memory_global_recall`
-
-Emitted when search recall includes hits from global tier.
-
-Payload fields:
-
-- `schema`: search result schema (`brewva.memory.search.v1`)
-- `rankingSchema`: ranking schema (`brewva.memory.ranking.v1`)
-- `query`
-- global inventory counters:
-  - `totalGlobalUnits`
-  - `totalGlobalCrystals`
-- hit counters:
-  - `matchedGlobalHits`
-  - `matchedGlobalUnitHits`
-  - `matchedGlobalCrystalHits`
-- `topHitIds`
-- `topHitSignals` (rank/score and weighted ranking contributions)
-
-## Cognitive Events
-
-### `cognitive_usage_recorded`
-
-Emitted when cognitive-token usage is recorded into `SessionCostTracker`.
-
-Payload fields:
-
-- `stage`: usage stage (for example `memory_evolves_relation`, `memory_recall_ranking`, `verification_outcome`)
-- `usage`: normalized cognitive usage (`model`, token fields, `costUsd`) or `null`
-- `budget`: cognitive token budget snapshot (`maxTokensPerTurn`, `consumedTokens`, `remainingTokens`, `exhausted`) or `null`
-
-### `cognitive_relation_inference`
-
-Emitted when cognitive relation inference succeeds for an evolves edge.
-
-Payload fields:
-
-- `stage`: `memory_evolves_relation`
-- `mode`: `shadow | active`
-- `edgeId`, `topic`, `sourceUnitId`, `targetUnitId`
-- `deterministicRelation`, `inferredRelation`
-- `confidence`, `rationale`
-- `usage`, `budget`
-
-Companion events:
-
-- `cognitive_relation_inference_skipped` (`reason` includes `budget_exhausted` / `token_budget_exhausted`)
-- `cognitive_relation_inference_failed` (`error`)
-
-### `cognitive_relevance_ranking`
-
-Emitted when cognitive ranking evaluates memory recall candidates.
-
-Payload fields:
-
-- `stage`: `memory_recall_ranking`
-- `mode`: `shadow | active`
-- `query`, `candidateCount`
-- `asyncResult`: whether cognitive result arrived asynchronously
-- `deterministicTopIds`, `inferredTopIds`
-- `changedPositions`
-- `appliedRanking`: whether ranking was applied to returned hit order
-- `skippedReason`: nullable skip reason (for example async result not applicable to sync search)
-- `scores`: per-candidate cognitive score
-- `usage`, `budget`
-
-Companion events:
-
-- `cognitive_relevance_ranking_skipped` (`reason` includes `token_budget_exhausted` / `async_result_not_applicable_to_sync_search`)
-- `cognitive_relevance_ranking_failed` (`error`)
-
-### `cognitive_outcome_reflection`
-
-Emitted when cognitive reflection extracts a lesson from verification failure.
-
-Payload fields:
-
-- `stage`: `verification_outcome`
-- `mode`: `shadow | active`
-- `lessonKey`
-- structured lesson fields: `pattern`, `rootCause`, `recommendation`
-- `taskGoal`, `strategy`, `outcome`
-- `lesson`, `adjustedStrategy`
-- `usage`, `budget`
-
-Companion events:
-
-- `cognitive_outcome_reflection_skipped` (`reason` includes `budget_exhausted` / `token_budget_exhausted`)
-- `cognitive_outcome_reflection_failed` (`reason` or `error`)
-
-## Context Gate Events
-
-These events are emitted by extension `registerContextTransform` (default profile).
-In `--no-extensions`, runtime core bridge injects `[CoreTapeStatus]` but does not
-emit these extension-specific context-gate events.
-
-### `critical_without_compact`
-
-Emitted during `before_agent_start` when context usage is at critical pressure and
-the runtime gate requires `session_compact` before continuing normal tool flow.
-
-Payload fields:
-
-- `usagePercent`: current context usage ratio (`0..1`) when available.
-- `hardLimitPercent`: configured hard-limit ratio (`0..1`).
-- `contextPressure`: currently fixed to `critical` for this event.
-- `requiredTool`: currently fixed to `session_compact`.
-
-### `context_compaction_skipped`
-
-Emitted after `context_compaction_requested` when compaction is not executed
-immediately in the current flow.
-
-Payload fields:
-
-- `reason`: why compaction was skipped in-place.
-  - `manual_compaction_required`: interactive/UI sessions. Runtime requested
-    compaction and expects an explicit `session_compact` tool call.
-  - `non_interactive_mode`: non-interactive print/json flows. Runtime requested
-    compaction but no interactive compaction path is available.
-
-## Tool Parallel Read Event
+Global-memory lifecycle summary with counters and `globalSnapshotRef` pointer to persisted snapshot artifact.
 
 ### `tool_parallel_read`
 
-Emitted by runtime-aware tool implementations when they perform multi-file read
-scans (for example, workspace-level `lsp_*` scans or `ast_grep_*` fallback
-scans).
+Telemetry for runtime-aware multi-file read scans (mode, batch behavior, scanned/loaded/failed counts, limits).
 
-Payload fields:
+### `viewport_*` and `cognitive_*`
 
-- `toolName`: Tool that emitted the event (`lsp_symbols`, `lsp_find_references`,
-  `ast_grep_search`, etc.).
-- `operation`: Internal scan phase (`find_references`, `find_definition`,
-  `naive_search`, `naive_replace`).
-- `batchSize`: Effective concurrent read batch size used for this scan.
-- `mode`: `parallel | sequential`.
-- `reason`: Why the mode/batch was selected:
-  - `runtime_parallel_budget`: derived from runtime `parallel` config
-    (`min(maxConcurrent, maxTotal) * 4`, clamped to `[1, 64]`).
-  - `parallel_disabled`: runtime `parallel.enabled=false` forced sequential mode.
-  - `runtime_unavailable`: tool ran without runtime config context.
-- `scannedFiles`: Number of file read attempts made by the scan.
-- `loadedFiles`: Number of files successfully read.
-- `failedFiles`: Number of files that failed to read.
-  (`scannedFiles = loadedFiles + failedFiles`)
-- `batches`: Number of read batches executed.
-- `durationMs`: End-to-end scan duration in milliseconds.
+These are debug diagnostics by default classification and are primarily intended for deep incident analysis.
 
-Mode/reason matrix:
+## Replay and Query
 
-| `reason`                  | `mode`                     | `batchSize` behavior                                                   |
-| ------------------------- | -------------------------- | ---------------------------------------------------------------------- |
-| `runtime_unavailable`     | `parallel`                 | fixed default `16`                                                     |
-| `parallel_disabled`       | `sequential`               | fixed `1`                                                              |
-| `runtime_parallel_budget` | `parallel` or `sequential` | `clamp(min(maxConcurrent, maxTotal) * 4, 1, 64)`; `1` means sequential |
+Runtime query APIs:
 
-Example payload:
+- `runtime.events.query(sessionId, query?)`
+- `runtime.events.queryStructured(sessionId, query?)`
+- `runtime.events.listReplaySessions(limit?)`
+- `runtime.events.subscribe(listener)`
 
-```json
-{
-  "toolName": "lsp_symbols",
-  "operation": "find_references",
-  "batchSize": 32,
-  "mode": "parallel",
-  "reason": "runtime_parallel_budget",
-  "scannedFiles": 24,
-  "loadedFiles": 24,
-  "failedFiles": 0,
-  "batches": 1,
-  "durationMs": 183
-}
-```
+Structured replay shape: `brewva.event.v1` (`BrewvaStructuredEvent`).

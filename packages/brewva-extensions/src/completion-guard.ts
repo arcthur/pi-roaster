@@ -22,7 +22,7 @@ export function registerCompletionGuard(pi: ExtensionAPI, runtime: BrewvaRuntime
 
   pi.on("agent_end", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    const active = runtime.getActiveSkill(sessionId);
+    const active = runtime.skills.getActive(sessionId);
     if (!active) {
       nudgeCounts.delete(sessionId);
       return undefined;

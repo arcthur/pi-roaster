@@ -7,17 +7,19 @@ function numberOrZero(value: unknown): number {
 }
 
 export interface AssistantUsageRecorder {
-  recordAssistantUsage(input: {
-    sessionId: string;
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    totalTokens: number;
-    costUsd: number;
-    stopReason?: string;
-  }): void;
+  cost: {
+    recordAssistantUsage(input: {
+      sessionId: string;
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheWriteTokens: number;
+      totalTokens: number;
+      costUsd: number;
+      stopReason?: string;
+    }): void;
+  };
 }
 
 export function recordAssistantUsageFromMessage(
@@ -36,7 +38,7 @@ export function recordAssistantUsageFromMessage(
   const model = provider && modelName ? `${provider}/${modelName}` : (modelName ?? "unknown");
   const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
 
-  runtime.recordAssistantUsage({
+  runtime.cost.recordAssistantUsage({
     sessionId,
     model,
     inputTokens: numberOrZero(usage.input),

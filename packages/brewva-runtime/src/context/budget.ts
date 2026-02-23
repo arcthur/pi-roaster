@@ -14,6 +14,10 @@ interface SessionBudgetState {
   lastContextUsage?: ContextBudgetUsage;
 }
 
+const CONTEXT_MIN_TURNS_BETWEEN_COMPACTION = 2;
+const CONTEXT_MIN_SECONDS_BETWEEN_COMPACTION = 45;
+const CONTEXT_PRESSURE_BYPASS_PERCENT = 0.94;
+
 export class ContextBudgetManager {
   private readonly config: BrewvaConfig["infrastructure"]["contextBudget"];
   private readonly now: () => number;
@@ -118,20 +122,18 @@ export class ContextBudgetManager {
     const hardLimitPercent = normalizePercent(this.config.hardLimitPercent) ?? 1;
     const compactionThresholdPercent =
       normalizePercent(this.config.compactionThresholdPercent) ?? hardLimitPercent;
-    const pressureBypassPercent = normalizePercent(this.config.pressureBypassPercent);
+    const pressureBypassPercent = normalizePercent(CONTEXT_PRESSURE_BYPASS_PERCENT);
     const bypassCooldown =
       usagePercent >= hardLimitPercent ||
       (pressureBypassPercent !== null && usagePercent >= pressureBypassPercent);
 
     if (!bypassCooldown) {
       const sinceLastCompaction = Math.max(0, state.turnIndex - state.lastCompactionTurn);
-      if (sinceLastCompaction < this.config.minTurnsBetweenCompaction) {
+      if (sinceLastCompaction < CONTEXT_MIN_TURNS_BETWEEN_COMPACTION) {
         return { shouldCompact: false, usage: current };
       }
 
-      const minSecondsBetweenCompaction = Number.isFinite(this.config.minSecondsBetweenCompaction)
-        ? Math.max(0, this.config.minSecondsBetweenCompaction)
-        : 0;
+      const minSecondsBetweenCompaction = CONTEXT_MIN_SECONDS_BETWEEN_COMPACTION;
       const minCooldownMs = Math.floor(minSecondsBetweenCompaction * 1000);
       if (minCooldownMs > 0 && typeof state.lastCompactionAtMs === "number") {
         const elapsedMs = Math.max(0, this.now() - state.lastCompactionAtMs);

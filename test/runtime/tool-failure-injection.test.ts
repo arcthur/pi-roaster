@@ -11,12 +11,12 @@ function createWorkspace(name: string): string {
 }
 
 describe("Tool failure context injection", () => {
-  test("injects recent failure details for self-correction", () => {
+  test("injects recent failure details for self-correction", async () => {
     const workspace = createWorkspace("tool-failures-inject");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tool-failures-inject-1";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -24,14 +24,14 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue");
+    const injection = await runtime.context.buildInjection(sessionId, "continue");
     expect(injection.text.includes("[RecentToolFailures]")).toBe(true);
     expect(injection.text.includes("tool=exec")).toBe(true);
     expect(injection.text.includes("bun test")).toBe(true);
     expect(injection.text.includes("3 failures")).toBe(true);
   });
 
-  test("respects maxEntries and maxOutputChars from config", () => {
+  test("respects maxEntries and maxOutputChars from config", async () => {
     const workspace = createWorkspace("tool-failures-limits");
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.infrastructure.toolFailureInjection.maxEntries = 2;
@@ -39,21 +39,21 @@ describe("Tool failure context injection", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "tool-failures-limits-1";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "tool_1",
       args: { value: 1 },
       outputText: "error-one",
       success: false,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "tool_2",
       args: { value: 2 },
       outputText: "error-two with extra detail",
       success: false,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "tool_3",
       args: { value: 3 },
@@ -61,7 +61,7 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue");
+    const injection = await runtime.context.buildInjection(sessionId, "continue");
     expect(injection.text.includes("[RecentToolFailures]")).toBe(true);
     expect(injection.text.includes("tool=tool_1")).toBe(false);
     expect(injection.text.includes("tool=tool_2")).toBe(true);
@@ -70,14 +70,14 @@ describe("Tool failure context injection", () => {
     expect(injection.text.includes("...")).toBe(true);
   });
 
-  test("skips failure injection when disabled", () => {
+  test("skips failure injection when disabled", async () => {
     const workspace = createWorkspace("tool-failures-disabled");
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.infrastructure.toolFailureInjection.enabled = false;
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "tool-failures-disabled-1";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -85,16 +85,16 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue");
+    const injection = await runtime.context.buildInjection(sessionId, "continue");
     expect(injection.text.includes("[RecentToolFailures]")).toBe(false);
   });
 
-  test("persists structured failure context metadata on failed tool results", () => {
+  test("persists structured failure context metadata on failed tool results", async () => {
     const workspace = createWorkspace("tool-failures-metadata");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tool-failures-metadata-1";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test", retries: 1 },
@@ -117,7 +117,7 @@ describe("Tool failure context injection", () => {
     expect(metadata?.brewvaToolFailureContext?.outputText).toContain("failing test run");
   });
 
-  test("reads persisted failure context output beyond ledger outputSummary cap", () => {
+  test("reads persisted failure context output beyond ledger outputSummary cap", async () => {
     const workspace = createWorkspace("tool-failures-long-output");
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.infrastructure.contextBudget.maxInjectionTokens = 4000;
@@ -126,7 +126,7 @@ describe("Tool failure context injection", () => {
     const sessionId = "tool-failures-long-output-1";
     const outputText = `${"x".repeat(560)}TAIL_MARKER_FROM_PERSISTED_CONTEXT`;
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -134,24 +134,24 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue");
+    const injection = await runtime.context.buildInjection(sessionId, "continue");
     expect(injection.text.includes("[RecentToolFailures]")).toBe(true);
     expect(injection.text.includes("TAIL_MARKER_FROM_PERSISTED_CONTEXT")).toBe(true);
   });
 
-  test("keeps user failures with brewva_ prefix but skips internal runtime tools", () => {
+  test("keeps user failures with brewva_ prefix but skips internal runtime tools", async () => {
     const workspace = createWorkspace("tool-failures-prefix-filter");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tool-failures-prefix-filter-1";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "brewva_custom_exec",
       args: { command: "custom-runner" },
       outputText: "Error: user tool failed",
       success: false,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "brewva_verify",
       args: { check: "typecheck" },
@@ -159,18 +159,18 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue");
+    const injection = await runtime.context.buildInjection(sessionId, "continue");
     expect(injection.text.includes("[RecentToolFailures]")).toBe(true);
     expect(injection.text.includes("tool=brewva_custom_exec")).toBe(true);
     expect(injection.text.includes("tool=brewva_verify")).toBe(false);
   });
 
-  test("caps persisted failure args metadata size", () => {
+  test("caps persisted failure args metadata size", async () => {
     const workspace = createWorkspace("tool-failures-large-args");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tool-failures-large-args-1";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: {
@@ -198,28 +198,28 @@ describe("Tool failure context injection", () => {
     expect(JSON.stringify(persistedArgs).length).toBeLessThanOrEqual(1400);
   });
 
-  test("does not summarize recent failures into ContextTruncated under practical defaults", () => {
+  test("does not summarize recent failures into ContextTruncated under practical defaults", async () => {
     const workspace = createWorkspace("tool-failures-budget");
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.infrastructure.contextBudget.maxInjectionTokens = 2400;
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "tool-failures-budget-1";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "tool_1",
       args: { command: "one", retries: 1 },
       outputText: `${"x".repeat(240)}TAIL_MARKER_1`,
       success: false,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "tool_2",
       args: { command: "two", retries: 2 },
       outputText: `${"y".repeat(240)}TAIL_MARKER_2`,
       success: false,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "tool_3",
       args: { command: "three", retries: 3 },
@@ -227,7 +227,7 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue");
+    const injection = await runtime.context.buildInjection(sessionId, "continue");
     expect(injection.text.includes("[RecentToolFailures]")).toBe(true);
     expect(injection.text.includes("source=brewva.tool-failures")).toBe(false);
     expect(injection.text.includes("TAIL_MARKER_3")).toBe(true);

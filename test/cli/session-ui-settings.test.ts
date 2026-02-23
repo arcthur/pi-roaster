@@ -19,7 +19,6 @@ describe("brewva session ui settings wiring", () => {
         {
           ui: {
             quietStartup: false,
-            collapseChangelog: false,
           },
         },
         null,
@@ -35,9 +34,7 @@ describe("brewva session ui settings wiring", () => {
     try {
       const activeTools = result.session.getActiveToolNames();
       expect(result.runtime.config.ui.quietStartup).toBe(false);
-      expect(result.runtime.config.ui.collapseChangelog).toBe(false);
       expect(result.session.settingsManager.getQuietStartup()).toBe(false);
-      expect(result.session.settingsManager.getCollapseChangelog()).toBe(false);
       expect(activeTools.includes("exec")).toBe(true);
       expect(activeTools.includes("process")).toBe(true);
     } finally {
@@ -68,9 +65,7 @@ describe("brewva session ui settings wiring", () => {
     try {
       const activeTools = result.session.getActiveToolNames();
       expect(result.runtime.config.ui.quietStartup).toBe(true);
-      expect(result.runtime.config.ui.collapseChangelog).toBe(true);
       expect(result.session.settingsManager.getQuietStartup()).toBe(true);
-      expect(result.session.settingsManager.getCollapseChangelog()).toBe(true);
       expect(activeTools.includes("exec")).toBe(true);
       expect(activeTools.includes("process")).toBe(true);
     } finally {

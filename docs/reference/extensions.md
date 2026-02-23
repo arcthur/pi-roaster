@@ -7,12 +7,13 @@ Extension factory entrypoint: `packages/brewva-extensions/src/index.ts`.
 - `createBrewvaExtension`
 - `brewvaExtension`
 
-Factory options include:
+Factory options:
 
-- `registerTools?: boolean` (defaults to `true`)
-- `preferAsyncContextInjection?: boolean` (defaults to `true`; set `false` to force sync `buildContextInjection` even when `buildContextInjectionAsync` exists)
+- `registerTools?: boolean` (default `true`)
 
 ## Registered Handlers
+
+Default extension composition wires:
 
 - `registerEventStream`
 - `registerContextTransform`
@@ -22,7 +23,7 @@ Factory options include:
 - `registerNotification`
 - `registerMemoryBridge`
 
-## Handler Implementations
+Implementation files:
 
 - `packages/brewva-extensions/src/event-stream.ts`
 - `packages/brewva-extensions/src/context-transform.ts`
@@ -32,24 +33,38 @@ Factory options include:
 - `packages/brewva-extensions/src/notification.ts`
 - `packages/brewva-extensions/src/memory-bridge.ts`
 
+## Runtime Integration Contract
+
+Extensions consume runtime domain APIs (for example `runtime.context.*`, `runtime.events.*`, `runtime.tools.*`) instead of legacy flat runtime methods.
+
+Key implications:
+
+- context injection path is async-first (`runtime.context.buildInjection(...)`)
+- context pressure/compaction gate checks are delegated to `runtime.context.*`
+- event writes/queries/subscriptions are delegated to `runtime.events.*`
+- tool policy decisions are delegated to `runtime.tools.*`
+
 ## Context Transform Notes
 
-- `registerContextTransform` appends a system-level `[Brewva Context Contract]` in `before_agent_start`.
-- The contract separates state tape actions (`tape_handoff` / `tape_info` / `tape_search`) from message-buffer compaction (`session_compact`).
-- Runtime gate remains fail-closed on critical context pressure when recent compaction is missing.
-- Context injection prefers async runtime path by default; rollout can force sync path via `preferAsyncContextInjection: false`.
-- In the extension-enabled profile, `session_compact` lifecycle bookkeeping is handled in `registerContextTransform`.
+`registerContextTransform` runs on `before_agent_start` and:
 
-## Runtime Core Bridge Notes (`--no-extensions`)
+- appends a system-level context contract block
+- injects runtime-built context via async injection path
+- enforces compaction gate behavior under critical context pressure
 
-- `createRuntimeCoreBridgeExtension`/`registerRuntimeCoreBridge` provide core safety hooks without the full presentation stack.
-- Runtime core bridge handles `before_agent_start` by injecting:
-  - a minimal `[Brewva Core Context Contract]` in `systemPrompt`
-  - a hidden `[CoreTapeStatus]` status/action block message
-- In this profile, `session_compact` and `session_shutdown` lifecycle bookkeeping is handled by runtime core bridge hooks.
+Default semantic injection sources are:
+
+- `brewva.truth`
+- `brewva.task-state`
+- `brewva.tool-failures`
+- `brewva.memory`
+
+## Runtime Core Bridge (`--no-extensions`)
+
+`createRuntimeCoreBridgeExtension` / `registerRuntimeCoreBridge` provide minimal safety hooks when full extensions are disabled.
+
+In this profile, core lifecycle bookkeeping (`session_compact`, `session_shutdown`, etc.) is still preserved through runtime bridge hooks.
 
 ## Channel Bridge Notes
 
-- Channel turn bridge helpers (`createRuntimeChannelTurnBridge`,
-  `createRuntimeTelegramChannelBridge`) consume channel contracts from
-  `@brewva/brewva-runtime/channels` rather than runtime root exports.
+Channel bridge helpers (`createRuntimeChannelTurnBridge`, `createRuntimeTelegramChannelBridge`) consume channel contracts from `@brewva/brewva-runtime/channels`, not runtime root exports.

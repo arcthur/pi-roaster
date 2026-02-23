@@ -10,7 +10,7 @@ function createWorkspace(): string {
 }
 
 describe("Task ledger", () => {
-  test("records TaskSpec and returns folded state", () => {
+  test("records TaskSpec and returns folded state", async () => {
     const workspace = createWorkspace();
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "task-1";
@@ -24,31 +24,31 @@ describe("Task ledger", () => {
       constraints: ["Do not change public CLI flags"],
     };
 
-    runtime.setTaskSpec(sessionId, spec);
+    runtime.task.setSpec(sessionId, spec);
 
-    const state = runtime.getTaskState(sessionId);
+    const state = runtime.task.getState(sessionId);
     expect(state.spec?.schema).toBe("brewva.task.v1");
     expect(state.spec?.goal).toBe("Fix failing tests in runtime");
     expect(state.spec?.targets?.files?.[0]).toBe("packages/brewva-runtime/src/runtime.ts");
     expect(state.spec?.constraints?.[0]).toBe("Do not change public CLI flags");
   });
 
-  test("hydrates from task events without restoring snapshot", () => {
+  test("hydrates from task events without restoring snapshot", async () => {
     const workspace = createWorkspace();
     const sessionId = "task-2";
 
     const runtime1 = new BrewvaRuntime({ cwd: workspace });
-    runtime1.setTaskSpec(sessionId, {
+    runtime1.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Refactor context injection",
     });
 
     const runtime2 = new BrewvaRuntime({ cwd: workspace });
-    const state = runtime2.getTaskState(sessionId);
+    const state = runtime2.task.getState(sessionId);
     expect(state.spec?.goal).toBe("Refactor context injection");
   });
 
-  test("injects viewport context for TaskSpec target files", () => {
+  test("injects task ledger context without viewport details", async () => {
     const workspace = createWorkspace();
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "task-viewport";
@@ -70,7 +70,7 @@ describe("Task ledger", () => {
       "utf8",
     );
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Ensure Bar is wired correctly",
       targets: {
@@ -78,9 +78,13 @@ describe("Task ledger", () => {
       },
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "Ensure Bar is wired correctly");
-    expect(injection.text.includes("[Viewport]")).toBe(true);
-    expect(injection.text.includes("File: src/foo.ts")).toBe(true);
-    expect(injection.text.includes("./bar Bar:")).toBe(true);
+    const injection = await runtime.context.buildInjection(
+      sessionId,
+      "Ensure Bar is wired correctly",
+    );
+    expect(injection.text.includes("[TaskLedger]")).toBe(true);
+    expect(injection.text.includes("targets.files:")).toBe(true);
+    expect(injection.text.includes("src/foo.ts")).toBe(true);
+    expect(injection.text.includes("[Viewport]")).toBe(false);
   });
 });

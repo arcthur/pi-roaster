@@ -45,7 +45,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      options.runtime.setTaskSpec(sessionId, {
+      options.runtime.task.setSpec(sessionId, {
         schema: "brewva.task.v1",
         goal: params.goal,
         targets: params.targets,
@@ -68,7 +68,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const result = options.runtime.addTaskItem(sessionId, {
+      const result = options.runtime.task.addItem(sessionId, {
         id: params.id,
         text: params.text,
         status: params.status,
@@ -91,7 +91,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const result = options.runtime.updateTaskItem(sessionId, {
+      const result = options.runtime.task.updateItem(sessionId, {
         id: params.id,
         text: params.text,
         status: params.status,
@@ -118,7 +118,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const result = options.runtime.recordTaskBlocker(sessionId, {
+      const result = options.runtime.task.recordBlocker(sessionId, {
         id: params.id,
         message: params.message,
         source: params.source,
@@ -140,7 +140,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const result = options.runtime.resolveTaskBlocker(sessionId, params.id);
+      const result = options.runtime.task.resolveBlocker(sessionId, params.id);
       if (!result.ok) {
         return textResult(`Blocker resolve rejected (${result.error ?? "unknown_error"}).`, result);
       }
@@ -155,7 +155,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const state = options.runtime.getTaskState(sessionId);
+      const state = options.runtime.task.getState(sessionId);
       const block = formatTaskStateBlock(state);
       return textResult(block || "[TaskLedger]\n(empty)", { ok: true });
     },
@@ -170,7 +170,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const result = options.runtime.dismissMemoryInsight(sessionId, params.insightId);
+      const result = options.runtime.memory.dismissInsight(sessionId, params.insightId);
       if (!result.ok) {
         return textResult(`Insight dismiss rejected (${result.error ?? "unknown_error"}).`, result);
       }
@@ -188,7 +188,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const result = options.runtime.reviewMemoryEvolvesEdge(sessionId, {
+      const result = options.runtime.memory.reviewEvolvesEdge(sessionId, {
         edgeId: params.edgeId,
         decision: params.decision,
       });

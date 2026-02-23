@@ -305,28 +305,22 @@ export type TaskLedgerEventPayload =
 export interface BrewvaConfig {
   ui: {
     quietStartup: boolean;
-    collapseChangelog: boolean;
   };
   skills: {
     roots?: string[];
     packs: string[];
     disabled: string[];
     overrides: Record<string, SkillContractOverride>;
-    selector: { k: number; maxDigestTokens: number };
+    selector: { k: number };
   };
   verification: {
     defaultLevel: VerificationLevel;
     checks: Record<VerificationLevel, string[]>;
     commands: Record<string, string>;
   };
-  ledger: { path: string; digestWindow: number; checkpointEveryTurns: number };
+  ledger: { path: string; checkpointEveryTurns: number };
   tape: {
     checkpointIntervalEntries: number;
-    tapePressureThresholds: {
-      low: number;
-      medium: number;
-      high: number;
-    };
   };
   memory: {
     enabled: boolean;
@@ -344,51 +338,16 @@ export interface BrewvaConfig {
     evolvesMode: "off" | "shadow";
     cognitive: {
       mode: "off" | "shadow" | "active";
-      maxInferenceCallsPerRefresh: number;
-      maxRankCandidatesPerSearch: number;
-      maxReflectionsPerVerification: number;
       maxTokensPerTurn: number;
     };
     global: {
       enabled: boolean;
       minConfidence: number;
-      minSessionRecurrence: number;
-      decayIntervalDays: number;
-      decayFactor: number;
-      pruneBelowConfidence: number;
     };
   };
   security: {
+    mode: "permissive" | "standard" | "strict";
     sanitizeContext: boolean;
-    enforceDeniedTools: boolean;
-    /**
-     * Controls how (required + optional) tool allowlists are applied.
-     * - off: only denied tools can block.
-     * - warn: allow but emit a warning event the first time a disallowed tool is called per (session, skill, tool).
-     * - enforce: block tool calls that are not in the allowlist (unless globally always-allowed).
-     */
-    allowedToolsMode: "off" | "warn" | "enforce";
-    /**
-     * Controls how per-skill budget.maxTokens is applied.
-     * - off: no enforcement.
-     * - warn: allow but emit a warning event when a skill exceeds its token budget.
-     * - enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.
-     */
-    skillMaxTokensMode: "off" | "warn" | "enforce";
-    /**
-     * Controls how per-skill budget.maxToolCalls is applied.
-     * - off: no enforcement.
-     * - warn: allow but emit a warning event when a skill exceeds its tool-call budget.
-     * - enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.
-     */
-    skillMaxToolCallsMode: "off" | "warn" | "enforce";
-    /**
-     * Controls how per-skill maxParallel is applied when acquiring parallel slots.
-     * - off: use global parallel config only.
-     * - warn: allow but emit a warning event when a skill exceeds its parallel cap.
-     * - enforce: reject parallel slot acquisitions once the cap is reached.
-     */
-    skillMaxParallelMode: "off" | "warn" | "enforce";
   };
   schedule: {
     enabled: boolean;
@@ -400,20 +359,18 @@ export interface BrewvaConfig {
     maxConsecutiveErrors: number;
     maxRecoveryCatchUps: number;
   };
-  parallel: { enabled: boolean; maxConcurrent: number; maxTotal: number };
+  parallel: { enabled: boolean; maxConcurrent: number };
   infrastructure: {
     events: {
       enabled: boolean;
       dir: string;
+      level: "audit" | "ops" | "debug";
     };
     contextBudget: {
       enabled: boolean;
       maxInjectionTokens: number;
       compactionThresholdPercent: number;
       hardLimitPercent: number;
-      minTurnsBetweenCompaction: number;
-      minSecondsBetweenCompaction: number;
-      pressureBypassPercent: number;
       truncationStrategy: "drop-entry" | "summarize" | "tail";
       compactionInstructions: string;
     };
@@ -429,7 +386,6 @@ export interface BrewvaConfig {
     costTracking: {
       enabled: boolean;
       maxCostUsdPerSession: number;
-      maxCostUsdPerSkill: number;
       alertThresholdRatio: number;
       actionOnExceed: "warn" | "block_tools";
     };
@@ -449,7 +405,8 @@ type DeepPartial<T> = T extends readonly (infer U)[]
 export interface BrewvaConfigFile {
   $schema?: string;
   ui?: Partial<BrewvaConfig["ui"]>;
-  skills?: Partial<Omit<BrewvaConfig["skills"], "selector">> & {
+  skills?: Partial<Omit<BrewvaConfig["skills"], "selector" | "overrides">> & {
+    overrides?: BrewvaConfig["skills"]["overrides"];
     selector?: Partial<BrewvaConfig["skills"]["selector"]>;
   };
   verification?: Partial<Omit<BrewvaConfig["verification"], "checks" | "commands">> & {
@@ -457,9 +414,7 @@ export interface BrewvaConfigFile {
     commands?: BrewvaConfig["verification"]["commands"];
   };
   ledger?: Partial<BrewvaConfig["ledger"]>;
-  tape?: Partial<Omit<BrewvaConfig["tape"], "tapePressureThresholds">> & {
-    tapePressureThresholds?: Partial<BrewvaConfig["tape"]["tapePressureThresholds"]>;
-  };
+  tape?: Partial<BrewvaConfig["tape"]>;
   memory?: DeepPartial<BrewvaConfig["memory"]>;
   security?: Partial<BrewvaConfig["security"]>;
   schedule?: Partial<BrewvaConfig["schedule"]>;

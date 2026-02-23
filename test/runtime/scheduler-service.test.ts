@@ -18,6 +18,19 @@ function createWorkspace(name: string): string {
   return workspace;
 }
 
+function schedulerRuntimePort(runtime: BrewvaRuntime): SchedulerRuntimePort {
+  return {
+    workspaceRoot: runtime.workspaceRoot,
+    scheduleConfig: runtime.config.schedule,
+    listSessionIds: () => runtime.events.listSessionIds(),
+    listEvents: (targetSessionId, query) => runtime.events.list(targetSessionId, query),
+    recordEvent: (input) => runtime.events.record(input),
+    subscribeEvents: (listener) => runtime.events.subscribe(listener),
+    getTruthState: (targetSessionId) => runtime.truth.getState(targetSessionId),
+    getTaskState: (targetSessionId) => runtime.task.getState(targetSessionId),
+  };
+}
+
 describe("scheduler service", () => {
   test("accepts SchedulerRuntimePort without direct BrewvaRuntime coupling", async () => {
     const workspace = createWorkspace("runtime-port");
@@ -30,10 +43,10 @@ describe("scheduler service", () => {
       scheduleConfig: runtime.config.schedule,
       listSessionIds: () => runtime.events.listSessionIds(),
       listEvents: (targetSessionId, query) => runtime.events.list(targetSessionId, query),
-      recordEvent: (input) => runtime.recordEvent(input),
-      subscribeEvents: (listener) => runtime.subscribeEvents(listener),
-      getTruthState: (targetSessionId) => runtime.getTruthState(targetSessionId),
-      getTaskState: (targetSessionId) => runtime.getTaskState(targetSessionId),
+      recordEvent: (input) => runtime.events.record(input),
+      subscribeEvents: (listener) => runtime.events.subscribe(listener),
+      getTruthState: (targetSessionId) => runtime.truth.getState(targetSessionId),
+      getTaskState: (targetSessionId) => runtime.task.getState(targetSessionId),
     };
 
     const scheduler = new SchedulerService({
@@ -56,7 +69,7 @@ describe("scheduler service", () => {
     expect(intents).toHaveLength(1);
     expect(intents[0]?.parentSessionId).toBe(sessionId);
 
-    const scheduleEvents = runtime.queryEvents(sessionId, { type: SCHEDULE_EVENT_TYPE });
+    const scheduleEvents = runtime.events.query(sessionId, { type: SCHEDULE_EVENT_TYPE });
     expect(scheduleEvents.length).toBeGreaterThan(0);
 
     scheduler.stop();
@@ -68,7 +81,7 @@ describe("scheduler service", () => {
     const sessionId = "scheduler-recover-session";
     const now = Date.now();
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -84,7 +97,7 @@ describe("scheduler service", () => {
 
     const fired: string[] = [];
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       executeIntent: async (intent) => {
         fired.push(intent.intentId);
       },
@@ -99,7 +112,7 @@ describe("scheduler service", () => {
     expect(recovered.catchUp.deferredIntents).toBe(0);
     expect(fired).toEqual(["intent-recover-1"]);
 
-    const events = runtime.queryEvents(sessionId, { type: SCHEDULE_EVENT_TYPE });
+    const events = runtime.events.query(sessionId, { type: SCHEDULE_EVENT_TYPE });
     const kinds = events
       .map((event) => parseScheduleIntentEvent(event)?.kind)
       .filter((kind): kind is NonNullable<typeof kind> => Boolean(kind));
@@ -123,7 +136,7 @@ describe("scheduler service", () => {
     const sessionId = "scheduler-recover-overflow-session";
     const dueRunAt = nowMs - 10_000;
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -136,7 +149,7 @@ describe("scheduler service", () => {
       }) as unknown as Record<string, unknown>,
       skipTapeCheckpoint: true,
     });
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -152,7 +165,7 @@ describe("scheduler service", () => {
 
     const fired: string[] = [];
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       executeIntent: async (intent) => {
         fired.push(intent.intentId);
@@ -174,7 +187,7 @@ describe("scheduler service", () => {
     expect(state?.runCount).toBe(0);
     expect(state?.nextRunAt).toBe(nowMs + runtime.config.schedule.minIntervalMs);
 
-    const deferredEvents = runtime.queryEvents(sessionId, { type: "schedule_recovery_deferred" });
+    const deferredEvents = runtime.events.query(sessionId, { type: "schedule_recovery_deferred" });
     expect(deferredEvents.length).toBe(1);
     const deferredPayload = deferredEvents[0]?.payload;
     expect(deferredPayload?.intentId).toBe("intent-overflow-2");
@@ -190,7 +203,7 @@ describe("scheduler service", () => {
     const nowMs = Date.UTC(2026, 0, 1, 1, 0, 0, 0);
     const dueRunAt = nowMs - 10_000;
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId: "session-fair-a",
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -203,7 +216,7 @@ describe("scheduler service", () => {
       }) as unknown as Record<string, unknown>,
       skipTapeCheckpoint: true,
     });
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId: "session-fair-a",
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -216,7 +229,7 @@ describe("scheduler service", () => {
       }) as unknown as Record<string, unknown>,
       skipTapeCheckpoint: true,
     });
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId: "session-fair-b",
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -232,7 +245,7 @@ describe("scheduler service", () => {
 
     const fired: string[] = [];
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       executeIntent: async (intent) => {
         fired.push(intent.intentId);
@@ -266,8 +279,8 @@ describe("scheduler service", () => {
       deferredIntents: 0,
     });
 
-    const summaryA = runtime.queryEvents("session-fair-a", { type: "schedule_recovery_summary" });
-    const summaryB = runtime.queryEvents("session-fair-b", { type: "schedule_recovery_summary" });
+    const summaryA = runtime.events.query("session-fair-a", { type: "schedule_recovery_summary" });
+    const summaryB = runtime.events.query("session-fair-b", { type: "schedule_recovery_summary" });
     expect(summaryA.length).toBe(1);
     expect(summaryB.length).toBe(1);
     expect(summaryA[0]?.payload?.firedIntents).toBe(1);
@@ -275,7 +288,9 @@ describe("scheduler service", () => {
     expect(summaryB[0]?.payload?.firedIntents).toBe(1);
     expect(summaryB[0]?.payload?.deferredIntents).toBe(0);
 
-    const deferredA = runtime.queryEvents("session-fair-a", { type: "schedule_recovery_deferred" });
+    const deferredA = runtime.events.query("session-fair-a", {
+      type: "schedule_recovery_deferred",
+    });
     expect(deferredA.length).toBe(1);
     expect(deferredA[0]?.payload?.intentId).toBe("intent-fair-a2");
   });
@@ -289,7 +304,7 @@ describe("scheduler service", () => {
     let nowMs = Date.now();
     const sessionId = "scheduler-circuit-session";
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -304,7 +319,7 @@ describe("scheduler service", () => {
     });
 
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       executeIntent: async () => {
         throw new Error("boom");
@@ -316,7 +331,7 @@ describe("scheduler service", () => {
     await scheduler.recover();
     scheduler.stop();
 
-    const events = runtime.queryEvents(sessionId, { type: SCHEDULE_EVENT_TYPE });
+    const events = runtime.events.query(sessionId, { type: SCHEDULE_EVENT_TYPE });
     const parsed = events.map((event) => parseScheduleIntentEvent(event)).filter(Boolean);
     const cancelled = parsed.find((event) => event?.kind === "intent_cancelled");
     expect(cancelled).toBeDefined();
@@ -333,7 +348,7 @@ describe("scheduler service", () => {
     runtime.config.schedule.maxActiveIntentsPerSession = 1;
     runtime.config.schedule.maxActiveIntentsGlobal = 2;
 
-    const scheduler = new SchedulerService({ runtime });
+    const scheduler = new SchedulerService({ runtime: schedulerRuntimePort(runtime) });
     await scheduler.recover();
 
     const now = Date.now() + 120_000;
@@ -384,7 +399,7 @@ describe("scheduler service", () => {
     const now = Date.now();
     const sessionId = "scheduler-no-executor-session";
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -398,13 +413,13 @@ describe("scheduler service", () => {
       skipTapeCheckpoint: true,
     });
 
-    const scheduler = new SchedulerService({ runtime });
+    const scheduler = new SchedulerService({ runtime: schedulerRuntimePort(runtime) });
     await scheduler.recover();
     const stats = scheduler.getStats();
     scheduler.stop();
 
     expect(stats.executionEnabled).toBe(false);
-    const events = runtime.queryEvents(sessionId, { type: SCHEDULE_EVENT_TYPE });
+    const events = runtime.events.query(sessionId, { type: SCHEDULE_EVENT_TYPE });
     const kinds = events
       .map((event) => parseScheduleIntentEvent(event)?.kind)
       .filter((kind): kind is NonNullable<typeof kind> => Boolean(kind));
@@ -414,7 +429,10 @@ describe("scheduler service", () => {
   test("rejects duplicate intentId on create", async () => {
     const workspace = createWorkspace("duplicate-id");
     const runtime = new BrewvaRuntime({ cwd: workspace });
-    const scheduler = new SchedulerService({ runtime, enableExecution: false });
+    const scheduler = new SchedulerService({
+      runtime: schedulerRuntimePort(runtime),
+      enableExecution: false,
+    });
     await scheduler.recover();
 
     const runAt = Date.now() + 120_000;
@@ -485,7 +503,10 @@ describe("scheduler service", () => {
     );
     writeFileSync(eventsFilePath, `${JSON.stringify(createRow)}\n${JSON.stringify(cancelRow)}\n`);
 
-    const scheduler = new SchedulerService({ runtime, enableExecution: false });
+    const scheduler = new SchedulerService({
+      runtime: schedulerRuntimePort(runtime),
+      enableExecution: false,
+    });
     await scheduler.recover();
     const state = scheduler.snapshot().intents.find((intent) => intent.intentId === intentId);
     scheduler.stop();
@@ -499,7 +520,10 @@ describe("scheduler service", () => {
     const workspace = createWorkspace("update-intent");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     runtime.config.schedule.minIntervalMs = 60_000;
-    const scheduler = new SchedulerService({ runtime, enableExecution: false });
+    const scheduler = new SchedulerService({
+      runtime: schedulerRuntimePort(runtime),
+      enableExecution: false,
+    });
     await scheduler.recover();
 
     const created = scheduler.createIntent({
@@ -534,7 +558,7 @@ describe("scheduler service", () => {
     expect(updated.intent.runAt).toBeUndefined();
     expect(typeof updated.intent.nextRunAt).toBe("number");
 
-    const events = runtime.queryEvents("session-update", { type: SCHEDULE_EVENT_TYPE });
+    const events = runtime.events.query("session-update", { type: SCHEDULE_EVENT_TYPE });
     const kinds = events
       .map((event) => parseScheduleIntentEvent(event)?.kind)
       .filter((kind): kind is NonNullable<typeof kind> => Boolean(kind));
@@ -548,7 +572,7 @@ describe("scheduler service", () => {
 
     const nowMs = Date.UTC(2026, 0, 1, 0, 30, 0, 0);
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       enableExecution: false,
     });
@@ -585,7 +609,10 @@ describe("scheduler service", () => {
   test("rejects update when intent is not active", async () => {
     const workspace = createWorkspace("update-not-active");
     const runtime = new BrewvaRuntime({ cwd: workspace });
-    const scheduler = new SchedulerService({ runtime, enableExecution: false });
+    const scheduler = new SchedulerService({
+      runtime: schedulerRuntimePort(runtime),
+      enableExecution: false,
+    });
     await scheduler.recover();
 
     const created = scheduler.createIntent({
@@ -623,7 +650,10 @@ describe("scheduler service", () => {
   test("rejects timeZone-only update for runAt intent", async () => {
     const workspace = createWorkspace("update-timezone-runat-guard");
     const runtime = new BrewvaRuntime({ cwd: workspace });
-    const scheduler = new SchedulerService({ runtime, enableExecution: false });
+    const scheduler = new SchedulerService({
+      runtime: schedulerRuntimePort(runtime),
+      enableExecution: false,
+    });
     await scheduler.recover();
 
     const created = scheduler.createIntent({
@@ -658,7 +688,7 @@ describe("scheduler service", () => {
     const sessionId = "scheduler-predicate-session";
     const now = Date.now();
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -677,10 +707,10 @@ describe("scheduler service", () => {
     });
 
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       executeIntent: async (intent) => {
         const evaluationSessionId = `${intent.parentSessionId}-child`;
-        runtime.upsertTruthFact(evaluationSessionId, {
+        runtime.truth.upsertFact(evaluationSessionId, {
           id: "ci_green",
           kind: "ci_pipeline",
           severity: "info",
@@ -694,7 +724,7 @@ describe("scheduler service", () => {
     await scheduler.recover();
     scheduler.stop();
 
-    const events = runtime.queryEvents(sessionId, { type: SCHEDULE_EVENT_TYPE });
+    const events = runtime.events.query(sessionId, { type: SCHEDULE_EVENT_TYPE });
     const kinds = events
       .map((event) => parseScheduleIntentEvent(event)?.kind)
       .filter((kind): kind is NonNullable<typeof kind> => Boolean(kind));
@@ -720,7 +750,7 @@ describe("scheduler service", () => {
 
     let nowMs = Date.UTC(2026, 0, 1, 0, 1, 30, 0);
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       enableExecution: false,
     });
@@ -756,7 +786,7 @@ describe("scheduler service", () => {
 
     const nowMs = Date.UTC(2026, 0, 1, 0, 30, 0, 0);
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       enableExecution: false,
     });
@@ -783,7 +813,7 @@ describe("scheduler service", () => {
     const workspace = createWorkspace("cron-invalid");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       enableExecution: false,
     });
     await scheduler.recover();
@@ -806,7 +836,7 @@ describe("scheduler service", () => {
     const workspace = createWorkspace("cron-invalid-timezone");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       enableExecution: false,
     });
     await scheduler.recover();
@@ -830,7 +860,7 @@ describe("scheduler service", () => {
     const workspace = createWorkspace("timezone-requires-cron");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       enableExecution: false,
     });
     await scheduler.recover();
@@ -854,7 +884,7 @@ describe("scheduler service", () => {
     const workspace = createWorkspace("cron-default-max-runs");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       enableExecution: false,
     });
     await scheduler.recover();
@@ -880,7 +910,7 @@ describe("scheduler service", () => {
     let nowMs = Date.UTC(2026, 0, 1, 0, 1, 30, 0);
     const executed: number[] = [];
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       executeIntent: async () => {
         executed.push(nowMs);
@@ -922,7 +952,7 @@ describe("scheduler service", () => {
       expect(new Date(state.nextRunAt).getMinutes() % 2).toBe(0);
     }
 
-    const events = runtime.queryEvents("session-cron-recover", { type: SCHEDULE_EVENT_TYPE });
+    const events = runtime.events.query("session-cron-recover", { type: SCHEDULE_EVENT_TYPE });
     const firedCount = events
       .map((event) => parseScheduleIntentEvent(event)?.kind)
       .filter((kind) => kind === "intent_fired").length;
@@ -938,7 +968,7 @@ describe("scheduler service", () => {
     const sessionId = "session-revive";
     const dueRunAt = nowMs - 1_000;
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: SCHEDULE_EVENT_TYPE,
       payload: buildScheduleIntentCreatedEvent({
@@ -954,7 +984,7 @@ describe("scheduler service", () => {
 
     const fired: string[] = [];
     const scheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       executeIntent: async (intent) => {
         fired.push(intent.intentId);
@@ -993,14 +1023,14 @@ describe("scheduler service", () => {
 
     const nowMs = Date.UTC(2026, 0, 1, 0, 30, 0, 0);
     const daemonScheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       executeIntent: async () => {},
     });
     await daemonScheduler.recover();
 
     const externalScheduler = new SchedulerService({
-      runtime,
+      runtime: schedulerRuntimePort(runtime),
       now: () => nowMs,
       enableExecution: false,
     });

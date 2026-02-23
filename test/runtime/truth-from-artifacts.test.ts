@@ -11,7 +11,7 @@ function createWorkspace(name: string): string {
 }
 
 describe("Truth extraction from evidence artifacts", () => {
-  test("records command_failure truth facts and clears on success", () => {
+  test("records command_failure truth facts and clears on success", async () => {
     const workspace = createWorkspace("truth-from-artifacts");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "truth-from-artifacts-1";
@@ -22,7 +22,7 @@ describe("Truth extraction from evidence artifacts", () => {
       "    at Object.<anonymous> (/repo/src/foo.test.ts:12:7)",
     ].join("\n");
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -33,23 +33,23 @@ describe("Truth extraction from evidence artifacts", () => {
       },
     });
 
-    const truth1 = runtime.getTruthState(sessionId);
+    const truth1 = runtime.truth.getState(sessionId);
     const fact1 = truth1.facts.find((fact) => fact.kind === "command_failure");
     expect(fact1).not.toBeUndefined();
     expect(fact1?.status).toBe("active");
     expect(fact1?.summary.includes("command failed: bun test")).toBe(true);
 
-    const task1 = runtime.getTaskState(sessionId);
+    const task1 = runtime.task.getState(sessionId);
     const blocker1 = task1.blockers.find((blocker) => blocker.id === fact1?.id);
     expect(blocker1).not.toBeUndefined();
     expect(blocker1?.truthFactId).toBe(fact1?.id);
     expect(blocker1?.message).toBe(fact1?.summary);
 
-    const injection1 = runtime.buildContextInjection(sessionId, "next");
+    const injection1 = await runtime.context.buildInjection(sessionId, "next");
     expect(injection1.text.includes("[TruthFacts]")).toBe(true);
     expect(injection1.text.includes(fact1?.id ?? "")).toBe(true);
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -60,12 +60,12 @@ describe("Truth extraction from evidence artifacts", () => {
       },
     });
 
-    const truth2 = runtime.getTruthState(sessionId);
+    const truth2 = runtime.truth.getState(sessionId);
     const fact2 = truth2.facts.find((fact) => fact.id === fact1?.id);
     expect(fact2).not.toBeUndefined();
     expect(fact2?.status).toBe("resolved");
 
-    const task2 = runtime.getTaskState(sessionId);
+    const task2 = runtime.task.getState(sessionId);
     expect(task2.blockers.some((blocker) => blocker.id === fact1?.id)).toBe(false);
   });
 });

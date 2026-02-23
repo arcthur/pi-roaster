@@ -17,61 +17,61 @@ function repoRoot(): string {
 }
 
 describe("S-001 selector inject top-k and anti-tags", () => {
-  test("selects candidates and excludes anti-tags", () => {
+  test("selects candidates and excludes anti-tags", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
-    const selected = runtime.selectSkills("debug failing test regression in typescript module");
+    const selected = runtime.skills.select("debug failing test regression in typescript module");
     expect(selected.length).toBeGreaterThan(0);
 
-    const docsSelected = runtime.selectSkills("implement a new feature and update docs");
+    const docsSelected = runtime.skills.select("implement a new feature and update docs");
     expect(docsSelected.some((skill) => skill.name === "debugging")).toBe(false);
   });
 });
 
 describe("S-002 denied tool gate", () => {
-  test("blocks denied write for active patching skill", () => {
+  test("blocks denied write for active patching skill", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s2";
-    const activated = runtime.activateSkill(sessionId, "patching");
+    const activated = runtime.skills.activate(sessionId, "patching");
     expect(activated.ok).toBe(true);
 
-    const access = runtime.checkToolAccess(sessionId, "write");
+    const access = runtime.tools.checkAccess(sessionId, "write");
     expect(access.allowed).toBe(false);
   });
 
-  test("allows denied tool when enforcement is disabled", () => {
+  test("keeps denied tool enforcement in permissive mode", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
-    runtime.config.security.enforceDeniedTools = false;
+    runtime.config.security.mode = "permissive";
 
     const sessionId = "s2-disabled";
-    const activated = runtime.activateSkill(sessionId, "patching");
+    const activated = runtime.skills.activate(sessionId, "patching");
     expect(activated.ok).toBe(true);
 
-    const access = runtime.checkToolAccess(sessionId, "write");
-    expect(access.allowed).toBe(true);
+    const access = runtime.tools.checkAccess(sessionId, "write");
+    expect(access.allowed).toBe(false);
   });
 
-  test("blocks removed bash/shell tools with migration hint", () => {
+  test("blocks removed bash/shell tools with migration hint", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s2-removed-tools";
 
-    const bash = runtime.checkToolAccess(sessionId, "bash");
+    const bash = runtime.tools.checkAccess(sessionId, "bash");
     expect(bash.allowed).toBe(false);
     expect(bash.reason?.includes("removed")).toBe(true);
     expect(bash.reason?.includes("exec")).toBe(true);
     expect(bash.reason?.includes("process")).toBe(true);
 
-    const shell = runtime.checkToolAccess(sessionId, "shell");
+    const shell = runtime.tools.checkAccess(sessionId, "shell");
     expect(shell.allowed).toBe(false);
     expect(shell.reason?.includes("removed")).toBe(true);
   });
 });
 
 describe("S-003 ledger write/query", () => {
-  test("records and queries last entries", () => {
+  test("records and queries last entries", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s3";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -79,31 +79,31 @@ describe("S-003 ledger write/query", () => {
       success: true,
     });
 
-    const text = runtime.queryLedger(sessionId, { last: 5 });
+    const text = runtime.truth.queryLedger(sessionId, { last: 5 });
     expect(text.includes("exec")).toBe(true);
     expect(text.includes("PASS")).toBe(true);
   });
 });
 
 describe("S-004/S-005 verification gate", () => {
-  test("blocks without evidence after write and passes with evidence", () => {
+  test("blocks without evidence after write and passes with evidence", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s4";
 
-    runtime.markToolCall(sessionId, "edit");
-    const blocked = runtime.evaluateCompletion(sessionId);
+    runtime.tools.markCall(sessionId, "edit");
+    const blocked = runtime.verification.evaluate(sessionId);
     expect(blocked.passed).toBe(false);
     expect(blocked.missingEvidence).toContain("lsp_diagnostics");
     expect(blocked.missingEvidence).toContain("test_or_build");
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { severity: "all" },
       outputText: "No diagnostics found",
       success: true,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
@@ -111,16 +111,16 @@ describe("S-004/S-005 verification gate", () => {
       success: true,
     });
 
-    const passed = runtime.evaluateCompletion(sessionId);
+    const passed = runtime.verification.evaluate(sessionId);
     expect(passed.passed).toBe(true);
   });
 
-  test("treats multi_edit as a mutation tool for verification gating", () => {
+  test("treats multi_edit as a mutation tool for verification gating", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s4-multi-edit";
 
-    runtime.markToolCall(sessionId, "multi_edit");
-    const blocked = runtime.evaluateCompletion(sessionId);
+    runtime.tools.markCall(sessionId, "multi_edit");
+    const blocked = runtime.verification.evaluate(sessionId);
     expect(blocked.passed).toBe(false);
     expect(blocked.missingEvidence).toContain("lsp_diagnostics");
     expect(blocked.missingEvidence).toContain("test_or_build");
@@ -128,7 +128,7 @@ describe("S-004/S-005 verification gate", () => {
 });
 
 describe("S-006 three-layer contract tightening", () => {
-  test("project contract cannot relax base contract", () => {
+  test("project contract cannot relax base contract", async () => {
     const base: SkillContract = {
       name: "foo",
       tier: "base",
@@ -163,7 +163,7 @@ describe("S-006 three-layer contract tightening", () => {
     expect(merged.budget.maxToolCalls).toBe(10);
   });
 
-  test("higher tier keeps stricter contract when overriding", () => {
+  test("higher tier keeps stricter contract when overriding", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-s6-"));
     mkdirSync(join(workspace, ".brewva"), { recursive: true });
     writeFileSync(
@@ -173,7 +173,7 @@ describe("S-006 three-layer contract tightening", () => {
           packs: [],
           disabled: [],
           overrides: {},
-          selector: { k: 4, maxDigestTokens: 1200 },
+          selector: { k: 4 },
         },
       }),
     );
@@ -191,7 +191,7 @@ describe("S-006 three-layer contract tightening", () => {
     );
 
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".brewva/brewva.json" });
-    const foo = runtime.getSkill("foo");
+    const foo = runtime.skills.get("foo");
     expect(foo).toBeDefined();
     expect(foo!.contract.tools.denied).toContain("write");
     expect(foo!.contract.tools.denied).toContain("exec");
@@ -200,72 +200,72 @@ describe("S-006 three-layer contract tightening", () => {
 });
 
 describe("skill output registry", () => {
-  test("completed skill outputs are queryable by subsequent skills", () => {
+  test("completed skill outputs are queryable by subsequent skills", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "output-reg-1";
 
-    runtime.activateSkill(sessionId, "exploration");
+    runtime.skills.activate(sessionId, "exploration");
     const outputs = {
       architecture_map: "monorepo with 4 packages",
       key_modules: "runtime, tools, extensions, cli",
       unknowns: "none",
     };
-    runtime.completeSkill(sessionId, outputs);
+    runtime.skills.complete(sessionId, outputs);
 
-    const stored = runtime.getSkillOutputs(sessionId, "exploration");
+    const stored = runtime.skills.getOutputs(sessionId, "exploration");
     expect(stored).toBeDefined();
     expect(stored!.architecture_map).toBe("monorepo with 4 packages");
   });
 
-  test("getAvailableConsumedOutputs returns matching outputs for skill consumes", () => {
+  test("getAvailableConsumedOutputs returns matching outputs for skill consumes", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "output-reg-2";
 
     // debugging consumes: [architecture_map, execution_steps]
     // exploration outputs architecture_map — IS in debugging's consumes
     // but first test with no matching outputs
-    runtime.activateSkill(sessionId, "exploration");
-    runtime.completeSkill(sessionId, {
+    runtime.skills.activate(sessionId, "exploration");
+    runtime.skills.complete(sessionId, {
       architecture_map: "module map here",
       key_modules: "runtime",
       unknowns: "none",
     });
 
     // exploration produces architecture_map which debugging consumes — should match
-    const available = runtime.getAvailableConsumedOutputs(sessionId, "debugging");
+    const available = runtime.skills.getConsumedOutputs(sessionId, "debugging");
     expect(available.architecture_map).toBe("module map here");
 
     // planning consumes: [architecture_map, key_modules, unknowns, root_cause]
     // debugging produces root_cause — IS a match
-    runtime.activateSkill(sessionId, "debugging");
-    runtime.completeSkill(sessionId, {
+    runtime.skills.activate(sessionId, "debugging");
+    runtime.skills.complete(sessionId, {
       root_cause: "null ref in handler",
       fix_description: "added guard",
       evidence: "test passes",
       verification: "pass",
     });
 
-    const planningAvailable = runtime.getAvailableConsumedOutputs(sessionId, "planning");
+    const planningAvailable = runtime.skills.getConsumedOutputs(sessionId, "planning");
     expect(planningAvailable.root_cause).toBe("null ref in handler");
   });
 
-  test("getAvailableConsumedOutputs returns empty for unknown skill", () => {
+  test("getAvailableConsumedOutputs returns empty for unknown skill", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
-    const result = runtime.getAvailableConsumedOutputs("any-session", "nonexistent");
+    const result = runtime.skills.getConsumedOutputs("any-session", "nonexistent");
     expect(result).toEqual({});
   });
 
-  test("emits skill_completed event with output keys", () => {
+  test("emits skill_completed event with output keys", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = `skill-complete-event-${Date.now()}`;
-    runtime.activateSkill(sessionId, "exploration");
-    runtime.completeSkill(sessionId, {
+    runtime.skills.activate(sessionId, "exploration");
+    runtime.skills.complete(sessionId, {
       architecture_map: "map",
       unknowns: "none",
       key_modules: "runtime",
     });
 
-    const event = runtime.queryEvents(sessionId, { type: "skill_completed", last: 1 })[0];
+    const event = runtime.events.query(sessionId, { type: "skill_completed", last: 1 })[0];
     expect(event).toBeDefined();
     const payload = (event?.payload ?? {}) as {
       skillName?: string;
@@ -275,12 +275,12 @@ describe("skill output registry", () => {
     expect(payload.outputKeys).toEqual(["architecture_map", "key_modules", "unknowns"]);
   });
 
-  test("emits skill_activated event when a skill is loaded", () => {
+  test("emits skill_activated event when a skill is loaded", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = `skill-activated-event-${Date.now()}`;
-    runtime.activateSkill(sessionId, "exploration");
+    runtime.skills.activate(sessionId, "exploration");
 
-    const event = runtime.queryEvents(sessionId, { type: "skill_activated", last: 1 })[0];
+    const event = runtime.events.query(sessionId, { type: "skill_activated", last: 1 })[0];
     expect(event).toBeDefined();
     const payload = (event?.payload ?? {}) as {
       skillName?: string;
@@ -288,59 +288,59 @@ describe("skill output registry", () => {
     expect(payload.skillName).toBe("exploration");
   });
 
-  test("buildContextInjection includes working memory after semantic events", () => {
+  test("buildContextInjection includes working memory after semantic events", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-injection-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = `memory-injection-${Date.now()}`;
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Inject working memory into context",
       constraints: ["Use event tape as trace source"],
     });
-    runtime.recordTaskBlocker(sessionId, {
+    runtime.task.recordBlocker(sessionId, {
       message: "verification pending",
       source: "test",
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue implementation");
+    const injection = await runtime.context.buildInjection(sessionId, "continue implementation");
     expect(injection.accepted).toBe(true);
     expect(injection.text.includes("[WorkingMemory]")).toBe(true);
   });
 
-  test("memory can be disabled from config without changing baseline injection behavior", () => {
+  test("memory can be disabled from config without changing baseline injection behavior", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-disabled-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.memory.enabled = false;
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = `memory-disabled-${Date.now()}`;
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "No memory block expected",
     });
 
-    const injection = runtime.buildContextInjection(sessionId, "continue implementation");
+    const injection = await runtime.context.buildInjection(sessionId, "continue implementation");
     expect(injection.text.includes("[WorkingMemory]")).toBe(false);
   });
 
-  test("dismissMemoryInsight dismisses open insight and emits event", () => {
+  test("dismissMemoryInsight dismisses open insight and emits event", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-dismiss-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = `memory-dismiss-${Date.now()}`;
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Dismiss repeated memory insight",
     });
-    runtime.recordTaskBlocker(sessionId, {
+    runtime.task.recordBlocker(sessionId, {
       message: "verification may fail due missing fixtures",
       source: "test",
     });
-    runtime.recordTaskBlocker(sessionId, {
+    runtime.task.recordBlocker(sessionId, {
       message: "verification may fail due flaky network",
       source: "test",
     });
-    runtime.buildContextInjection(sessionId, "continue implementation");
+    await runtime.context.buildInjection(sessionId, "continue implementation");
 
     const insightsPath = join(workspace, ".orchestrator/memory/insights.jsonl");
     const rows = readFileSync(insightsPath, "utf8")
@@ -359,12 +359,12 @@ describe("skill output registry", () => {
     expect(openInsight).toBeDefined();
     if (!openInsight) return;
 
-    const dismissed = runtime.dismissMemoryInsight(sessionId, openInsight.id);
+    const dismissed = runtime.memory.dismissInsight(sessionId, openInsight.id);
     expect(dismissed).toEqual({ ok: true });
-    const secondDismiss = runtime.dismissMemoryInsight(sessionId, openInsight.id);
+    const secondDismiss = runtime.memory.dismissInsight(sessionId, openInsight.id);
     expect(secondDismiss).toEqual({ ok: false, error: "not_found" });
 
-    const dismissEvent = runtime.queryEvents(sessionId, {
+    const dismissEvent = runtime.events.query(sessionId, {
       type: "memory_insight_dismissed",
       last: 1,
     })[0];
@@ -374,22 +374,22 @@ describe("skill output registry", () => {
     );
   });
 
-  test("reviewMemoryEvolvesEdge accepts proposed edge and emits event", () => {
+  test("reviewMemoryEvolvesEdge accepts proposed edge and emits event", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-review-edge-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.memory.evolvesMode = "shadow";
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = `memory-review-edge-${Date.now()}`;
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Use sqlite for current task.",
     });
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Use postgres instead of sqlite for current task.",
     });
-    runtime.buildContextInjection(sessionId, "continue implementation");
+    await runtime.context.buildInjection(sessionId, "continue implementation");
 
     const evolvesPath = join(workspace, ".orchestrator/memory/evolves.jsonl");
     const rows = readFileSync(evolvesPath, "utf8")
@@ -428,18 +428,18 @@ describe("skill output registry", () => {
     expect(proposed).toBeDefined();
     if (!proposed) return;
 
-    const accepted = runtime.reviewMemoryEvolvesEdge(sessionId, {
+    const accepted = runtime.memory.reviewEvolvesEdge(sessionId, {
       edgeId: proposed.id,
       decision: "accept",
     });
     expect(accepted).toEqual({ ok: true });
-    const second = runtime.reviewMemoryEvolvesEdge(sessionId, {
+    const second = runtime.memory.reviewEvolvesEdge(sessionId, {
       edgeId: proposed.id,
       decision: "accept",
     });
     expect(second).toEqual({ ok: false, error: "already_set" });
 
-    const reviewEvent = runtime.queryEvents(sessionId, {
+    const reviewEvent = runtime.events.query(sessionId, {
       type: "memory_evolves_edge_reviewed",
       last: 1,
     })[0];
@@ -493,7 +493,7 @@ describe("skill output registry", () => {
     expect(evolvesInsight).toBeDefined();
     expect(evolvesInsight?.status).toBe("dismissed");
 
-    const supersedeEvent = runtime.queryEvents(sessionId, {
+    const supersedeEvent = runtime.events.query(sessionId, {
       type: "memory_unit_superseded",
       last: 1,
     })[0];
@@ -502,11 +502,10 @@ describe("skill output registry", () => {
 });
 
 describe("S-007 parallel budget control", () => {
-  test("enforces maxConcurrent and maxTotal", () => {
+  test("enforces maxConcurrent and maxTotal", async () => {
     const manager = new ParallelBudgetManager({
       enabled: true,
       maxConcurrent: 1,
-      maxTotal: 2,
     });
 
     expect(manager.acquire("s7", "run-a").accepted).toBe(true);
@@ -517,6 +516,11 @@ describe("S-007 parallel budget control", () => {
     manager.release("s7", "run-a");
     expect(manager.acquire("s7", "run-b").accepted).toBe(true);
     manager.release("s7", "run-b");
+    for (let i = 0; i < 8; i += 1) {
+      const runId = `run-extra-${i}`;
+      expect(manager.acquire("s7", runId).accepted).toBe(true);
+      manager.release("s7", runId);
+    }
     const totalBlocked = manager.acquire("s7", "run-c");
     expect(totalBlocked.accepted).toBe(false);
     expect(totalBlocked.reason).toBe("max_total");
@@ -524,11 +528,11 @@ describe("S-007 parallel budget control", () => {
 });
 
 describe("cost evidence separation in digest", () => {
-  test("ledger digest excludes infrastructure entries from summary", () => {
+  test("ledger digest excludes infrastructure entries from summary", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = `cost-sep-${Date.now()}`;
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo hello" },
@@ -536,7 +540,7 @@ describe("cost evidence separation in digest", () => {
       success: true,
     });
 
-    runtime.recordAssistantUsage({
+    runtime.cost.recordAssistantUsage({
       sessionId,
       model: "test-model",
       inputTokens: 100,
@@ -547,14 +551,14 @@ describe("cost evidence separation in digest", () => {
       costUsd: 0.001,
     });
 
-    const digest = runtime.getLedgerDigest(sessionId);
+    const digest = runtime.truth.getLedgerDigest(sessionId);
     expect(digest).toContain("count=1");
     expect(digest).not.toContain("brewva_cost");
   });
 });
 
 describe("compose plan validation", () => {
-  test("validates a correct skill sequence", () => {
+  test("validates a correct skill sequence", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const validPlan = {
@@ -569,35 +573,35 @@ describe("compose plan validation", () => {
       ],
     };
 
-    const result = runtime.validateComposePlan(validPlan);
+    const result = runtime.skills.validateComposePlan(validPlan);
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
 
-  test("rejects unknown skill references", () => {
+  test("rejects unknown skill references", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const invalidPlan = {
       steps: [{ skill: "nonexistent_skill", produces: ["foo"] }],
     };
 
-    const result = runtime.validateComposePlan(invalidPlan);
+    const result = runtime.skills.validateComposePlan(invalidPlan);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes("nonexistent_skill"))).toBe(true);
   });
 
-  test("warns on consumed data not produced by any prior step", () => {
+  test("warns on consumed data not produced by any prior step", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const plan = {
       steps: [{ skill: "patching", consumes: ["execution_steps"], produces: ["fix_description"] }],
     };
 
-    const result = runtime.validateComposePlan(plan);
+    const result = runtime.skills.validateComposePlan(plan);
     expect(result.warnings.some((w) => w.includes("execution_steps"))).toBe(true);
   });
 
-  test("no warnings when all consumed data is produced by prior steps", () => {
+  test("no warnings when all consumed data is produced by prior steps", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
 
     const plan = {
@@ -607,27 +611,27 @@ describe("compose plan validation", () => {
       ],
     };
 
-    const result = runtime.validateComposePlan(plan);
+    const result = runtime.skills.validateComposePlan(plan);
     expect(result.valid).toBe(true);
     expect(result.warnings).toHaveLength(0);
   });
 });
 
 describe("session state cleanup", () => {
-  test("clearSessionState releases in-memory per-session caches", () => {
+  test("clearSessionState releases in-memory per-session caches", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-session-clean-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "cleanup-state-1";
 
-    runtime.onTurnStart(sessionId, 1);
-    runtime.markToolCall(sessionId, "edit");
-    runtime.observeContextUsage(sessionId, {
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.tools.markCall(sessionId, "edit");
+    runtime.context.observeUsage(sessionId, {
       tokens: 128,
       contextWindow: 4096,
       percent: 0.03125,
     });
-    runtime.acquireParallelSlot(sessionId, "run-1");
-    runtime.recordWorkerResult(sessionId, {
+    runtime.tools.acquireParallelSlot(sessionId, "run-1");
+    runtime.session.recordWorkerResult(sessionId, {
       workerId: "run-1",
       status: "ok",
       summary: "done",
@@ -637,16 +641,16 @@ describe("session state cleanup", () => {
         changes: [{ path: "src/a.ts", action: "modify", diffText: "diff" }],
       },
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo ok" },
       outputText: "ok",
       success: true,
     });
-    runtime.getTaskState(sessionId);
-    runtime.getTruthState(sessionId);
-    runtime.recordAssistantUsage({
+    runtime.task.getState(sessionId);
+    runtime.truth.getState(sessionId);
+    runtime.cost.recordAssistantUsage({
       sessionId,
       model: "test-model",
       inputTokens: 10,
@@ -670,12 +674,14 @@ describe("session state cleanup", () => {
       true,
     );
     expect(
-      ((runtime as any).verification.stateStore.sessions as Map<string, unknown>).has(sessionId),
+      ((runtime as any).verificationGate.stateStore.sessions as Map<string, unknown>).has(
+        sessionId,
+      ),
     ).toBe(true);
-    expect(((runtime as any).events.fileHasContent as Map<string, boolean>).size).toBe(1);
+    expect(((runtime as any).eventStore.fileHasContent as Map<string, boolean>).size).toBe(1);
     expect((runtime as any).ledger.lastHashBySession.has(sessionId) as boolean).toBe(true);
 
-    runtime.clearSessionState(sessionId);
+    runtime.session.clearState(sessionId);
 
     expect(sessionState.turnsBySession.has(sessionId)).toBe(false);
     expect(sessionState.toolCallsBySession.has(sessionId)).toBe(false);
@@ -687,58 +693,60 @@ describe("session state cleanup", () => {
       false,
     );
     expect(
-      ((runtime as any).verification.stateStore.sessions as Map<string, unknown>).has(sessionId),
+      ((runtime as any).verificationGate.stateStore.sessions as Map<string, unknown>).has(
+        sessionId,
+      ),
     ).toBe(false);
     expect(((runtime as any).parallel.sessions as Map<string, unknown>).has(sessionId)).toBe(false);
     expect(((runtime as any).parallelResults.sessions as Map<string, unknown>).has(sessionId)).toBe(
       false,
     );
-    expect(((runtime as any).events.fileHasContent as Map<string, boolean>).size).toBe(0);
+    expect(((runtime as any).eventStore.fileHasContent as Map<string, boolean>).size).toBe(0);
     expect((runtime as any).ledger.lastHashBySession.has(sessionId) as boolean).toBe(false);
   });
 
-  test("invalidates replay cache on task events and rebuilds from tape", () => {
+  test("invalidates replay cache on task events and rebuilds from tape", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-replay-view-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "replay-view-1";
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Replay view should rebuild after new events",
     });
-    runtime.getTaskState(sessionId);
+    runtime.task.getState(sessionId);
 
     const turnReplay = (runtime as any).turnReplay as {
       hasSession: (session: string) => boolean;
     };
     expect(turnReplay.hasSession(sessionId)).toBe(true);
 
-    runtime.addTaskItem(sessionId, { text: "item-1" });
+    runtime.task.addItem(sessionId, { text: "item-1" });
     expect(turnReplay.hasSession(sessionId)).toBe(false);
 
-    const updated = runtime.getTaskState(sessionId);
+    const updated = runtime.task.getState(sessionId);
     expect(updated.items).toHaveLength(1);
     expect(updated.items[0]?.text).toBe("item-1");
     expect(turnReplay.hasSession(sessionId)).toBe(true);
   });
 
-  test("keeps replay cache for non-folding events and invalidates for truth/task/checkpoint events", () => {
+  test("keeps replay cache for non-folding events and invalidates for truth/task/checkpoint events", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-replay-filter-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "replay-filter-1";
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Replay cache should ignore non-folding events",
     });
-    runtime.getTaskState(sessionId);
+    runtime.task.getState(sessionId);
 
     const turnReplay = (runtime as any).turnReplay as {
       hasSession: (session: string) => boolean;
     };
     expect(turnReplay.hasSession(sessionId)).toBe(true);
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "tool_call",
       payload: {
@@ -748,7 +756,7 @@ describe("session state cleanup", () => {
     });
     expect(turnReplay.hasSession(sessionId)).toBe(true);
 
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "truth_event",
       payload: buildTruthFactUpsertedEvent({
@@ -764,33 +772,33 @@ describe("session state cleanup", () => {
     });
     expect(turnReplay.hasSession(sessionId)).toBe(false);
 
-    runtime.getTruthState(sessionId);
+    runtime.truth.getState(sessionId);
     expect(turnReplay.hasSession(sessionId)).toBe(true);
   });
 });
 
 describe("tape checkpoint automation", () => {
-  test("writes checkpoint events by interval and replays consistent state after restart", () => {
+  test("writes checkpoint events by interval and replays consistent state after restart", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-checkpoint-"));
     const sessionId = "tape-checkpoint-1";
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.tape.checkpointIntervalEntries = 3;
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "checkpoint consistency",
     });
-    runtime.upsertTruthFact(sessionId, {
+    runtime.truth.upsertFact(sessionId, {
       id: "truth-1",
       kind: "test",
       severity: "warn",
       summary: "first fact",
     });
-    runtime.addTaskItem(sessionId, { text: "item-1", status: "todo" });
-    runtime.addTaskItem(sessionId, { text: "item-2", status: "doing" });
+    runtime.task.addItem(sessionId, { text: "item-1", status: "todo" });
+    runtime.task.addItem(sessionId, { text: "item-2", status: "doing" });
 
-    const checkpoints = runtime.queryEvents(sessionId, {
+    const checkpoints = runtime.events.query(sessionId, {
       type: TAPE_CHECKPOINT_EVENT_TYPE,
     });
     expect(checkpoints.length).toBeGreaterThanOrEqual(1);
@@ -805,60 +813,59 @@ describe("tape checkpoint automation", () => {
     expect(checkpointPayload.state?.task?.items?.some((item) => item.text === "item-1")).toBe(true);
     expect(checkpointPayload.state?.truth?.facts?.some((fact) => fact.id === "truth-1")).toBe(true);
 
-    runtime.upsertTruthFact(sessionId, {
+    runtime.truth.upsertFact(sessionId, {
       id: "truth-2",
       kind: "test",
       severity: "error",
       summary: "second fact",
     });
-    runtime.addTaskItem(sessionId, { text: "item-3", status: "todo" });
+    runtime.task.addItem(sessionId, { text: "item-3", status: "todo" });
 
     const reloaded = new BrewvaRuntime({ cwd: workspace, config });
-    const taskState = reloaded.getTaskState(sessionId);
-    const truthState = reloaded.getTruthState(sessionId);
+    const taskState = reloaded.task.getState(sessionId);
+    const truthState = reloaded.truth.getState(sessionId);
     expect(taskState.items.map((item) => item.text)).toEqual(["item-1", "item-2", "item-3"]);
     expect(truthState.facts.some((fact) => fact.id === "truth-1")).toBe(true);
     expect(truthState.facts.some((fact) => fact.id === "truth-2")).toBe(true);
   });
 
-  test("rehydrates active skill and tool-call budget state from tape after restart", () => {
+  test("rehydrates active skill and tool-call budget state from tape after restart", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-budget-rehydrate-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.tape.checkpointIntervalEntries = 0;
-    config.security.skillMaxToolCallsMode = "enforce";
+    config.security.mode = "strict";
     config.skills.roots = [join(repoRoot(), "skills")];
     const sessionId = "budget-rehydrate-1";
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    runtime.onTurnStart(sessionId, 1);
-    const activated = runtime.activateSkill(sessionId, "exploration");
+    runtime.context.onTurnStart(sessionId, 1);
+    const activated = runtime.skills.activate(sessionId, "exploration");
     expect(activated.ok).toBe(true);
     const maxToolCalls = activated.skill?.contract.budget.maxToolCalls ?? 0;
     const consumed = Math.max(1, maxToolCalls);
     for (let index = 0; index < consumed; index += 1) {
-      runtime.markToolCall(sessionId, "look_at");
+      runtime.tools.markCall(sessionId, "look_at");
     }
-    const blockedBeforeRestart = runtime.checkToolAccess(sessionId, "look_at");
+    const blockedBeforeRestart = runtime.tools.checkAccess(sessionId, "look_at");
     expect(blockedBeforeRestart.allowed).toBe(false);
 
     const reloaded = new BrewvaRuntime({ cwd: workspace, config });
-    reloaded.onTurnStart(sessionId, 1);
-    const blockedAfterRestart = reloaded.checkToolAccess(sessionId, "look_at");
+    reloaded.context.onTurnStart(sessionId, 1);
+    const blockedAfterRestart = reloaded.tools.checkAccess(sessionId, "look_at");
     expect(blockedAfterRestart.allowed).toBe(false);
     expect(blockedAfterRestart.reason?.includes("maxToolCalls")).toBe(true);
   });
 
-  test("rehydrates session cost budget state from tape after restart", () => {
+  test("rehydrates session cost budget state from tape after restart", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-cost-rehydrate-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.infrastructure.costTracking.actionOnExceed = "block_tools";
     config.infrastructure.costTracking.maxCostUsdPerSession = 0.001;
-    config.infrastructure.costTracking.maxCostUsdPerSkill = 0;
     const sessionId = "cost-rehydrate-1";
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    runtime.onTurnStart(sessionId, 1);
-    runtime.recordAssistantUsage({
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.cost.recordAssistantUsage({
       sessionId,
       model: "test/model",
       inputTokens: 120,
@@ -869,75 +876,75 @@ describe("tape checkpoint automation", () => {
       costUsd: 0.002,
     });
 
-    const blockedBeforeRestart = runtime.checkToolAccess(sessionId, "look_at");
+    const blockedBeforeRestart = runtime.tools.checkAccess(sessionId, "look_at");
     expect(blockedBeforeRestart.allowed).toBe(false);
 
     const reloaded = new BrewvaRuntime({ cwd: workspace, config });
-    reloaded.onTurnStart(sessionId, 1);
-    const blockedAfterRestart = reloaded.checkToolAccess(sessionId, "look_at");
+    reloaded.context.onTurnStart(sessionId, 1);
+    const blockedAfterRestart = reloaded.tools.checkAccess(sessionId, "look_at");
     expect(blockedAfterRestart.allowed).toBe(false);
     expect(blockedAfterRestart.reason?.includes("Session cost exceeded")).toBe(true);
   });
 
-  test("rehydrates ledger compaction cooldown turn from tape after restart", () => {
+  test("rehydrates ledger compaction cooldown turn from tape after restart", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-ledger-cooldown-rehydrate-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.ledger.checkpointEveryTurns = 1;
     const sessionId = "ledger-cooldown-rehydrate-1";
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    runtime.onTurnStart(sessionId, 1);
-    runtime.recordToolResult({
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo first-a" },
       outputText: "ok",
       success: true,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo first-b" },
       outputText: "ok",
       success: true,
     });
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo first-c" },
       outputText: "ok",
       success: true,
     });
-    expect(runtime.queryEvents(sessionId, { type: "ledger_compacted" })).toHaveLength(1);
+    expect(runtime.events.query(sessionId, { type: "ledger_compacted" })).toHaveLength(1);
 
     const reloaded = new BrewvaRuntime({ cwd: workspace, config });
-    reloaded.onTurnStart(sessionId, 1);
-    reloaded.recordToolResult({
+    reloaded.context.onTurnStart(sessionId, 1);
+    reloaded.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo second" },
       outputText: "ok",
       success: true,
     });
-    expect(reloaded.queryEvents(sessionId, { type: "ledger_compacted" })).toHaveLength(1);
+    expect(reloaded.events.query(sessionId, { type: "ledger_compacted" })).toHaveLength(1);
   });
 
-  test("rebuilds memory projection from tape after memory files are removed", () => {
+  test("rebuilds memory projection from tape after memory files are removed", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-rebuild-"));
     const sessionId = "memory-rebuild-1";
 
     const runtime = new BrewvaRuntime({ cwd: workspace });
-    runtime.onTurnStart(sessionId, 1);
-    runtime.setTaskSpec(sessionId, {
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Recover memory projection from tape",
       constraints: ["rebuild projection when files are missing"],
     });
-    runtime.recordTaskBlocker(sessionId, {
+    runtime.task.recordBlocker(sessionId, {
       message: "projection rebuild validation",
       source: "test",
     });
-    const before = runtime.buildContextInjection(sessionId, "continue");
+    const before = await runtime.context.buildInjection(sessionId, "continue");
     expect(before.text.includes("[WorkingMemory]")).toBe(true);
 
     const memoryDir = join(workspace, ".orchestrator/memory");
@@ -949,8 +956,8 @@ describe("tape checkpoint automation", () => {
     rmSync(join(memoryDir, "working.md"), { force: true });
 
     const reloaded = new BrewvaRuntime({ cwd: workspace });
-    reloaded.onTurnStart(sessionId, 2);
-    const after = reloaded.buildContextInjection(sessionId, "continue");
+    reloaded.context.onTurnStart(sessionId, 2);
+    const after = await reloaded.context.buildInjection(sessionId, "continue");
     expect(after.text.includes("[WorkingMemory]")).toBe(true);
     expect(after.text.includes("Recover memory projection from tape")).toBe(true);
 
@@ -963,23 +970,23 @@ describe("tape checkpoint automation", () => {
     expect(lines.length).toBeGreaterThan(0);
   });
 
-  test("rebuild replays memory review side-effects from tape snapshots", () => {
+  test("rebuild replays memory review side-effects from tape snapshots", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-review-rebuild-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.memory.evolvesMode = "shadow";
     const sessionId = "memory-review-rebuild-1";
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    runtime.onTurnStart(sessionId, 1);
-    runtime.setTaskSpec(sessionId, {
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Use sqlite for current task.",
     });
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "Use postgres instead of sqlite for current task.",
     });
-    runtime.buildContextInjection(sessionId, "continue implementation");
+    await runtime.context.buildInjection(sessionId, "continue implementation");
 
     const evolvesPath = join(workspace, ".orchestrator/memory/evolves.jsonl");
     const evolvesRows = readFileSync(evolvesPath, "utf8")
@@ -1018,7 +1025,7 @@ describe("tape checkpoint automation", () => {
     expect(proposed).toBeDefined();
     if (!proposed) return;
 
-    const accepted = runtime.reviewMemoryEvolvesEdge(sessionId, {
+    const accepted = runtime.memory.reviewEvolvesEdge(sessionId, {
       edgeId: proposed.id,
       decision: "accept",
     });
@@ -1065,8 +1072,8 @@ describe("tape checkpoint automation", () => {
     rmSync(join(memoryDir, "working.md"), { force: true });
 
     const reloaded = new BrewvaRuntime({ cwd: workspace, config });
-    reloaded.onTurnStart(sessionId, 2);
-    reloaded.buildContextInjection(sessionId, "continue implementation");
+    reloaded.context.onTurnStart(sessionId, 2);
+    await reloaded.context.buildInjection(sessionId, "continue implementation");
 
     const evolvesRowsAfter = readFileSync(evolvesPath, "utf8")
       .split("\n")
@@ -1138,22 +1145,22 @@ describe("tape checkpoint automation", () => {
 });
 
 describe("tape status and search", () => {
-  test("recordTapeHandoff writes anchor and resets entriesSinceAnchor", () => {
+  test("recordTapeHandoff writes anchor and resets entriesSinceAnchor", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-status-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tape-status-1";
 
-    runtime.setTaskSpec(sessionId, {
+    runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
       goal: "status baseline",
     });
-    runtime.addTaskItem(sessionId, { text: "before anchor" });
+    runtime.task.addItem(sessionId, { text: "before anchor" });
 
-    const before = runtime.getTapeStatus(sessionId);
+    const before = runtime.events.getTapeStatus(sessionId);
     expect(before.totalEntries).toBeGreaterThan(0);
     expect(before.entriesSinceAnchor).toBe(before.totalEntries);
 
-    const handoff = runtime.recordTapeHandoff(sessionId, {
+    const handoff = runtime.events.recordTapeHandoff(sessionId, {
       name: "investigation-done",
       summary: "captured findings",
       nextSteps: "implement changes",
@@ -1161,47 +1168,47 @@ describe("tape status and search", () => {
     expect(handoff.ok).toBe(true);
     expect(handoff.eventId).toBeDefined();
 
-    const after = runtime.getTapeStatus(sessionId);
+    const after = runtime.events.getTapeStatus(sessionId);
     expect(after.lastAnchor?.name).toBe("investigation-done");
     expect(after.entriesSinceAnchor).toBe(0);
 
-    runtime.addTaskItem(sessionId, { text: "after anchor" });
-    const afterMore = runtime.getTapeStatus(sessionId);
+    runtime.task.addItem(sessionId, { text: "after anchor" });
+    const afterMore = runtime.events.getTapeStatus(sessionId);
     expect(afterMore.entriesSinceAnchor).toBe(1);
   });
 
-  test("searchTape scopes current phase by latest anchor", () => {
+  test("searchTape scopes current phase by latest anchor", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-search-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "tape-search-1";
 
-    runtime.recordTapeHandoff(sessionId, {
+    runtime.events.recordTapeHandoff(sessionId, {
       name: "phase-a",
       summary: "alpha baseline",
       nextSteps: "continue",
     });
-    runtime.addTaskItem(sessionId, { text: "alpha task" });
+    runtime.task.addItem(sessionId, { text: "alpha task" });
 
-    runtime.recordTapeHandoff(sessionId, {
+    runtime.events.recordTapeHandoff(sessionId, {
       name: "phase-b",
       summary: "beta baseline",
       nextSteps: "continue",
     });
-    runtime.addTaskItem(sessionId, { text: "beta task" });
+    runtime.task.addItem(sessionId, { text: "beta task" });
 
-    const allPhases = runtime.searchTape(sessionId, {
+    const allPhases = runtime.events.searchTape(sessionId, {
       query: "alpha",
       scope: "all_phases",
     });
     expect(allPhases.matches.length).toBeGreaterThan(0);
 
-    const currentPhase = runtime.searchTape(sessionId, {
+    const currentPhase = runtime.events.searchTape(sessionId, {
       query: "alpha",
       scope: "current_phase",
     });
     expect(currentPhase.matches).toHaveLength(0);
 
-    const anchorOnly = runtime.searchTape(sessionId, {
+    const anchorOnly = runtime.events.searchTape(sessionId, {
       query: "phase-b",
       scope: "anchors_only",
     });

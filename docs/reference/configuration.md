@@ -2,13 +2,15 @@
 
 Configuration contract sources:
 
-- Default values: `packages/brewva-runtime/src/config/defaults.ts`
-- Loader entrypoint: `packages/brewva-runtime/src/config/loader.ts`
+- Defaults: `packages/brewva-runtime/src/config/defaults.ts`
+- Loader: `packages/brewva-runtime/src/config/loader.ts`
+- Normalizer: `packages/brewva-runtime/src/config/normalize.ts`
 - Type contract: `packages/brewva-runtime/src/types.ts`
+- Schema: `packages/brewva-runtime/schema/brewva.schema.json`
 
 ## Top-Level Keys
 
-`BrewvaConfig` supports the following top-level keys:
+`BrewvaConfig` supports:
 
 - `skills`
 - `verification`
@@ -21,24 +23,19 @@ Configuration contract sources:
 - `infrastructure`
 - `ui`
 
-Configuration files use patch/overlay semantics: only specify fields you want
-to override; unspecified fields are inherited from defaults and lower-precedence
-configuration layers.
+Configuration files are patch overlays: omitted fields inherit defaults/lower-precedence layers.
 
 ## Key Defaults
 
-Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
+### `skills`
 
-### Skills
-
-- `skills.roots`: `[]` (optional additional skill root directories; relative paths in config files are resolved from that config file's directory)
+- `skills.roots`: `[]`
 - `skills.packs`: `["skill-creator"]`
 - `skills.disabled`: `[]`
 - `skills.overrides`: `{}`
 - `skills.selector.k`: `4`
-- `skills.selector.maxDigestTokens`: `1200`
 
-### Verification
+### `verification`
 
 - `verification.defaultLevel`: `standard`
 - `verification.checks.quick`: `["type-check"]`
@@ -49,20 +46,16 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 - `verification.commands.lint`: `bunx tsc --noEmit`
 - `verification.commands.diff-review`: `git diff --stat`
 
-### Ledger
+### `ledger`
 
 - `ledger.path`: `.orchestrator/ledger/evidence.jsonl`
-- `ledger.digestWindow`: `12`
 - `ledger.checkpointEveryTurns`: `20`
 
-### Tape
+### `tape`
 
 - `tape.checkpointIntervalEntries`: `120`
-- `tape.tapePressureThresholds.low`: `80`
-- `tape.tapePressureThresholds.medium`: `160`
-- `tape.tapePressureThresholds.high`: `280`
 
-### Memory
+### `memory`
 
 - `memory.enabled`: `true`
 - `memory.dir`: `.orchestrator/memory`
@@ -73,28 +66,19 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 - `memory.retrievalTopK`: `8`
 - `memory.retrievalWeights.lexical`: `0.55`
 - `memory.retrievalWeights.recency`: `0.25`
-- `memory.retrievalWeights.confidence`: `0.20` (weights are normalized to sum=1 during config loading)
-  - `memory.retrievalWeights` supports partial overlays (for example only setting `lexical`); unspecified weights fall back to defaults before normalization.
-- `memory.evolvesMode`: `off`
-- `memory.cognitive.mode`: `shadow`
-- `memory.cognitive.maxInferenceCallsPerRefresh`: `6`
-- `memory.cognitive.maxRankCandidatesPerSearch`: `8`
-- `memory.cognitive.maxReflectionsPerVerification`: `1`
-- `memory.cognitive.maxTokensPerTurn`: `0` (`0` means unlimited cognitive token budget per turn)
-- `memory.global.enabled`: `false`
+- `memory.retrievalWeights.confidence`: `0.20`
+- `memory.evolvesMode`: `shadow`
+- `memory.cognitive.mode`: `active`
+- `memory.cognitive.maxTokensPerTurn`: `0` (`0` means unlimited)
+- `memory.global.enabled`: `true`
 - `memory.global.minConfidence`: `0.8`
-- `memory.global.minSessionRecurrence`: `2`
-- `memory.global.decayIntervalDays`: `7`
-- `memory.global.decayFactor`: `0.95`
-- `memory.global.pruneBelowConfidence`: `0.3`
 
-### Parallel
+### `security`
 
-- `parallel.enabled`: `true`
-- `parallel.maxConcurrent`: `3`
-- `parallel.maxTotal`: `10`
+- `security.mode`: `standard`
+- `security.sanitizeContext`: `true`
 
-### Schedule
+### `schedule`
 
 - `schedule.enabled`: `true`
 - `schedule.projectionPath`: `.brewva/schedule/intents.jsonl`
@@ -105,26 +89,22 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 - `schedule.maxConsecutiveErrors`: `3`
 - `schedule.maxRecoveryCatchUps`: `5`
 
-Schedule runtime behavior:
+### `parallel`
 
-- `projectionPath` stores a materialized projection (`brewva.schedule.projection.v1`)
-  as JSONL (one `meta` line + N `intent` lines).
-- `minIntervalMs` is a global lower bound for both one-shot scheduling and retry/catch-up deferral.
-- `maxConsecutiveErrors` controls circuit-open behavior for repeated fire failures.
-- `maxRecoveryCatchUps` bounds startup missed-run catch-up; overflow intents are deferred.
+- `parallel.enabled`: `true`
+- `parallel.maxConcurrent`: `3`
 
-### Infrastructure
+### `infrastructure`
 
 - `infrastructure.events.enabled`: `true`
 - `infrastructure.events.dir`: `.orchestrator/events`
+- `infrastructure.events.level`: `ops`
 - `infrastructure.contextBudget.enabled`: `true`
 - `infrastructure.contextBudget.maxInjectionTokens`: `1200`
 - `infrastructure.contextBudget.compactionThresholdPercent`: `0.82`
 - `infrastructure.contextBudget.hardLimitPercent`: `0.94`
-- `infrastructure.contextBudget.minTurnsBetweenCompaction`: `2`
-- `infrastructure.contextBudget.minSecondsBetweenCompaction`: `45`
-- `infrastructure.contextBudget.pressureBypassPercent`: `0.94`
 - `infrastructure.contextBudget.truncationStrategy`: `summarize`
+- `infrastructure.contextBudget.compactionInstructions`: default operational compaction guidance string
 - `infrastructure.toolFailureInjection.enabled`: `true`
 - `infrastructure.toolFailureInjection.maxEntries`: `3`
 - `infrastructure.toolFailureInjection.maxOutputChars`: `300`
@@ -132,66 +112,86 @@ Schedule runtime behavior:
 - `infrastructure.interruptRecovery.gracefulTimeoutMs`: `8000`
 - `infrastructure.costTracking.enabled`: `true`
 - `infrastructure.costTracking.maxCostUsdPerSession`: `0`
-- `infrastructure.costTracking.maxCostUsdPerSkill`: `0`
 - `infrastructure.costTracking.alertThresholdRatio`: `0.8`
 - `infrastructure.costTracking.actionOnExceed`: `warn`
 
-### UI
+### `ui`
 
 - `ui.quietStartup`: `true`
-- `ui.collapseChangelog`: `true`
 
-## Skill Discovery
+## Security Policy Model
 
-Skill loading is root-aware and merges from multiple sources (lowest to highest
-precedence):
+`security.mode` is a strategy-level control:
 
-1. module ancestors (bounded to depth 10 from the runtime module path)
-2. executable ancestors (bounded to depth 10 from `process.execPath`)
-3. global Brewva root (`$XDG_CONFIG_HOME/brewva` or `~/.config/brewva`)
-4. project root (`<cwd>/.brewva`)
-5. explicit `skills.roots` entries (relative paths are resolved from the config file that declared them)
+- `permissive`
+  - Enforce denied tools
+  - Disable allowlist/per-skill budget enforcement (`off`)
+- `standard` (default)
+  - Enforce denied tools
+  - Keep allowlist/per-skill budget checks in warning mode (`warn`)
+- `strict`
+  - Enforce denied tools and all policy checks (`enforce`)
 
-For each discovered root, runtime accepts either:
+`security.sanitizeContext` independently controls user-text sanitization before skill selection and context injection.
 
-- `<root>/skills/{base,packs,project}`
-- `<root>/{base,packs,project}`
+## Event Level Model
 
-Pack loading behavior:
+`infrastructure.events.level` controls default signal density:
 
-- module/executable/global roots: load only packs listed in `skills.packs`
-- project/config roots: load all discovered packs (to include local custom
-  packs without extra config churn)
+- `audit`: only replay/audit-critical events
+- `ops`: audit + operational state transitions/warnings
+- `debug`: full stream (including high-noise diagnostics such as `viewport_*` and `cognitive_*`)
 
-## Context Budget Behavior
+## Context Budget Model
 
-- `infrastructure.contextBudget.enabled=false` disables runtime context-budget enforcement for:
-  - primary context injection token caps
-  - supplemental context injection token caps
-  - compaction threshold / hard-limit decisions
-- `maxInjectionTokens` and related thresholds apply only when `enabled=true`.
+With `infrastructure.contextBudget.enabled=true`, runtime enforces:
 
-## Tool Failure Injection Behavior
+- primary injection cap (`maxInjectionTokens`)
+- pressure thresholds (`compactionThresholdPercent`, `hardLimitPercent`)
+- truncation policy (`truncationStrategy`)
 
-- `infrastructure.toolFailureInjection.enabled=true` allows runtime to inject recent failed tool evidence as `brewva.tool-failures`.
-- `maxEntries` limits how many recent failed tool records are injected per turn.
-- `maxOutputChars` truncates each failure `outputText` line to keep injection bounded.
-- Failure evidence is sourced from structured ledger metadata `brewva.tool_failure_context.v1` and excludes only runtime infrastructure tools (`ledger_checkpoint`, `brewva_cost`, `brewva_context_compaction`, `brewva_rollback`, `brewva_verify`). User-defined tools that start with `brewva_` are still included.
+`enabled=false` disables runtime token-budget enforcement for context injection.
 
-## Config File Location
+## Why-Based Public Surface
 
-Default project config path: `.brewva/brewva.json`.
-By default, runtime merges global config from `$XDG_CONFIG_HOME/brewva/brewva.json` (or `~/.config/brewva/brewva.json`) and then project config from `.brewva/brewva.json`; project values override global values on conflicts.
+Several low-level tuning knobs were intentionally internalized and are no longer public configuration fields.
 
-Loading behavior is implemented in `packages/brewva-runtime/src/config/loader.ts`.
+Examples:
 
-Relative runtime artifact paths (for example `ledger.path`, `infrastructure.events.dir`, and rollback snapshots under `.orchestrator`) are resolved from the workspace root selected by runtime path discovery (`nearest .brewva/brewva.json` or `.git` ancestor), not from a nested package subdirectory.
+- `memory.cognitive.maxInferenceCallsPerRefresh`
+- `memory.cognitive.maxRankCandidatesPerSearch`
+- `memory.cognitive.maxReflectionsPerVerification`
+- `memory.global.minSessionRecurrence`
+- `memory.global.decayIntervalDays`
+- `memory.global.decayFactor`
+- `memory.global.pruneBelowConfidence`
+- `skills.selector.maxDigestTokens`
+- `ledger.digestWindow`
+- `tape.tapePressureThresholds.*`
+- `parallel.maxTotal`
+- `infrastructure.contextBudget.minTurnsBetweenCompaction`
+- `infrastructure.contextBudget.minSecondsBetweenCompaction`
+- `infrastructure.contextBudget.pressureBypassPercent`
+- `infrastructure.costTracking.maxCostUsdPerSkill`
 
-Global root resolution can be overridden via `BREWVA_CODING_AGENT_DIR`. See `packages/brewva-runtime/src/config/paths.ts`.
+If these keys are present in config files, schema validation emits diagnostics and runtime does not apply them.
+
+## Config File Location and Merge Order
+
+Default merge order (low to high precedence):
+
+1. global: `$XDG_CONFIG_HOME/brewva/brewva.json` (or `~/.config/brewva/brewva.json`)
+2. project: `<workspace>/.brewva/brewva.json`
+
+If `--config` is provided, only that explicit file is loaded.
+
+Relative paths in `skills.roots` are resolved from the directory of the config file that defines them.
+
+Runtime artifact paths (for example `ledger.path`, `infrastructure.events.dir`) are resolved from runtime workspace root discovery (`nearest .brewva/brewva.json` or `.git` ancestor), not from nested package subdirectories.
 
 ## JSON Schema
 
-To enable editor completion and validation for `.brewva/brewva.json`, set `$schema` to the schema file shipped with the runtime package:
+For editor validation/completion:
 
 ```json
 {
@@ -199,49 +199,14 @@ To enable editor completion and validation for `.brewva/brewva.json`, set `$sche
 }
 ```
 
-If you store the config file elsewhere (for example via `--config`), adjust the relative path accordingly.
+`$schema` is ignored by runtime behavior and used only for tooling.
 
 ## Validation and Diagnostics
 
-- On startup, configuration files are validated against the schema. If unknown
-  fields or type mismatches are detected, warnings are emitted (up to 3 by
-  default; use `--verbose` to print all warnings).
-- `$schema` is only used for editor completion and validation hints, and is
-  ignored at runtime.
+On load, config JSON is schema-validated:
 
-## Security
+- parse errors and non-object roots are reported as errors
+- unknown keys/type mismatches are reported as schema warnings
+- runtime then normalizes/clamps values using `normalizeBrewvaConfig(...)`
 
-- `security.sanitizeContext`: Enables basic sanitization/redaction for user-provided text before it is used for skill selection and context injection (default `true`).
-- `security.enforceDeniedTools`: When enabled, tools listed in a skill contract `tools.denied` are blocked (default `true`).
-- `security.allowedToolsMode`: `off` | `warn` | `enforce` (default `warn`).
-  - `off`: Do not apply allowlist checks. Only denied tools can block (controlled by `enforceDeniedTools`).
-  - `warn`: Allow disallowed tools, but emit a `tool_contract_warning` event the first time a (session, skill, tool) violation occurs.
-    If a skill's allowlist is empty, allowlist checks are skipped to avoid accidental total blocking.
-  - `enforce`: Block tools that are not declared in `tools.required` or `tools.optional` (with a small set of always-allowed lifecycle tools to avoid deadlocks).
-    If a skill's allowlist is empty, allowlist checks are skipped to avoid accidental total blocking.
-- `security.skillMaxTokensMode`: `off` | `warn` | `enforce` (default `warn`).
-  - `off`: Do not apply the per-skill `budget.maxTokens` contract at runtime.
-  - `warn`: Once a skill reaches/exceeds `maxTokens`, allow tool calls but emit a `skill_budget_warning` event once per (session, skill).
-  - `enforce`: Once a skill reaches/exceeds `maxTokens`, block tool calls (except always-allowed lifecycle tools).
-- `security.skillMaxToolCallsMode`: `off` | `warn` | `enforce` (default `warn`).
-  - `off`: Do not apply the per-skill `budget.maxToolCalls` contract at runtime.
-  - `warn`: Once a skill reaches/exceeds `maxToolCalls`, allow tool calls but emit a `skill_budget_warning` event once per (session, skill).
-  - `enforce`: Once a skill reaches/exceeds `maxToolCalls`, block non-lifecycle tools while still allowing always-allowed lifecycle tools.
-- `security.skillMaxParallelMode`: `off` | `warn` | `enforce` (default `warn`).
-  - `off`: Do not apply the per-skill `maxParallel` contract; only the global `parallel.*` limits apply.
-  - `warn`: When a skill reaches/exceeds `maxParallel` active runs, allow acquisitions but emit a `skill_parallel_warning` event once per (session, skill).
-  - `enforce`: Reject `BrewvaRuntime.acquireParallelSlot()` calls once `maxParallel` is reached, returning `reason=skill_max_parallel`.
-
-## Tool Scan Parallelism
-
-Runtime-aware multi-file read scans in tool implementations derive their
-concurrency from `parallel`:
-
-- `parallel.enabled=false`: force sequential scan reads (`batchSize=1`).
-- `parallel.enabled=true`: scan batch size is derived from
-  `min(parallel.maxConcurrent, parallel.maxTotal) * 4` and clamped to `[1, 64]`.
-- During scans, tools adapt per-batch reads to remaining match budget so
-  low-limit queries avoid eager over-read.
-
-These scans emit `tool_parallel_read` events with the effective mode, batch
-size, and per-run read telemetry. See `docs/reference/events.md`.
+This means malformed or removed fields are never silently applied as active runtime policy.

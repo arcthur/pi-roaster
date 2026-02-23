@@ -48,7 +48,6 @@ function applyRuntimeUiSettings(
 ): void {
   settingsManager.applyOverrides({
     quietStartup: uiConfig.quietStartup,
-    collapseChangelog: uiConfig.collapseChangelog,
   });
 }
 
@@ -72,7 +71,7 @@ export async function createBrewvaSession(
 
   if (options.activePacks && options.activePacks.length > 0) {
     runtime.config.skills.packs = [...options.activePacks];
-    runtime.refreshSkills();
+    runtime.skills.refresh();
   }
 
   const settingsManager = SettingsManager.create(cwd, agentDir);
@@ -105,7 +104,7 @@ export async function createBrewvaSession(
 
   const sessionId = sessionResult.session.sessionManager.getSessionId();
   if (!extensionsEnabled) {
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "session_start",
       payload: { cwd },
@@ -113,7 +112,7 @@ export async function createBrewvaSession(
     registerRuntimeCoreEventBridge(runtime, sessionResult.session);
   }
 
-  runtime.recordEvent({
+  runtime.events.record({
     sessionId,
     type: "session_bootstrap",
     payload: {

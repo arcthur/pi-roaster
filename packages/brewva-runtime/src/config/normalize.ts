@@ -2,7 +2,8 @@ import type { BrewvaConfig, VerificationLevel } from "../types.js";
 
 const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "summarize", "tail"]);
 const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
-const VALID_ALLOWED_TOOLS_MODES = new Set(["off", "warn", "enforce"]);
+const VALID_SECURITY_MODES = new Set(["permissive", "standard", "strict"]);
+const VALID_EVENT_LEVELS = new Set(["audit", "ops", "debug"]);
 const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "shadow"]);
 const VALID_MEMORY_COGNITIVE_MODES = new Set(["off", "shadow", "active"]);
 const VALID_VERIFICATION_LEVELS = new Set<VerificationLevel>(["quick", "standard", "strict"]);
@@ -42,19 +43,6 @@ function normalizeNonEmptyString(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const trimmed = value.trim();
   return trimmed.length > 0 ? value : fallback;
-}
-
-function normalizeTapePressureThresholds(
-  value: unknown,
-  fallback: { low: number; medium: number; high: number },
-): { low: number; medium: number; high: number } {
-  const input = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-
-  const low = normalizePositiveInteger(input.low, fallback.low);
-  const medium = Math.max(low, normalizePositiveInteger(input.medium, fallback.medium));
-  const high = Math.max(medium, normalizePositiveInteger(input.high, fallback.high));
-
-  return { low, medium, high };
 }
 
 function normalizeStringArray(value: unknown, fallback: string[]): string[] {
@@ -170,7 +158,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
   return {
     ui: {
       quietStartup: normalizeBoolean(uiInput.quietStartup, defaults.ui.quietStartup),
-      collapseChangelog: normalizeBoolean(uiInput.collapseChangelog, defaults.ui.collapseChangelog),
     },
     skills: {
       roots: normalizeStringArray(skillsInput.roots, defaults.skills.roots ?? []),
@@ -179,10 +166,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
       overrides: normalizeSkillOverrides(skillsInput.overrides, defaults.skills.overrides),
       selector: {
         k: normalizePositiveInteger(skillsSelectorInput.k, defaults.skills.selector.k),
-        maxDigestTokens: normalizePositiveInteger(
-          skillsSelectorInput.maxDigestTokens,
-          defaults.skills.selector.maxDigestTokens,
-        ),
       },
     },
     verification: {
@@ -208,10 +191,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
     },
     ledger: {
       path: normalizeNonEmptyString(ledgerInput.path, defaults.ledger.path),
-      digestWindow: normalizePositiveInteger(
-        ledgerInput.digestWindow,
-        defaults.ledger.digestWindow,
-      ),
       checkpointEveryTurns: normalizeNonNegativeInteger(
         ledgerInput.checkpointEveryTurns,
         defaults.ledger.checkpointEveryTurns,
@@ -221,10 +200,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
       checkpointIntervalEntries: normalizeNonNegativeInteger(
         tapeInput.checkpointIntervalEntries,
         defaults.tape.checkpointIntervalEntries,
-      ),
-      tapePressureThresholds: normalizeTapePressureThresholds(
-        tapeInput.tapePressureThresholds,
-        defaults.tape.tapePressureThresholds,
       ),
     },
     memory: {
@@ -261,18 +236,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         mode: VALID_MEMORY_COGNITIVE_MODES.has(memoryCognitiveInput.mode as string)
           ? (memoryCognitiveInput.mode as BrewvaConfig["memory"]["cognitive"]["mode"])
           : defaults.memory.cognitive.mode,
-        maxInferenceCallsPerRefresh: normalizeNonNegativeInteger(
-          memoryCognitiveInput.maxInferenceCallsPerRefresh,
-          defaults.memory.cognitive.maxInferenceCallsPerRefresh,
-        ),
-        maxRankCandidatesPerSearch: normalizeNonNegativeInteger(
-          memoryCognitiveInput.maxRankCandidatesPerSearch,
-          defaults.memory.cognitive.maxRankCandidatesPerSearch,
-        ),
-        maxReflectionsPerVerification: normalizeNonNegativeInteger(
-          memoryCognitiveInput.maxReflectionsPerVerification,
-          defaults.memory.cognitive.maxReflectionsPerVerification,
-        ),
         maxTokensPerTurn: normalizeNonNegativeInteger(
           memoryCognitiveInput.maxTokensPerTurn,
           defaults.memory.cognitive.maxTokensPerTurn,
@@ -284,55 +247,16 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
           memoryGlobalInput.minConfidence,
           defaults.memory.global.minConfidence,
         ),
-        minSessionRecurrence: Math.max(
-          2,
-          normalizePositiveInteger(
-            memoryGlobalInput.minSessionRecurrence,
-            defaults.memory.global.minSessionRecurrence,
-          ),
-        ),
-        decayIntervalDays: Math.max(
-          1,
-          normalizePositiveInteger(
-            memoryGlobalInput.decayIntervalDays,
-            defaults.memory.global.decayIntervalDays,
-          ),
-        ),
-        decayFactor: normalizeUnitInterval(
-          memoryGlobalInput.decayFactor,
-          defaults.memory.global.decayFactor,
-        ),
-        pruneBelowConfidence: normalizeUnitInterval(
-          memoryGlobalInput.pruneBelowConfidence,
-          defaults.memory.global.pruneBelowConfidence,
-        ),
       },
     },
     security: {
+      mode: VALID_SECURITY_MODES.has(securityInput.mode as string)
+        ? (securityInput.mode as BrewvaConfig["security"]["mode"])
+        : defaults.security.mode,
       sanitizeContext: normalizeBoolean(
         securityInput.sanitizeContext,
         defaults.security.sanitizeContext,
       ),
-      enforceDeniedTools: normalizeBoolean(
-        securityInput.enforceDeniedTools,
-        defaults.security.enforceDeniedTools,
-      ),
-      allowedToolsMode: VALID_ALLOWED_TOOLS_MODES.has(securityInput.allowedToolsMode as string)
-        ? (securityInput.allowedToolsMode as BrewvaConfig["security"]["allowedToolsMode"])
-        : defaults.security.allowedToolsMode,
-      skillMaxTokensMode: VALID_ALLOWED_TOOLS_MODES.has(securityInput.skillMaxTokensMode as string)
-        ? (securityInput.skillMaxTokensMode as BrewvaConfig["security"]["skillMaxTokensMode"])
-        : defaults.security.skillMaxTokensMode,
-      skillMaxToolCallsMode: VALID_ALLOWED_TOOLS_MODES.has(
-        securityInput.skillMaxToolCallsMode as string,
-      )
-        ? (securityInput.skillMaxToolCallsMode as BrewvaConfig["security"]["skillMaxToolCallsMode"])
-        : defaults.security.skillMaxToolCallsMode,
-      skillMaxParallelMode: VALID_ALLOWED_TOOLS_MODES.has(
-        securityInput.skillMaxParallelMode as string,
-      )
-        ? (securityInput.skillMaxParallelMode as BrewvaConfig["security"]["skillMaxParallelMode"])
-        : defaults.security.skillMaxParallelMode,
     },
     schedule: {
       enabled: normalizeBoolean(scheduleInput.enabled, defaults.schedule.enabled),
@@ -371,7 +295,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         parallelInput.maxConcurrent,
         defaults.parallel.maxConcurrent,
       ),
-      maxTotal: normalizePositiveInteger(parallelInput.maxTotal, defaults.parallel.maxTotal),
     },
     infrastructure: {
       events: {
@@ -383,6 +306,9 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
           infrastructureEventsInput.dir,
           defaults.infrastructure.events.dir,
         ),
+        level: VALID_EVENT_LEVELS.has(infrastructureEventsInput.level as string)
+          ? (infrastructureEventsInput.level as BrewvaConfig["infrastructure"]["events"]["level"])
+          : defaults.infrastructure.events.level,
       },
       contextBudget: {
         enabled: normalizeBoolean(contextBudgetInput.enabled, defaultContextBudget.enabled),
@@ -392,18 +318,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         ),
         compactionThresholdPercent: normalizedCompactionThresholdPercent,
         hardLimitPercent: normalizedHardLimitPercent,
-        minTurnsBetweenCompaction: normalizeNonNegativeInteger(
-          contextBudgetInput.minTurnsBetweenCompaction,
-          defaultContextBudget.minTurnsBetweenCompaction,
-        ),
-        minSecondsBetweenCompaction: normalizeNonNegativeNumber(
-          contextBudgetInput.minSecondsBetweenCompaction,
-          defaultContextBudget.minSecondsBetweenCompaction,
-        ),
-        pressureBypassPercent: normalizeUnitInterval(
-          contextBudgetInput.pressureBypassPercent,
-          defaultContextBudget.pressureBypassPercent,
-        ),
         truncationStrategy: VALID_TRUNCATION_STRATEGIES.has(
           contextBudgetInput.truncationStrategy as string,
         )
@@ -446,10 +360,6 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         maxCostUsdPerSession: normalizeNonNegativeNumber(
           costTrackingInput.maxCostUsdPerSession,
           defaults.infrastructure.costTracking.maxCostUsdPerSession,
-        ),
-        maxCostUsdPerSkill: normalizeNonNegativeNumber(
-          costTrackingInput.maxCostUsdPerSkill,
-          defaults.infrastructure.costTracking.maxCostUsdPerSkill,
         ),
         alertThresholdRatio: normalizeUnitInterval(
           costTrackingInput.alertThresholdRatio,

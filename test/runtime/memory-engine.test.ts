@@ -142,7 +142,7 @@ function latestRowsById<T extends { id: string; updatedAt: number }>(rows: T[]):
 }
 
 describe("memory engine", () => {
-  test("publishes working snapshot when dirty events are ingested", () => {
+  test("publishes working snapshot when dirty events are ingested", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-dirty-"));
     const recorded: string[] = [];
     const engine = new MemoryEngine({
@@ -183,7 +183,7 @@ describe("memory engine", () => {
     expect(workingContent.includes("[WorkingMemory]")).toBe(true);
   });
 
-  test("refreshes by daily trigger once and then reuses published snapshot", () => {
+  test("refreshes by daily trigger once and then reuses published snapshot", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-daily-"));
     const previousDay = new Date(Date.now() - 24 * 60 * 60 * 1000);
     writeFileSync(
@@ -229,7 +229,7 @@ describe("memory engine", () => {
     expect(publishCount).toBe(1);
   });
 
-  test("writes proposed evolves edges in shadow mode", () => {
+  test("writes proposed evolves edges in shadow mode", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-evolves-"));
     const recorded: string[] = [];
     const sessionId = "memory-engine-evolves-session";
@@ -276,7 +276,7 @@ describe("memory engine", () => {
     expect(recorded).toContain("memory_insight_recorded");
   });
 
-  test("does not duplicate evolves edges across reloads", () => {
+  test("does not duplicate evolves edges across reloads", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-backfill-"));
     const sessionId = "memory-engine-backfill-session";
 
@@ -352,7 +352,7 @@ describe("memory engine", () => {
     expect(keys.size).toBe(afterEdges.length);
   });
 
-  test("classifies explicit replacement phrasing as replaces", () => {
+  test("classifies explicit replacement phrasing as replaces", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-replaces-"));
     const sessionId = "memory-engine-replaces-session";
     const engine = new MemoryEngine({
@@ -393,7 +393,7 @@ describe("memory engine", () => {
     expect(edges[0]?.relation).toBe("replaces");
   });
 
-  test("avoids false challenge for benign negation phrasing", () => {
+  test("avoids false challenge for benign negation phrasing", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-negation-"));
     const sessionId = "memory-engine-negation-session";
     const engine = new MemoryEngine({
@@ -434,7 +434,7 @@ describe("memory engine", () => {
     expect(edges[0]?.relation).toBe("enriches");
   });
 
-  test("records cognitive relation inference in shadow mode without mutating edge relation", () => {
+  test("records cognitive relation inference in shadow mode without mutating edge relation", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-cognitive-shadow-"));
     const sessionId = "memory-engine-cognitive-shadow-session";
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -493,7 +493,7 @@ describe("memory engine", () => {
     expect(inferenceEvent?.payload?.inferredRelation).toBe("challenges");
   });
 
-  test("active cognitive relation keeps evolves_pending insight aligned with effective relation", () => {
+  test("active cognitive relation keeps evolves_pending insight aligned with effective relation", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-cognitive-active-insight-"));
     const sessionId = "memory-engine-cognitive-active-insight-session";
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -564,7 +564,7 @@ describe("memory engine", () => {
     expect(inferenceEvent?.payload?.inferredRelation).toBe("enriches");
   });
 
-  test("enforces cognitive inference budget per refresh", () => {
+  test("enforces cognitive inference budget per refresh", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-cognitive-budget-"));
     const sessionId = "memory-engine-cognitive-budget-session";
     const recorded: string[] = [];
@@ -626,7 +626,7 @@ describe("memory engine", () => {
     expect(recorded).toContain("cognitive_relation_inference_skipped");
   });
 
-  test("records cognitive relevance ranking in shadow mode without mutating deterministic hits", () => {
+  test("records cognitive relevance ranking in shadow mode without mutating deterministic hits", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-rank-shadow-"));
     const sessionId = "memory-engine-rank-shadow-session";
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -670,7 +670,7 @@ describe("memory engine", () => {
       }),
     );
 
-    const result = engine.search(sessionId, {
+    const result = await engine.search(sessionId, {
       query: "database migration",
       limit: 3,
     });
@@ -690,7 +690,7 @@ describe("memory engine", () => {
     ).toBe(true);
   });
 
-  test("does not apply async relevance ranking to sync search results in active mode", async () => {
+  test("applies async relevance ranking to search results in active mode", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-rank-active-async-"));
     const sessionId = "memory-engine-rank-active-async-session";
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -739,30 +739,28 @@ describe("memory engine", () => {
       }),
     );
 
-    const result = engine.search(sessionId, {
+    const resultPromise = engine.search(sessionId, {
       query: "database migration",
       limit: 3,
     });
-    const beforeTopIds = result.hits.slice(0, 2).map((hit) => hit.id);
+    await Promise.resolve();
     resolveRanking?.(
       capturedCandidateIds.map((id, index) => ({
         id,
         score: index === capturedCandidateIds.length - 1 ? 1 : 0.01,
       })),
     );
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const afterTopIds = result.hits.slice(0, 2).map((hit) => hit.id);
-    expect(afterTopIds).toEqual(beforeTopIds);
+    const result = await resultPromise;
+    const topIds = result.hits.slice(0, 2).map((hit) => hit.id);
+    expect(topIds[0]).toBe(capturedCandidateIds[capturedCandidateIds.length - 1]);
 
     const skippedEvent = recorded.find(
       (event) => event.type === "cognitive_relevance_ranking_skipped",
     );
-    expect(skippedEvent?.payload?.reason).toBe("async_result_not_applicable_to_sync_search");
+    expect(skippedEvent).toBeUndefined();
   });
 
-  test("applies async relevance ranking through searchAsync in active mode", async () => {
+  test("records async relevance ranking metadata for search in active mode", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-rank-active-search-async-"));
     const sessionId = "memory-engine-rank-active-search-async-session";
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -811,7 +809,7 @@ describe("memory engine", () => {
       }),
     );
 
-    const resultPromise = engine.searchAsync(sessionId, {
+    const resultPromise = engine.search(sessionId, {
       query: "database migration",
       limit: 3,
     });
@@ -836,7 +834,7 @@ describe("memory engine", () => {
     expect(skippedEvent).toBeUndefined();
   });
 
-  test("applies async relevance ranking through buildRecallBlockAsync in active mode", async () => {
+  test("applies async relevance ranking through buildRecallBlock in active mode", async () => {
     const workspace = mkdtempSync(
       join(tmpdir(), "brewva-memory-engine-recall-active-search-async-"),
     );
@@ -883,7 +881,7 @@ describe("memory engine", () => {
       }),
     );
 
-    const recallPromise = engine.buildRecallBlockAsync({
+    const recallPromise = engine.buildRecallBlock({
       sessionId,
       query: "database migration",
       limit: 3,
@@ -904,7 +902,7 @@ describe("memory engine", () => {
     expect(firstExcerpt.toLowerCase().includes("update release notes")).toBe(true);
   });
 
-  test("includes learning knowledge facets in sync and async recall blocks", async () => {
+  test("includes learning knowledge facets in recall blocks", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-recall-facets-"));
     const sessionId = "memory-engine-recall-facets-session";
     const engine = new MemoryEngine({
@@ -930,26 +928,28 @@ describe("memory engine", () => {
       }),
     );
 
-    const syncRecall = engine.buildRecallBlock({
+    const firstRecall = await engine.buildRecallBlock({
       sessionId,
       query: "verification lessons",
       limit: 3,
     });
-    expect(syncRecall.includes("facets: pattern=verification:standard:none")).toBe(true);
-    expect(syncRecall.includes("root_cause=verification checks failed")).toBe(true);
-    expect(syncRecall.includes("recommendation=adjust strategy and rerun verification")).toBe(true);
-    expect(syncRecall.includes("outcomes=pass:0,fail:1")).toBe(true);
+    expect(firstRecall.includes("facets: pattern=verification:standard:none")).toBe(true);
+    expect(firstRecall.includes("root_cause=verification checks failed")).toBe(true);
+    expect(firstRecall.includes("recommendation=adjust strategy and rerun verification")).toBe(
+      true,
+    );
+    expect(firstRecall.includes("outcomes=pass:0,fail:1")).toBe(true);
 
-    const asyncRecall = await engine.buildRecallBlockAsync({
+    const secondRecall = await engine.buildRecallBlock({
       sessionId,
       query: "verification lessons",
       limit: 3,
     });
-    expect(asyncRecall.includes("facets: pattern=verification:standard:none")).toBe(true);
-    expect(asyncRecall.includes("outcomes=pass:0,fail:1")).toBe(true);
+    expect(secondRecall.includes("facets: pattern=verification:standard:none")).toBe(true);
+    expect(secondRecall.includes("outcomes=pass:0,fail:1")).toBe(true);
   });
 
-  test("promotes recurring units into global tier and recalls them across sessions", () => {
+  test("promotes recurring units into global tier and recalls them across sessions", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-global-tier-"));
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
     const engine = new MemoryEngine({
@@ -1007,7 +1007,7 @@ describe("memory engine", () => {
     expect(typeof promoted?.payload?.globalSnapshotRef).toBe("string");
     expect(typeof promoted?.payload?.globalSummary).toBe("object");
 
-    const result = engine.search("global-c", {
+    const result = await engine.search("global-c", {
       query: "bun test instead of jest",
       limit: 5,
     });
@@ -1023,7 +1023,7 @@ describe("memory engine", () => {
     expect(Array.isArray(recallEvent?.payload?.topHitSignals)).toBe(true);
   });
 
-  test("compiles global crystals from cross-session recurring patterns", () => {
+  test("compiles global crystals from cross-session recurring patterns", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-global-crystals-"));
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
     const engine = new MemoryEngine({
@@ -1099,7 +1099,7 @@ describe("memory engine", () => {
     );
     engine.refreshIfNeeded({ sessionId: "global-pattern-b" });
 
-    const result = engine.search("global-pattern-c", {
+    const result = await engine.search("global-pattern-c", {
       query: "global pattern verification:standard:none",
       limit: 12,
     });
@@ -1131,7 +1131,7 @@ describe("memory engine", () => {
     expect(syncWithCrystals).toBeDefined();
   });
 
-  test("global fail lessons are cleared when another session confirms pass for same lessonKey", () => {
+  test("global fail lessons are cleared when another session confirms pass for same lessonKey", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-global-pass-resolve-"));
     const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
     const engine = new MemoryEngine({
@@ -1183,7 +1183,7 @@ describe("memory engine", () => {
     );
     engine.refreshIfNeeded({ sessionId: "resolve-b" });
 
-    const beforePass = engine.search("resolve-c", {
+    const beforePass = await engine.search("resolve-c", {
       query: "verification_outcome_fail lesson_key=verification:standard:none:type-check+tests",
       limit: 8,
     });
@@ -1203,7 +1203,7 @@ describe("memory engine", () => {
     );
     engine.refreshIfNeeded({ sessionId: "resolve-c" });
 
-    const afterPass = engine.search("resolve-d", {
+    const afterPass = await engine.search("resolve-d", {
       query: "verification_outcome_fail lesson_key=verification:standard:none:type-check+tests",
       limit: 8,
     });
@@ -1225,7 +1225,7 @@ describe("memory engine", () => {
     expect(syncWithResolution).toBeDefined();
   });
 
-  test("rebuildSessionFromTape imports global snapshot from memory_global_sync events", () => {
+  test("rebuildSessionFromTape imports global snapshot from memory_global_sync events", async () => {
     const sourceWorkspace = mkdtempSync(
       join(tmpdir(), "brewva-memory-engine-global-replay-source-"),
     );
@@ -1328,14 +1328,14 @@ describe("memory engine", () => {
     });
     expect(replay.replayedEvents).toBe(1);
 
-    const recall = targetEngine.search("global-replay-c", {
+    const recall = await targetEngine.search("global-replay-c", {
       query: "bun test instead of jest",
       limit: 5,
     });
     expect(recall.hits.length).toBeGreaterThan(0);
   });
 
-  test("treats verification status_set as dirty memory trigger", () => {
+  test("treats verification status_set as dirty memory trigger", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-verification-"));
     const recorded: string[] = [];
     const sessionId = "memory-engine-verification-session";
@@ -1372,7 +1372,7 @@ describe("memory engine", () => {
     expect(recorded).toContain("memory_working_published");
   });
 
-  test("verification_state_reset resolves stale verification signals", () => {
+  test("verification_state_reset resolves stale verification signals", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-verification-reset-"));
     const sessionId = "memory-engine-verification-reset-session";
     const engine = new MemoryEngine({

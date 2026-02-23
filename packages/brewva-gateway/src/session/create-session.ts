@@ -49,7 +49,6 @@ function applyRuntimeUiSettings(
 ): void {
   settingsManager.applyOverrides({
     quietStartup: uiConfig.quietStartup,
-    collapseChangelog: uiConfig.collapseChangelog,
   });
 }
 
@@ -65,14 +64,14 @@ function registerRuntimeCoreEventBridge(
     switch (event.type) {
       case "agent_start":
         turnIndex = 0;
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "agent_start",
         });
         break;
       case "turn_start":
-        runtime.onTurnStart(sessionId, turnIndex);
-        runtime.recordEvent({
+        runtime.context.onTurnStart(sessionId, turnIndex);
+        runtime.events.record({
           sessionId,
           type: "turn_start",
           turn: turnIndex,
@@ -82,7 +81,7 @@ function registerRuntimeCoreEventBridge(
         const toolResults = Array.isArray((event as { toolResults?: unknown }).toolResults)
           ? (event as { toolResults: unknown[] }).toolResults.length
           : 0;
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "turn_end",
           turn: turnIndex,
@@ -99,7 +98,7 @@ function registerRuntimeCoreEventBridge(
         );
         break;
       case "agent_end":
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "agent_end",
         });
@@ -130,7 +129,7 @@ export async function createGatewaySession(
 
   if (options.activePacks && options.activePacks.length > 0) {
     runtime.config.skills.packs = [...options.activePacks];
-    runtime.refreshSkills();
+    runtime.skills.refresh();
   }
 
   const settingsManager = SettingsManager.create(cwd, agentDir);
@@ -163,7 +162,7 @@ export async function createGatewaySession(
 
   const sessionId = sessionResult.session.sessionManager.getSessionId();
   if (!extensionsEnabled) {
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "session_start",
       payload: { cwd },
@@ -171,7 +170,7 @@ export async function createGatewaySession(
     registerRuntimeCoreEventBridge(runtime, sessionResult.session);
   }
 
-  runtime.recordEvent({
+  runtime.events.record({
     sessionId,
     type: "session_bootstrap",
     payload: {

@@ -68,12 +68,7 @@ export function resolveParallelReadConfig(runtime?: BrewvaToolRuntime): Parallel
     };
   }
 
-  // Use the tighter runtime parallel limit so tool-side scans respect both
-  // per-turn concurrency and total parallel slot budgets.
-  const budget = Math.min(
-    toPositiveInteger(parallel.maxConcurrent),
-    toPositiveInteger(parallel.maxTotal),
-  );
+  const budget = toPositiveInteger(parallel.maxConcurrent);
   const scaled = budget * PARALLEL_READ_MULTIPLIER;
   const batchSize = clampBatchSize(scaled);
 
@@ -123,9 +118,10 @@ export function recordParallelReadTelemetry(
   sessionId: string | undefined,
   telemetry: ParallelReadTelemetry,
 ): void {
-  if (!runtime?.recordEvent) return;
+  const events = runtime?.events;
+  if (!events?.record) return;
   if (!sessionId) return;
-  runtime.recordEvent({
+  events.record({
     sessionId,
     type: "tool_parallel_read",
     payload: {

@@ -13,7 +13,7 @@ export function registerLedgerWriter(pi: ExtensionAPI, runtime: BrewvaRuntime): 
     const sessionId = ctx.sessionManager.getSessionId();
     const outputText = extractTextContent(event.content as Array<{ type: string; text?: string }>);
 
-    runtime.finishToolCall({
+    runtime.tools.finish({
       sessionId,
       toolCallId: event.toolCallId,
       toolName: event.toolName,

@@ -22,7 +22,7 @@ describe("skill discovery and loading", () => {
       tag: "commitcrafttag",
     });
     const runtime = new BrewvaRuntime({ cwd: workspace });
-    const selected = runtime.selectSkills("please use commitcrafttag for this task");
+    const selected = runtime.skills.select("please use commitcrafttag for this task");
     expect(selected.some((entry) => entry.name === "commitcraft")).toBe(true);
     const roots = discoverSkillRegistryRoots({
       cwd: workspace,
@@ -47,7 +47,7 @@ describe("skill discovery and loading", () => {
     mkdirSync(nested, { recursive: true });
 
     const runtime = new BrewvaRuntime({ cwd: nested });
-    const selected = runtime.selectSkills("please use commitcrafttag for this task");
+    const selected = runtime.skills.select("please use commitcrafttag for this task");
     expect(selected.some((entry) => entry.name === "commitcraft")).toBe(false);
 
     const roots = discoverSkillRegistryRoots({
@@ -71,7 +71,7 @@ describe("skill discovery and loading", () => {
     config.skills.roots = [external];
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    const selected = runtime.selectSkills("apply externalcrafttag flow");
+    const selected = runtime.skills.select("apply externalcrafttag flow");
     expect(selected.some((entry) => entry.name === "externalcraft")).toBe(true);
     const roots = discoverSkillRegistryRoots({
       cwd: workspace,
@@ -97,7 +97,7 @@ describe("skill discovery and loading", () => {
       });
 
       const runtime = new BrewvaRuntime({ cwd: workspace });
-      const selected = runtime.selectSkills("apply globalcrafttag flow");
+      const selected = runtime.skills.select("apply globalcrafttag flow");
       expect(selected.some((entry) => entry.name === "globalcraft")).toBe(true);
 
       const roots = discoverSkillRegistryRoots({
@@ -131,8 +131,8 @@ describe("skill discovery and loading", () => {
     config.skills.roots = [directRoot];
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    const selected = runtime.selectSkills("please run directcrafttag");
-    expect(runtime.getSkill("directcraft")).toBeDefined();
+    const selected = runtime.skills.select("please run directcrafttag");
+    expect(runtime.skills.get("directcraft")).toBeDefined();
     expect(selected.some((entry) => entry.name === "directcraft")).toBe(true);
   });
 
@@ -147,7 +147,7 @@ describe("skill discovery and loading", () => {
     config.skills.roots = ["./vendor-skills"];
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    expect(runtime.getSkill("relativecraft")).toBeDefined();
+    expect(runtime.skills.get("relativecraft")).toBeDefined();
   });
 
   test("loads workspace pack skills even when not listed in skills.packs", () => {
@@ -161,8 +161,8 @@ describe("skill discovery and loading", () => {
     config.skills.packs = [];
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    const selected = runtime.selectSkills("run packcrafttag workflow");
-    expect(runtime.getSkill("packcraft")).toBeDefined();
+    const selected = runtime.skills.select("run packcrafttag workflow");
+    expect(runtime.skills.get("packcraft")).toBeDefined();
     expect(selected.some((entry) => entry.name === "packcraft")).toBe(true);
   });
 
@@ -183,7 +183,7 @@ describe("skill discovery and loading", () => {
       });
 
       const runtime = new BrewvaRuntime({ cwd: workspace });
-      expect(runtime.getSkill("chaincraft")?.contract.tags).toContain("projecttag");
+      expect(runtime.skills.get("chaincraft")?.contract.tags).toContain("projecttag");
     } finally {
       if (previousXdg === undefined) {
         delete process.env.XDG_CONFIG_HOME;

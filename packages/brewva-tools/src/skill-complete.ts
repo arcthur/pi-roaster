@@ -17,7 +17,7 @@ export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinit
       const sessionId = getSessionId(ctx);
       const outputs = params.outputs;
 
-      const completion = options.runtime.validateSkillOutputs(sessionId, outputs);
+      const completion = options.runtime.skills.validateOutputs(sessionId, outputs);
       if (!completion.ok) {
         return textResult(
           `Skill completion rejected. Missing required outputs: ${completion.missing.join(", ")}`,
@@ -25,7 +25,7 @@ export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinit
         );
       }
 
-      const verification = await options.runtime.verifyCompletion(sessionId, undefined, {
+      const verification = await options.runtime.verification.verify(sessionId, undefined, {
         executeCommands: options.verification?.executeCommands,
         timeoutMs: options.verification?.timeoutMs,
       });
@@ -40,7 +40,7 @@ export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinit
         );
       }
 
-      options.runtime.completeSkill(sessionId, outputs);
+      options.runtime.skills.complete(sessionId, outputs);
       return textResult("Skill completed and verification gate passed.", {
         ok: true,
         verification,

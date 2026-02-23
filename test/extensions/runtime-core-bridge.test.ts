@@ -43,58 +43,71 @@ describe("runtime core bridge extension", () => {
     };
 
     const runtime = {
-      startToolCall(input: any) {
-        calls.started.push(input);
-        return { allowed: true };
+      tools: {
+        start(input: any) {
+          calls.started.push(input);
+          return { allowed: true };
+        },
+        finish(input: any) {
+          calls.finished.push(input);
+          return undefined;
+        },
       },
-      finishToolCall(input: any) {
-        calls.finished.push(input);
-        return "ledger-1";
+      context: {
+        markCompacted(sessionId: string, input: any) {
+          calls.compacted.push({ sessionId, input });
+        },
+        observeUsage(sessionId: string, usage: unknown) {
+          calls.observedContext.push({ sessionId, usage });
+        },
+        getCompactionGateStatus() {
+          return {
+            required: true,
+            pressure: { level: "critical", usageRatio: 0.97, hardLimitRatio: 0.98 },
+            recentCompaction: false,
+            windowTurns: 2,
+            lastCompactionTurn: null,
+            turnsSinceCompaction: null,
+          };
+        },
+        getCompactionThresholdRatio() {
+          return 0.8;
+        },
+        getHardLimitRatio() {
+          return 0.98;
+        },
+        sanitizeInput(text: string) {
+          return text;
+        },
       },
-      markContextCompacted(sessionId: string, input: any) {
-        calls.compacted.push({ sessionId, input });
+      events: {
+        record(input: any) {
+          calls.events.push(input);
+          return undefined;
+        },
+        getTapeStatus() {
+          return {
+            tapePressure: "medium",
+            totalEntries: 42,
+            entriesSinceAnchor: 7,
+            entriesSinceCheckpoint: 4,
+            lastAnchor: { id: "anchor-1", name: "phase-alpha" },
+            thresholds: { low: 5, medium: 20, high: 50 },
+          };
+        },
+        getTapePressureThresholds() {
+          return { low: 5, medium: 20, high: 50 };
+        },
       },
-      recordEvent(input: any) {
-        calls.events.push(input);
-      },
-      clearSessionState(sessionId: string) {
-        calls.cleared.push(sessionId);
-      },
-      observeContextUsage(sessionId: string, usage: unknown) {
-        calls.observedContext.push({ sessionId, usage });
-      },
-      getTapeStatus() {
-        return {
-          tapePressure: "medium",
-          totalEntries: 42,
-          entriesSinceAnchor: 7,
-          entriesSinceCheckpoint: 4,
-          lastAnchor: { id: "anchor-1", name: "phase-alpha" },
-        };
-      },
-      getContextCompactionGateStatus() {
-        return {
-          required: true,
-          pressure: { level: "critical", usageRatio: 0.97, hardLimitRatio: 0.98 },
-          recentCompaction: false,
-          windowTurns: 2,
-          lastCompactionTurn: null,
-          turnsSinceCompaction: null,
-        };
-      },
-      getContextCompactionThresholdRatio() {
-        return 0.8;
-      },
-      getContextHardLimitRatio() {
-        return 0.98;
+      session: {
+        clearState(sessionId: string) {
+          calls.cleared.push(sessionId);
+        },
       },
       config: {
         tape: {
           tapePressureThresholds: { low: 5, medium: 20, high: 50 },
         },
-      },
-      sanitizeInput(text: string) {
-        return text;
       },
     } as any;
 
@@ -191,12 +204,43 @@ describe("runtime core bridge extension", () => {
   test("returns block when runtime.startToolCall rejects", () => {
     const { api, handlers } = createMockExtensionAPI();
     const runtime = {
-      startToolCall: () => ({ allowed: false, reason: "blocked" }),
-      finishToolCall: () => "ledger-1",
-      markContextCompacted: () => undefined,
-      recordEvent: () => undefined,
-      clearSessionState: () => undefined,
-      sanitizeInput: (text: string) => text,
+      tools: {
+        start: () => ({ allowed: false, reason: "blocked" }),
+        finish: () => undefined,
+      },
+      context: {
+        markCompacted: () => undefined,
+        observeUsage: () => undefined,
+        getCompactionGateStatus: () => ({
+          required: false,
+          pressure: { level: "none", usageRatio: null, hardLimitRatio: 0.98 },
+          recentCompaction: false,
+          windowTurns: 2,
+        }),
+        getCompactionThresholdRatio: () => 0.8,
+        getHardLimitRatio: () => 0.98,
+        sanitizeInput: (text: string) => text,
+      },
+      events: {
+        record: () => undefined,
+        getTapeStatus: () => ({
+          tapePressure: "none",
+          totalEntries: 0,
+          entriesSinceAnchor: 0,
+          entriesSinceCheckpoint: 0,
+          lastAnchor: undefined,
+          thresholds: { low: 5, medium: 20, high: 50 },
+        }),
+        getTapePressureThresholds: () => ({ low: 5, medium: 20, high: 50 }),
+      },
+      session: {
+        clearState: () => undefined,
+      },
+      config: {
+        tape: {
+          tapePressureThresholds: { low: 5, medium: 20, high: 50 },
+        },
+      },
     } as any;
 
     registerRuntimeCoreBridge(api, runtime);

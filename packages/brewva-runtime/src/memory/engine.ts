@@ -38,6 +38,8 @@ import { buildWorkingMemorySnapshot } from "./working-memory.js";
 
 const GLOBAL_LIFECYCLE_COOLDOWN_MS = 60_000;
 const GLOBAL_SYNC_SNAPSHOT_DIR = "global-sync";
+const COGNITIVE_MAX_INFERENCE_CALLS_PER_REFRESH = 6;
+const COGNITIVE_MAX_RANK_CANDIDATES_PER_SEARCH = 8;
 
 function toDayKey(date: Date): string {
   return format(date, "yyyy-MM-dd");
@@ -241,11 +243,15 @@ export class MemoryEngine {
     this.cognitiveMode = options.cognitiveMode ?? "off";
     this.cognitiveMaxInferenceCallsPerRefresh = Math.max(
       0,
-      Math.trunc(options.cognitiveMaxInferenceCallsPerRefresh ?? 0),
+      Math.trunc(
+        options.cognitiveMaxInferenceCallsPerRefresh ?? COGNITIVE_MAX_INFERENCE_CALLS_PER_REFRESH,
+      ),
     );
     this.cognitiveMaxRankCandidatesPerSearch = Math.max(
       0,
-      Math.trunc(options.cognitiveMaxRankCandidatesPerSearch ?? 0),
+      Math.trunc(
+        options.cognitiveMaxRankCandidatesPerSearch ?? COGNITIVE_MAX_RANK_CANDIDATES_PER_SEARCH,
+      ),
     );
     this.cognitivePort = options.cognitivePort;
     this.getCognitiveBudgetStatus = options.getCognitiveBudgetStatus;
@@ -573,18 +579,7 @@ export class MemoryEngine {
     return result;
   }
 
-  search(sessionId: string, input: { query: string; limit?: number }): MemorySearchResult {
-    const result = this.buildSearchResult(sessionId, input);
-    void this.maybeRecordCognitiveRelevanceRanking({
-      sessionId,
-      query: input.query,
-      result,
-      allowAsyncApply: false,
-    });
-    return result;
-  }
-
-  async searchAsync(
+  async search(
     sessionId: string,
     input: { query: string; limit?: number },
   ): Promise<MemorySearchResult> {
@@ -598,36 +593,12 @@ export class MemoryEngine {
     return result;
   }
 
-  buildRecallBlock(input: { sessionId: string; query: string; limit?: number }): string {
-    const result = this.search(input.sessionId, {
-      query: input.query,
-      limit: input.limit,
-    });
-    if (result.hits.length === 0) return "";
-    const lines: string[] = [
-      "[MemoryRecall]",
-      `query: ${result.query}`,
-      `scanned: ${result.scanned}`,
-    ];
-    result.hits.forEach((hit, index) => {
-      lines.push(
-        `${index + 1}. [${hit.kind}] ${hit.topic} score=${hit.score.toFixed(3)} conf=${hit.confidence.toFixed(3)}`,
-      );
-      lines.push(`   ${hit.excerpt}`);
-      const facetsLine = formatRecallKnowledgeFacets(hit.knowledgeFacets);
-      if (facetsLine) {
-        lines.push(`   ${facetsLine}`);
-      }
-    });
-    return lines.join("\n");
-  }
-
-  async buildRecallBlockAsync(input: {
+  async buildRecallBlock(input: {
     sessionId: string;
     query: string;
     limit?: number;
   }): Promise<string> {
-    const result = await this.searchAsync(input.sessionId, {
+    const result = await this.search(input.sessionId, {
       query: input.query,
       limit: input.limit,
     });

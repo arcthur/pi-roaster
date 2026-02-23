@@ -35,9 +35,6 @@ describe("Context budget manager", () => {
     const manager = new ContextBudgetManager(
       {
         ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
-        minTurnsBetweenCompaction: 0,
-        minSecondsBetweenCompaction: 45,
-        pressureBypassPercent: 0.95,
       },
       {
         now: () => nowMs,
@@ -75,14 +72,12 @@ describe("Context budget manager", () => {
     expect(third.reason).toBe("usage_threshold");
   });
 
-  test("bypasses cooldown under high pressure and hard limit", () => {
+  test("bypasses cooldown under high pressure", () => {
     let nowMs = 5_000;
     const manager = new ContextBudgetManager(
       {
         ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
-        minTurnsBetweenCompaction: 10,
-        minSecondsBetweenCompaction: 300,
-        pressureBypassPercent: 0.9,
+        hardLimitPercent: 0.98,
       },
       {
         now: () => nowMs,
@@ -96,22 +91,22 @@ describe("Context budget manager", () => {
     manager.beginTurn(sessionId, 2);
     nowMs += 1_000;
     const pressure = manager.shouldRequestCompaction(sessionId, {
-      tokens: 1_820,
+      tokens: 1_900,
       contextWindow: 2_000,
-      percent: 0.91,
+      percent: 0.95,
     });
     expect(pressure.shouldCompact).toBe(true);
     expect(pressure.reason).toBe("usage_threshold");
 
     manager.beginTurn(sessionId, 3);
     nowMs += 1_000;
-    const hardLimit = manager.shouldRequestCompaction(sessionId, {
+    const continuedPressure = manager.shouldRequestCompaction(sessionId, {
       tokens: 1_900,
       contextWindow: 2_000,
       percent: 0.95,
     });
-    expect(hardLimit.shouldCompact).toBe(true);
-    expect(hardLimit.reason).toBe("hard_limit");
+    expect(continuedPressure.shouldCompact).toBe(true);
+    expect(continuedPressure.reason).toBe("usage_threshold");
   });
 
   test("normalizes percentage-point context usage into ratio", () => {

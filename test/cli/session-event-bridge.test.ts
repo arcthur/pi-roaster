@@ -24,27 +24,33 @@ function createRuntimeMock() {
   const turnStarts: Array<{ sessionId: string; turnIndex: number }> = [];
 
   const runtime = {
-    recordEvent(input: RecordedEvent): void {
-      events.push({ ...input });
+    events: {
+      record(input: RecordedEvent): void {
+        events.push({ ...input });
+      },
     },
-    onTurnStart(sessionId: string, turnIndex: number): void {
-      turnStarts.push({ sessionId, turnIndex });
+    context: {
+      onTurnStart(sessionId: string, turnIndex: number): void {
+        turnStarts.push({ sessionId, turnIndex });
+      },
     },
-    recordAssistantUsage(input: {
-      sessionId: string;
-      model: string;
-      totalTokens: number;
-      costUsd: number;
-    }): void {
-      usage.push({
-        sessionId: input.sessionId,
-        model: input.model,
-        totalTokens: input.totalTokens,
-        costUsd: input.costUsd,
-      });
-    },
-    getCostSummary(sessionId: string): Record<string, unknown> {
-      return costSummaryBySession.get(sessionId) ?? { totalTokens: 0, totalCostUsd: 0 };
+    cost: {
+      recordAssistantUsage(input: {
+        sessionId: string;
+        model: string;
+        totalTokens: number;
+        costUsd: number;
+      }): void {
+        usage.push({
+          sessionId: input.sessionId,
+          model: input.model,
+          totalTokens: input.totalTokens,
+          costUsd: input.costUsd,
+        });
+      },
+      getSummary(sessionId: string): Record<string, unknown> {
+        return costSummaryBySession.get(sessionId) ?? { totalTokens: 0, totalCostUsd: 0 };
+      },
     },
   } as unknown as BrewvaRuntime;
 

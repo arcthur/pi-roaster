@@ -20,7 +20,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       "src/foo.ts(10,5): error TS2322: Type 'number' is not assignable to type 'string'.",
     ].join("\n");
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
@@ -28,18 +28,18 @@ describe("Truth extraction from lsp_diagnostics", () => {
       success: true,
     });
 
-    const truth1 = runtime.getTruthState(sessionId);
+    const truth1 = runtime.truth.getState(sessionId);
     const fact1 = truth1.facts.find((fact) => fact.kind === "diagnostic");
     expect(fact1).not.toBeUndefined();
     expect(fact1?.status).toBe("active");
     expect(fact1?.summary.includes("TS2322")).toBe(true);
 
-    const task1 = runtime.getTaskState(sessionId);
+    const task1 = runtime.task.getState(sessionId);
     const blocker1 = task1.blockers.find((blocker) => blocker.id === fact1?.id);
     expect(blocker1).not.toBeUndefined();
     expect(blocker1?.truthFactId).toBe(fact1?.id);
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
@@ -47,12 +47,12 @@ describe("Truth extraction from lsp_diagnostics", () => {
       success: true,
     });
 
-    const truth2 = runtime.getTruthState(sessionId);
+    const truth2 = runtime.truth.getState(sessionId);
     const fact2 = truth2.facts.find((fact) => fact.id === fact1?.id);
     expect(fact2).not.toBeUndefined();
     expect(fact2?.status).toBe("resolved");
 
-    const task2 = runtime.getTaskState(sessionId);
+    const task2 = runtime.task.getState(sessionId);
     expect(task2.blockers.some((blocker) => blocker.id === fact1?.id)).toBe(false);
   });
 
@@ -61,7 +61,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "truth-from-lsp-diagnostics-2";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
@@ -70,7 +70,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       success: true,
     });
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { filePath: "src/bar.ts" },
@@ -78,7 +78,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       success: true,
     });
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
@@ -86,7 +86,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       success: true,
     });
 
-    const truth = runtime.getTruthState(sessionId);
+    const truth = runtime.truth.getState(sessionId);
     const foo = truth.facts.find(
       (fact) => fact.summary.includes("src/foo.ts") && fact.summary.includes("TS2322"),
     );
@@ -98,7 +98,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
     expect(foo?.status).toBe("resolved");
     expect(bar?.status).toBe("active");
 
-    const task = runtime.getTaskState(sessionId);
+    const task = runtime.task.getState(sessionId);
     expect(task.blockers.some((blocker) => blocker.id === bar?.id)).toBe(true);
     expect(task.blockers.some((blocker) => blocker.id === foo?.id)).toBe(false);
   });
@@ -108,7 +108,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "truth-from-lsp-diagnostics-3";
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
@@ -119,7 +119,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       success: true,
     });
 
-    runtime.recordToolResult({
+    runtime.tools.recordResult({
       sessionId,
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
@@ -128,7 +128,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       success: true,
     });
 
-    const truth = runtime.getTruthState(sessionId);
+    const truth = runtime.truth.getState(sessionId);
     const ts2322 = truth.facts.find(
       (fact) => fact.summary.includes("src/foo.ts") && fact.summary.includes("TS2322"),
     );
@@ -141,7 +141,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
     expect(ts2322?.status).toBe("active");
     expect(ts2304?.status).toBe("resolved");
 
-    const task = runtime.getTaskState(sessionId);
+    const task = runtime.task.getState(sessionId);
     expect(task.blockers.some((blocker) => blocker.id === ts2322?.id)).toBe(true);
     expect(task.blockers.some((blocker) => blocker.id === ts2304?.id)).toBe(false);
   });

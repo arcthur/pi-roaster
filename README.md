@@ -1,10 +1,10 @@
 # Brewva
 
-**A runtime that lets coding agents govern their own memory, context window, and execution quality — instead of having the framework do it behind their back.**
+**A runtime for auditable agent governance of memory, context pressure, and execution quality.**
 
-Most agent frameworks silently manage compaction, memory injection, and state persistence on behalf of the LLM. The agent never knows when its context was compressed, what was lost, or why a session resumed with stale state. This opacity makes agent behavior unpredictable and undebuggable.
+Most frameworks already manage compaction, memory injection, and state persistence. The core problem is not whether runtime does governance, but whether that governance is inspectable and replayable.
 
-Brewva takes the opposite approach: **make the agent the owner**.
+Brewva's stance: **runtime may govern, but governance must be explicit, evented, and recoverable**.
 
 ## Core Design Principles
 
@@ -18,7 +18,7 @@ The runtime exposes three orthogonal control loops and keeps authority with the 
 | **Message Buffer**      | LLM context window (user/assistant/tool messages)              | `context_pressure`                       | `session_compact` — compress conversation history                    |
 | **Cognitive Inference** | Runtime cognition budget for semantic relation/ranking/lessons | cognitive budget status (calls + tokens) | Use `CognitivePort` or deterministically fall back when budget-tight |
 
-In the extension-enabled profile, the runtime injects a **Context Contract** with explicit if-then rules for pressure handling, but never silently compacts on the agent's behalf. Memory injection is explicit and traceable (`[WorkingMemory]` / `[MemoryRecall]`), backed by persisted artifacts and events rather than opaque snapshots.
+In the extension-enabled profile, the runtime injects a **Context Contract** with explicit if-then rules for pressure handling, but never silently compacts on the agent's behalf. Memory/context injection is explicit and traceable through semantic sources (`brewva.truth`, `brewva.task-state`, `brewva.tool-failures`, `brewva.memory`), backed by persisted artifacts and events rather than opaque snapshots.
 
 For runtime cognition, Brewva uses a dual-path design (`CognitivePort` + deterministic fallback):
 
@@ -80,11 +80,17 @@ Memory is implemented as an event-driven projection layer on top of the tape:
 - **Replayable projections**: `memory_*` events persist projection snapshots so memory can be rebuilt from tape when projection files are missing.
 - **Layered memory tiers**: session-local memory is augmented by a global tier (`.orchestrator/memory/global`) with deterministic promotion, decay, pruning, and pass-resolution.
 - **Derived projections**: `Unit`, `Crystal`, `Insight`, and `EVOLVES` edges are stored in `.orchestrator/memory/*.jsonl`; cross-session pattern aggregation is compiled into global crystals.
-- **Context surfaces**: in the extension-enabled profile, each `before_agent_start` can inject `[WorkingMemory]` (`brewva.working-memory`) and `[MemoryRecall]` (`brewva.memory-recall`) with budget-aware truncation/drop behavior.
+- **Context surfaces**: in the extension-enabled profile, each `before_agent_start` can inject semantic context sources (`brewva.truth`, `brewva.task-state`, `brewva.tool-failures`, `brewva.memory`) with budget-aware truncation/drop behavior.
 - **Feedback loop from outcomes**: verification outcomes and cognitive reflections (`verification_outcome_recorded`, `cognitive_outcome_reflection`) are extracted into learning units and fed back into subsequent recall.
 - **Reviewable evolution**: proposed EVOLVES relations stay shadow-only until explicit review (`memory_review_evolves_edge`), after which side effects (such as unit superseding) are auditable via memory events.
 
 Every cognitive inference is evented (`cognitive_*`) and remains replayable/auditable under the same tape-first invariants.
+
+Event visibility is stratified by `infrastructure.events.level`:
+
+- `audit`: replay/audit-critical stream
+- `ops` (default): audit + operational transitions/warnings
+- `debug`: full diagnostics (`viewport_*`, `cognitive_*`, parallel scan detail)
 
 ## Architecture
 

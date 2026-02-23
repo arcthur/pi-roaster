@@ -34,33 +34,9 @@
                 "maxInjectionTokens": {
                   "type": "number"
                 },
-                "minSecondsBetweenCompaction": {
-                  "type": "number"
-                },
-                "minTurnsBetweenCompaction": {
-                  "type": "number"
-                },
-                "pressureBypassPercent": {
-                  "type": "number"
-                },
                 "truncationStrategy": {
                   "type": "string",
                   "enum": ["drop-entry", "summarize", "tail"]
-                }
-              }
-            },
-            "toolFailureInjection": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "type": "boolean"
-                },
-                "maxEntries": {
-                  "type": "number"
-                },
-                "maxOutputChars": {
-                  "type": "number"
                 }
               }
             },
@@ -80,9 +56,6 @@
                 },
                 "maxCostUsdPerSession": {
                   "type": "number"
-                },
-                "maxCostUsdPerSkill": {
-                  "type": "number"
                 }
               }
             },
@@ -95,6 +68,10 @@
                 },
                 "enabled": {
                   "type": "boolean"
+                },
+                "level": {
+                  "type": "string",
+                  "enum": ["audit", "ops", "debug"]
                 }
               }
             },
@@ -109,6 +86,21 @@
                   "type": "number"
                 }
               }
+            },
+            "toolFailureInjection": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "maxEntries": {
+                  "type": "number"
+                },
+                "maxOutputChars": {
+                  "type": "number"
+                }
+              }
             }
           }
         },
@@ -117,9 +109,6 @@
           "additionalProperties": false,
           "properties": {
             "checkpointEveryTurns": {
-              "type": "number"
-            },
-            "digestWindow": {
               "type": "number"
             },
             "path": {
@@ -135,21 +124,12 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "maxTokensPerTurn": {
+                  "type": "number"
+                },
                 "mode": {
                   "type": "string",
                   "enum": ["off", "shadow", "active"]
-                },
-                "maxInferenceCallsPerRefresh": {
-                  "type": "number"
-                },
-                "maxRankCandidatesPerSearch": {
-                  "type": "number"
-                },
-                "maxReflectionsPerVerification": {
-                  "type": "number"
-                },
-                "maxTokensPerTurn": {
-                  "type": "number"
                 }
               }
             },
@@ -165,6 +145,10 @@
             "enabled": {
               "type": "boolean"
             },
+            "evolvesMode": {
+              "type": "string",
+              "enum": ["off", "shadow"]
+            },
             "global": {
               "type": "object",
               "additionalProperties": false,
@@ -174,24 +158,8 @@
                 },
                 "minConfidence": {
                   "type": "number"
-                },
-                "minSessionRecurrence": {
-                  "type": "number"
-                },
-                "decayIntervalDays": {
-                  "type": "number"
-                },
-                "decayFactor": {
-                  "type": "number"
-                },
-                "pruneBelowConfidence": {
-                  "type": "number"
                 }
               }
-            },
-            "evolvesMode": {
-              "type": "string",
-              "enum": ["off", "shadow"]
             },
             "maxWorkingChars": {
               "type": "number"
@@ -228,41 +196,6 @@
             },
             "maxConcurrent": {
               "type": "number"
-            },
-            "maxTotal": {
-              "type": "number"
-            }
-          }
-        },
-        "security": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "allowedToolsMode": {
-              "description": "Controls how (required + optional) tool allowlists are applied.\n- off: only denied tools can block.\n- warn: allow but emit a warning event the first time a disallowed tool is called per (session, skill, tool).\n- enforce: block tool calls that are not in the allowlist (unless globally always-allowed).",
-              "type": "string",
-              "enum": ["off", "warn", "enforce"]
-            },
-            "enforceDeniedTools": {
-              "type": "boolean"
-            },
-            "sanitizeContext": {
-              "type": "boolean"
-            },
-            "skillMaxParallelMode": {
-              "description": "Controls how per-skill maxParallel is applied when acquiring parallel slots.\n- off: use global parallel config only.\n- warn: allow but emit a warning event when a skill exceeds its parallel cap.\n- enforce: reject parallel slot acquisitions once the cap is reached.",
-              "type": "string",
-              "enum": ["off", "warn", "enforce"]
-            },
-            "skillMaxTokensMode": {
-              "description": "Controls how per-skill budget.maxTokens is applied.\n- off: no enforcement.\n- warn: allow but emit a warning event when a skill exceeds its token budget.\n- enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.",
-              "type": "string",
-              "enum": ["off", "warn", "enforce"]
-            },
-            "skillMaxToolCallsMode": {
-              "description": "Controls how per-skill budget.maxToolCalls is applied.\n- off: no enforcement.\n- warn: allow but emit a warning event when a skill exceeds its tool-call budget.\n- enforce: block tool calls (except always-allowed lifecycle tools) once the budget is exceeded.",
-              "type": "string",
-              "enum": ["off", "warn", "enforce"]
             }
           }
         },
@@ -293,6 +226,19 @@
             },
             "projectionPath": {
               "type": "string"
+            }
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["permissive", "standard", "strict"]
+            },
+            "sanitizeContext": {
+              "type": "boolean"
             }
           }
         },
@@ -330,9 +276,6 @@
               "properties": {
                 "k": {
                   "type": "number"
-                },
-                "maxDigestTokens": {
-                  "type": "number"
                 }
               }
             }
@@ -344,21 +287,6 @@
           "properties": {
             "checkpointIntervalEntries": {
               "type": "number"
-            },
-            "tapePressureThresholds": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "high": {
-                  "type": "number"
-                },
-                "low": {
-                  "type": "number"
-                },
-                "medium": {
-                  "type": "number"
-                }
-              }
             }
           }
         },
@@ -366,9 +294,6 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "collapseChangelog": {
-              "type": "boolean"
-            },
             "quietStartup": {
               "type": "boolean"
             }

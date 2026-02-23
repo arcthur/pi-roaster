@@ -10,7 +10,7 @@ function createWorkspace(name: string): string {
 }
 
 describe("Viewport neighborhood probe", () => {
-  test("includes export default line for default imports", () => {
+  test("does not inject viewport blocks on default profile", async () => {
     const workspace = createWorkspace("viewport-default-import");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "viewport-default-1";
@@ -39,19 +39,14 @@ describe("Viewport neighborhood probe", () => {
       goal: "Ensure viewport shows default export definition",
       targets: { files: ["src/foo.ts"] },
     };
-    runtime.setTaskSpec(sessionId, spec);
+    runtime.task.setSpec(sessionId, spec);
 
-    const injection = runtime.buildContextInjection(sessionId, "check default import");
-    expect(injection.text.includes("[Viewport]")).toBe(true);
-    expect(injection.text.includes("File: src/foo.ts")).toBe(true);
-    expect(injection.text.includes("./bar default:")).toBe(true);
-    expect(injection.text.includes("export default")).toBe(true);
+    const injection = await runtime.context.buildInjection(sessionId, "check default import");
+    expect(injection.text.includes("[Viewport]")).toBe(false);
+    expect(injection.text.includes("[TaskLedger]")).toBe(true);
+    expect(injection.text.includes("src/foo.ts")).toBe(true);
 
-    const viewportEvents = runtime.queryEvents(sessionId, { type: "viewport_built" });
-    expect(viewportEvents.length).toBe(1);
-    const payload = viewportEvents[0]?.payload ?? {};
-    expect(payload.totalChars).not.toBeNull();
-    expect(payload.snr).not.toBeNull();
-    expect(payload.truncated).toBe(false);
+    const viewportEvents = runtime.events.query(sessionId, { type: "viewport_built" });
+    expect(viewportEvents.length).toBe(0);
   });
 });

@@ -9,7 +9,9 @@ import {
 import { assertRejectsWithMessage } from "../helpers.js";
 
 type RuntimeLike = {
-  recordEvent: (input: Record<string, unknown>) => void;
+  events: {
+    record: (input: Record<string, unknown>) => void;
+  };
 };
 
 const BASE_TURN: TurnEnvelope = {
@@ -58,8 +60,10 @@ describe("channel turn bridge extension helper", () => {
   test("records ingested and emitted channel turn events", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
-      recordEvent: (input) => {
-        events.push(input);
+      events: {
+        record: (input) => {
+          events.push(input);
+        },
       },
     };
     const inboundTurns: TurnEnvelope[] = [];
@@ -91,8 +95,10 @@ describe("channel turn bridge extension helper", () => {
   test("records bridge error event when adapter send fails", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
-      recordEvent: (input) => {
-        events.push(input);
+      events: {
+        record: (input) => {
+          events.push(input);
+        },
       },
     };
     const { adapter } = createAdapter({ sendError: new Error("send failed") });
@@ -112,8 +118,10 @@ describe("channel turn bridge extension helper", () => {
   test("uses resolved ingested session id when resolver is provided", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
-      recordEvent: (input) => {
-        events.push(input);
+      events: {
+        record: (input) => {
+          events.push(input);
+        },
       },
     };
     const inboundTurns: TurnEnvelope[] = [];

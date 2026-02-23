@@ -1,6 +1,8 @@
 import type { CognitiveTokenBudgetStatus, CognitiveUsage } from "../cognitive/port.js";
 import type { BrewvaConfig, SessionCostSummary, SessionCostTotals } from "../types.js";
 
+const MAX_COST_USD_PER_SKILL = 0;
+
 export interface ModelUsageInput {
   model: string;
   inputTokens: number;
@@ -230,7 +232,7 @@ export class SessionCostTracker {
   getBudgetStatus(sessionId: string, skillName?: string): BudgetStatus {
     const state = this.getOrCreate(sessionId);
     const maxSession = this.config.maxCostUsdPerSession;
-    const maxSkill = this.config.maxCostUsdPerSkill;
+    const maxSkill = MAX_COST_USD_PER_SKILL;
     const action = this.config.actionOnExceed;
     const sessionExceeded = maxSession > 0 && state.totals.totalCostUsd >= maxSession;
     const exceededSkills = this.getExceededSkillNames(state);
@@ -295,9 +297,9 @@ export class SessionCostTracker {
         .filter((alert) => alert.kind === "skill_cap" && typeof alert.scopeId === "string")
         .map((alert) => alert.scopeId as string),
     );
-    if (this.config.maxCostUsdPerSkill > 0) {
+    if (MAX_COST_USD_PER_SKILL > 0) {
       for (const [skillName, skill] of Object.entries(snapshot.skills)) {
-        if (skill.totalCostUsd >= this.config.maxCostUsdPerSkill) {
+        if (skill.totalCostUsd >= MAX_COST_USD_PER_SKILL) {
           skillCapAlerted.add(skillName);
         }
       }
@@ -393,7 +395,7 @@ export class SessionCostTracker {
       }
     }
 
-    const maxSkill = this.config.maxCostUsdPerSkill;
+    const maxSkill = MAX_COST_USD_PER_SKILL;
     const skillCost = state.skills[skillName]?.totals.totalCostUsd ?? 0;
     if (maxSkill > 0 && skillCost >= maxSkill && !state.skillCapAlerted.has(skillName)) {
       const alert: CostAlert = {
@@ -480,11 +482,11 @@ export class SessionCostTracker {
   }
 
   private getExceededSkillNames(state: SessionCostState): string[] {
-    if (this.config.maxCostUsdPerSkill <= 0) {
+    if (MAX_COST_USD_PER_SKILL <= 0) {
       return [];
     }
     return Object.entries(state.skills)
-      .filter(([, skill]) => skill.totals.totalCostUsd >= this.config.maxCostUsdPerSkill)
+      .filter(([, skill]) => skill.totals.totalCostUsd >= MAX_COST_USD_PER_SKILL)
       .map(([name]) => name);
   }
 

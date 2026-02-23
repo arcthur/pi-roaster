@@ -12,9 +12,9 @@ function formatPercent(ratio: number | null): string {
 }
 
 function buildCoreContextContract(runtime: BrewvaRuntime): string {
-  const tapeThresholds = runtime.config.tape.tapePressureThresholds;
-  const highThresholdPercent = formatPercent(runtime.getContextCompactionThresholdRatio());
-  const hardLimitPercent = formatPercent(runtime.getContextHardLimitRatio());
+  const tapeThresholds = runtime.events.getTapePressureThresholds();
+  const highThresholdPercent = formatPercent(runtime.context.getCompactionThresholdRatio());
+  const hardLimitPercent = formatPercent(runtime.context.getHardLimitRatio());
 
   return [
     CORE_CONTEXT_CONTRACT_MARKER,
@@ -41,8 +41,8 @@ function applyCoreContextContract(systemPrompt: unknown, runtime: BrewvaRuntime)
 }
 
 function buildCoreStatusBlock(runtime: BrewvaRuntime, sessionId: string): string {
-  const tapeStatus = runtime.getTapeStatus(sessionId);
-  const gate = runtime.getContextCompactionGateStatus(sessionId);
+  const tapeStatus = runtime.events.getTapeStatus(sessionId);
+  const gate = runtime.context.getCompactionGateStatus(sessionId);
   const action = gate.required ? "session_compact_now" : "none";
 
   return [
@@ -105,7 +105,7 @@ export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRunti
   pi.on("before_agent_start", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
-    runtime.observeContextUsage(sessionId, usage);
+    runtime.context.observeUsage(sessionId, usage);
 
     return {
       systemPrompt: applyCoreContextContract(
@@ -128,13 +128,13 @@ export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRunti
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     const entryId = extractCompactionEntryId(event);
 
-    runtime.markContextCompacted(sessionId, {
+    runtime.context.markCompacted(sessionId, {
       fromTokens: null,
       toTokens: usage?.tokens ?? null,
       summary: extractCompactionSummary(event),
       entryId,
     });
-    runtime.recordEvent({
+    runtime.events.record({
       sessionId,
       type: "session_compact",
       payload: {
@@ -148,7 +148,7 @@ export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRunti
 
   pi.on("session_shutdown", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    runtime.clearSessionState(sessionId);
+    runtime.session.clearState(sessionId);
     return undefined;
   });
 }

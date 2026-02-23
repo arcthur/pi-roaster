@@ -19,8 +19,8 @@ describe("runtime artifact root resolution", () => {
     const runtime = new BrewvaRuntime({ cwd: nestedCwd });
     const sessionId = "artifact-root-1";
 
-    runtime.recordEvent({ sessionId, type: "session_start" });
-    runtime.recordToolResult({
+    runtime.events.record({ sessionId, type: "session_start" });
+    runtime.tools.recordResult({
       sessionId,
       toolName: "read",
       args: { file_path: "README.md" },

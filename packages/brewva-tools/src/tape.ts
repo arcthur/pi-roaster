@@ -51,7 +51,7 @@ function resolveContextAction(
 }
 
 function formatTapeInfoBlock(input: {
-  tape: ReturnType<BrewvaToolOptions["runtime"]["getTapeStatus"]>;
+  tape: ReturnType<BrewvaToolOptions["runtime"]["events"]["getTapeStatus"]>;
   pressure: ContextPressureStatus;
 }): string {
   const lines = [
@@ -97,7 +97,7 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const handoff = options.runtime.recordTapeHandoff(sessionId, {
+      const handoff = options.runtime.events.recordTapeHandoff(sessionId, {
         name: params.name,
         summary: params.summary,
         nextSteps: params.next_steps,
@@ -106,7 +106,7 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
         return textResult(`Tape handoff rejected (${handoff.error ?? "unknown_error"}).`, handoff);
       }
 
-      const status = handoff.tapeStatus ?? options.runtime.getTapeStatus(sessionId);
+      const status = handoff.tapeStatus ?? options.runtime.events.getTapeStatus(sessionId);
       const text = [
         "Tape handoff recorded.",
         `name: ${params.name}`,
@@ -133,9 +133,9 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
-      const tape = options.runtime.getTapeStatus(sessionId);
-      const usage = resolveToolContextUsage(ctx) ?? options.runtime.getContextUsage(sessionId);
-      const pressure = options.runtime.getContextPressureStatus(sessionId, usage);
+      const tape = options.runtime.events.getTapeStatus(sessionId);
+      const usage = resolveToolContextUsage(ctx) ?? options.runtime.context.getUsage(sessionId);
+      const pressure = options.runtime.context.getPressureStatus(sessionId, usage);
 
       return textResult(
         formatTapeInfoBlock({
@@ -175,7 +175,7 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
       }
 
       const scope = toSafeScope(params.scope);
-      const result = options.runtime.searchTape(sessionId, {
+      const result = options.runtime.events.searchTape(sessionId, {
         query,
         scope,
         limit: params.limit,

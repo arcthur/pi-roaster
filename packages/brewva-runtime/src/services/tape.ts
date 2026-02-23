@@ -20,6 +20,12 @@ import type {
 import type { RuntimeCallback } from "./callback.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 
+const TAPE_PRESSURE_THRESHOLDS = {
+  low: 80,
+  medium: 160,
+  high: 280,
+} as const;
+
 export interface TapeServiceOptions {
   tapeConfig: BrewvaConfig["tape"];
   sessionState: RuntimeSessionStateStore;
@@ -65,11 +71,15 @@ export class TapeService {
   }
 
   private resolveTapePressureLevel(entriesSinceAnchor: number): TapePressureLevel {
-    const thresholds = this.tapeConfig.tapePressureThresholds;
+    const thresholds = TAPE_PRESSURE_THRESHOLDS;
     if (entriesSinceAnchor >= thresholds.high) return "high";
     if (entriesSinceAnchor >= thresholds.medium) return "medium";
     if (entriesSinceAnchor >= thresholds.low) return "low";
     return "none";
+  }
+
+  getPressureThresholds(): TapeStatusState["thresholds"] {
+    return { ...TAPE_PRESSURE_THRESHOLDS };
   }
 
   getTapeStatus(sessionId: string): TapeStatusState {
@@ -105,7 +115,7 @@ export class TapeService {
     const entriesSinceCheckpoint =
       lastCheckpointIndex >= 0 ? Math.max(0, totalEntries - lastCheckpointIndex - 1) : totalEntries;
 
-    const thresholds = this.tapeConfig.tapePressureThresholds;
+    const thresholds = this.getPressureThresholds();
     const anchorPayload = coerceTapeAnchorPayload(lastAnchorEvent?.payload);
 
     return {
@@ -113,11 +123,7 @@ export class TapeService {
       entriesSinceAnchor,
       entriesSinceCheckpoint,
       tapePressure: this.resolveTapePressureLevel(entriesSinceAnchor),
-      thresholds: {
-        low: thresholds.low,
-        medium: thresholds.medium,
-        high: thresholds.high,
-      },
+      thresholds,
       lastAnchor: lastAnchorEvent
         ? {
             id: lastAnchorEvent.id,

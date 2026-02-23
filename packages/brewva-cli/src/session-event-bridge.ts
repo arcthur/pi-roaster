@@ -20,14 +20,14 @@ export function registerRuntimeCoreEventBridge(
     switch (event.type) {
       case "agent_start":
         turnIndex = 0;
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "agent_start",
         });
         break;
       case "turn_start":
-        runtime.onTurnStart(sessionId, turnIndex);
-        runtime.recordEvent({
+        runtime.context.onTurnStart(sessionId, turnIndex);
+        runtime.events.record({
           sessionId,
           type: "turn_start",
           turn: turnIndex,
@@ -37,7 +37,7 @@ export function registerRuntimeCoreEventBridge(
         const toolResults = Array.isArray((event as { toolResults?: unknown }).toolResults)
           ? (event as { toolResults: unknown[] }).toolResults.length
           : 0;
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "turn_end",
           turn: turnIndex,
@@ -54,7 +54,7 @@ export function registerRuntimeCoreEventBridge(
         );
         break;
       case "tool_execution_start":
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "tool_execution_start",
           payload: {
@@ -64,7 +64,7 @@ export function registerRuntimeCoreEventBridge(
         });
         break;
       case "tool_execution_update":
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "tool_execution_update",
           payload: {
@@ -74,7 +74,7 @@ export function registerRuntimeCoreEventBridge(
         });
         break;
       case "tool_execution_end":
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "tool_execution_end",
           payload: {
@@ -87,12 +87,12 @@ export function registerRuntimeCoreEventBridge(
       case "agent_end": {
         const messages = (event as { messages?: unknown }).messages;
         const messageCount = Array.isArray(messages) ? messages.length : 0;
-        runtime.recordEvent({
+        runtime.events.record({
           sessionId,
           type: "agent_end",
           payload: {
             messageCount,
-            costSummary: runtime.getCostSummary(sessionId),
+            costSummary: runtime.cost.getSummary(sessionId),
           },
         });
         break;
