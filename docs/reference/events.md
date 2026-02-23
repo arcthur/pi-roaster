@@ -47,6 +47,13 @@ Audit level keeps replay/audit-critical events only:
 
 Ops level includes all audit events plus operational transitions and warnings (for example context pressure, budget alerts, channel lifecycle, etc.).
 
+Common operational events include:
+
+- `turn_wal_appended`
+- `turn_wal_status_changed`
+- `turn_wal_recovery_completed`
+- `turn_wal_compacted`
+
 ### `debug`
 
 Debug level includes the full stream, including high-noise diagnostics such as:
@@ -149,6 +156,13 @@ Note: runtime API is async-first, but cognitive ranking can still emit `asyncRes
 - `schedule_child_session_finished`
 - `schedule_child_session_failed`
 
+### Turn WAL
+
+- `turn_wal_appended`
+- `turn_wal_status_changed`
+- `turn_wal_recovery_completed`
+- `turn_wal_compacted`
+
 ## Key Payload Notes
 
 ### `task_event`
@@ -205,6 +219,30 @@ Global-memory lifecycle summary with counters and `globalSnapshotRef` pointer to
 ### `tool_parallel_read`
 
 Telemetry for runtime-aware multi-file read scans (mode, batch behavior, scanned/loaded/failed counts, limits).
+
+### `turn_wal_status_changed`
+
+Turn durability status transition summary, including:
+
+- `scope`
+- `walId`
+- `turnId`
+- `from`
+- `to`
+- `attempts`
+- `error`
+
+### `turn_wal_recovery_completed`
+
+Startup recovery aggregate with totals and per-source counters:
+
+- `scanned`
+- `retried`
+- `expired`
+- `failed`
+- `skipped`
+- `compacted`
+- `bySource`
 
 ### `viewport_*` and `cognitive_*`
 

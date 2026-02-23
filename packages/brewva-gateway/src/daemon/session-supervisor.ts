@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { TurnWALRecord } from "@brewva/brewva-runtime";
+import { TurnWALRecovery, TurnWALStore, type TurnEnvelope } from "@brewva/brewva-runtime/channels";
 import type {
   ParentToWorkerMessage,
   WorkerResultErrorCode,
@@ -34,6 +36,7 @@ const DEFAULT_SESSION_IDLE_TTL_MS = 30 * 60_000;
 const DEFAULT_SESSION_IDLE_SWEEP_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_WORKERS = 16;
 const DEFAULT_MAX_PENDING_SESSION_OPENS = 64;
+const DEFAULT_TURN_WAL_COMPACT_INTERVAL_MS = 120_000;
 
 type LoggerLike = Pick<StructuredLogger, "debug" | "info" | "warn" | "error" | "log">;
 
@@ -47,6 +50,7 @@ interface PendingTurn {
   resolve: (payload: SendPromptOutput) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  walId?: string;
 }
 
 interface Deferred<T> {
@@ -67,6 +71,7 @@ interface WorkerHandle {
   requestedAgentSessionId?: string;
   pending: Map<string, PendingRequest>;
   pendingTurns: Map<string, PendingTurn>;
+  activeTurnWalIds: Map<string, string>;
   readyRequestId?: string;
   readyResolve?: (payload: WorkerReadyPayload) => void;
   readyReject?: (error: Error) => void;
@@ -99,11 +104,52 @@ function createDeferred<T>(): Deferred<T> {
   };
 }
 
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function buildGatewayTurnEnvelope(input: {
+  sessionId: string;
+  turnId: string;
+  prompt: string;
+  source: "gateway" | "heartbeat";
+}): TurnEnvelope {
+  return {
+    schema: "brewva.turn.v1",
+    kind: "user",
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    channel: input.source === "heartbeat" ? "heartbeat" : "gateway",
+    conversationId: input.sessionId,
+    timestamp: Date.now(),
+    parts: [{ type: "text", text: input.prompt }],
+    meta: {
+      source: input.source,
+    },
+  };
+}
+
+function extractPromptFromEnvelope(envelope: TurnEnvelope): string {
+  const parts = envelope.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text.trim())
+    .filter((part) => part.length > 0);
+  return parts.join("\n");
+}
+
 function toWorkerResultError(input: { error: string; errorCode?: WorkerResultErrorCode }): Error {
   if (input.errorCode === "session_busy") {
     return new SessionBackendStateError("session_busy", input.error);
   }
   return new Error(input.error);
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return String(error);
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -155,6 +201,8 @@ export interface SessionSupervisorOptions {
   maxWorkers?: number;
   maxPendingSessionOpens?: number;
   stateStore?: GatewayStateStore;
+  turnWalStore?: TurnWALStore;
+  turnWalCompactIntervalMs?: number;
   onWorkerEvent?: (event: Extract<WorkerToParentMessage, { kind: "event" }>) => void;
 }
 
@@ -167,16 +215,24 @@ export class SessionSupervisor implements SessionBackend {
   private readonly maxWorkers: number;
   private readonly maxPendingSessionOpens: number;
   private readonly stateStore: GatewayStateStore;
+  private readonly turnWalStore?: TurnWALStore;
+  private readonly turnWalCompactIntervalMs: number;
   private readonly pendingOpenWaiters: Deferred<void>[] = [];
   private pendingOpenReservations = 0;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private idleSweepTimer: ReturnType<typeof setInterval> | null = null;
+  private turnWalCompactTimer: ReturnType<typeof setInterval> | null = null;
   private idleSweepInFlight = false;
 
   constructor(private readonly options: SessionSupervisorOptions) {
     this.stateDir = resolve(options.stateDir);
     this.childrenRegistryPath = resolve(this.stateDir, "children.json");
     this.stateStore = options.stateStore ?? new FileGatewayStateStore();
+    this.turnWalStore = options.turnWalStore;
+    this.turnWalCompactIntervalMs = Math.max(
+      30_000,
+      options.turnWalCompactIntervalMs ?? DEFAULT_TURN_WAL_COMPACT_INTERVAL_MS,
+    );
     this.sessionIdleTtlMs = Math.max(0, options.sessionIdleTtlMs ?? DEFAULT_SESSION_IDLE_TTL_MS);
     const defaultSweepIntervalMs = Math.min(
       DEFAULT_SESSION_IDLE_SWEEP_INTERVAL_MS,
@@ -196,8 +252,10 @@ export class SessionSupervisor implements SessionBackend {
 
   async start(): Promise<void> {
     await this.sweepOrphanedChildren();
+    await this.recoverTurnWal();
     this.startBridgePing();
     this.startIdleSweep();
+    this.startTurnWalCompaction();
   }
 
   async stop(): Promise<void> {
@@ -208,6 +266,10 @@ export class SessionSupervisor implements SessionBackend {
     if (this.idleSweepTimer) {
       clearInterval(this.idleSweepTimer);
       this.idleSweepTimer = null;
+    }
+    if (this.turnWalCompactTimer) {
+      clearInterval(this.turnWalCompactTimer);
+      this.turnWalCompactTimer = null;
     }
 
     await Promise.allSettled(
@@ -281,6 +343,7 @@ export class SessionSupervisor implements SessionBackend {
         enableExtensions: input.enableExtensions,
         pending: new Map<string, PendingRequest>(),
         pendingTurns: new Map<string, PendingTurn>(),
+        activeTurnWalIds: new Map<string, string>(),
         lastHeartbeatAt: Date.now(),
       };
       this.workers.set(input.sessionId, handle);
@@ -356,10 +419,44 @@ export class SessionSupervisor implements SessionBackend {
     this.touchActivity(handle);
 
     const requestedTurnId = options.turnId?.trim() || randomUUID();
+    if (handle.activeTurnWalIds.has(requestedTurnId)) {
+      throw new SessionBackendStateError(
+        "duplicate_active_turn_id",
+        `duplicate active turn id: ${requestedTurnId}`,
+      );
+    }
+    const source = options.source === "heartbeat" ? "heartbeat" : "gateway";
+    const replayWalId = normalizeOptionalString(options.walReplayId);
     const waitForCompletion = options.waitForCompletion === true;
     const completionPromise = waitForCompletion
       ? this.registerPendingTurn(handle, requestedTurnId, WORKER_RPC_TIMEOUT_MS)
       : undefined;
+    let walId = replayWalId;
+    try {
+      if (!walId && this.turnWalStore?.isEnabled) {
+        const walRecord = this.turnWalStore.appendPending(
+          buildGatewayTurnEnvelope({
+            sessionId,
+            turnId: requestedTurnId,
+            prompt,
+            source,
+          }),
+          source,
+          {
+            dedupeKey: `${source}:${sessionId}:${requestedTurnId}`,
+          },
+        );
+        walId = walRecord.walId;
+      }
+      if (walId) {
+        this.turnWalStore?.markInflight(walId);
+        this.trackTurnWalId(handle, requestedTurnId, walId);
+      }
+    } catch (error) {
+      this.untrackTurnWalId(handle, requestedTurnId);
+      this.rejectPendingTurn(handle, requestedTurnId, error);
+      throw error;
+    }
 
     let acknowledgedTurnId = requestedTurnId;
     let agentSessionId = handle.requestedAgentSessionId;
@@ -391,14 +488,22 @@ export class SessionSupervisor implements SessionBackend {
         handle.requestedAgentSessionId = agentSessionId;
       }
     } catch (error) {
+      if (walId) {
+        this.turnWalStore?.markFailed(walId, toErrorMessage(error));
+      }
+      this.untrackTurnWalId(handle, requestedTurnId);
       this.rejectPendingTurn(handle, requestedTurnId, error);
       throw error;
     }
 
-    if (waitForCompletion && completionPromise) {
-      if (acknowledgedTurnId !== requestedTurnId) {
+    if (acknowledgedTurnId !== requestedTurnId) {
+      this.rekeyTurnWalId(handle, requestedTurnId, acknowledgedTurnId);
+      if (waitForCompletion && completionPromise) {
         this.rekeyPendingTurn(handle, requestedTurnId, acknowledgedTurnId);
       }
+    }
+
+    if (waitForCompletion && completionPromise) {
       const output = await completionPromise;
       return {
         sessionId,
@@ -531,6 +636,44 @@ export class SessionSupervisor implements SessionBackend {
     });
   }
 
+  private trackTurnWalId(handle: WorkerHandle, turnId: string, walId: string): void {
+    handle.activeTurnWalIds.set(turnId, walId);
+    const pending = handle.pendingTurns.get(turnId);
+    if (pending) {
+      pending.walId = walId;
+    }
+  }
+
+  private untrackTurnWalId(handle: WorkerHandle, turnId: string): string | undefined {
+    const walId = handle.activeTurnWalIds.get(turnId);
+    handle.activeTurnWalIds.delete(turnId);
+    return walId;
+  }
+
+  private rekeyTurnWalId(handle: WorkerHandle, fromTurnId: string, toTurnId: string): void {
+    if (fromTurnId === toTurnId) {
+      return;
+    }
+    const walId = handle.activeTurnWalIds.get(fromTurnId);
+    if (!walId) {
+      return;
+    }
+    handle.activeTurnWalIds.delete(fromTurnId);
+    handle.activeTurnWalIds.set(toTurnId, walId);
+  }
+
+  private markTurnWalDone(handle: WorkerHandle, turnId: string): void {
+    const walId = this.untrackTurnWalId(handle, turnId);
+    if (!walId) return;
+    this.turnWalStore?.markDone(walId);
+  }
+
+  private markTurnWalFailed(handle: WorkerHandle, turnId: string, error?: string): void {
+    const walId = this.untrackTurnWalId(handle, turnId);
+    if (!walId) return;
+    this.turnWalStore?.markFailed(walId, error);
+  }
+
   private rekeyPendingTurn(handle: WorkerHandle, fromTurnId: string, toTurnId: string): void {
     if (fromTurnId === toTurnId) {
       return;
@@ -651,11 +794,13 @@ export class SessionSupervisor implements SessionBackend {
 
     if (message.kind === "event") {
       if (message.event === "session.turn.end") {
+        this.markTurnWalDone(handle, message.payload.turnId);
         this.resolvePendingTurn(handle, message.payload.turnId, {
           assistantText: message.payload.assistantText,
           toolOutputs: message.payload.toolOutputs,
         });
       } else if (message.event === "session.turn.error") {
+        this.markTurnWalFailed(handle, message.payload.turnId, message.payload.message);
         this.rejectPendingTurn(handle, message.payload.turnId, message.payload.message);
       }
       this.options.onWorkerEvent?.(message);
@@ -715,6 +860,11 @@ export class SessionSupervisor implements SessionBackend {
       pendingTurn.reject(error);
     }
     handle.pendingTurns.clear();
+
+    for (const [, walId] of handle.activeTurnWalIds) {
+      this.turnWalStore?.markFailed(walId, `worker_crash:${error.message}`);
+    }
+    handle.activeTurnWalIds.clear();
   }
 
   private sendToWorker(handle: WorkerHandle, message: ParentToWorkerMessage): void {
@@ -861,6 +1011,79 @@ export class SessionSupervisor implements SessionBackend {
         });
       }
     }
+  }
+
+  private async recoverTurnWal(): Promise<void> {
+    if (!this.turnWalStore?.isEnabled) {
+      return;
+    }
+    const recovery = new TurnWALRecovery({
+      workspaceRoot: this.turnWalStore.workspaceRoot,
+      config: this.turnWalStore.config,
+      scopeFilter: (scope) => scope === this.turnWalStore?.scope,
+      handlers: {
+        gateway: async ({ record }) => {
+          await this.replayRecoveredTurn(record);
+        },
+        heartbeat: async ({ record }) => {
+          await this.replayRecoveredTurn(record);
+        },
+      },
+    });
+
+    const summary = await recovery.recover();
+    if (summary.scanned > 0 || summary.retried > 0 || summary.failed > 0 || summary.expired > 0) {
+      this.options.logger.info("turn wal recovery completed", {
+        scope: this.turnWalStore.scope,
+        scanned: summary.scanned,
+        retried: summary.retried,
+        failed: summary.failed,
+        expired: summary.expired,
+        skipped: summary.skipped,
+      });
+    }
+  }
+
+  private async replayRecoveredTurn(record: TurnWALRecord): Promise<void> {
+    const source = record.source === "heartbeat" ? "heartbeat" : "gateway";
+    const sessionId = normalizeOptionalString(record.envelope.sessionId) ?? record.sessionId;
+    const prompt = extractPromptFromEnvelope(record.envelope);
+    if (!sessionId || !prompt) {
+      this.turnWalStore?.markFailed(record.walId, "recovery_missing_prompt_or_session");
+      return;
+    }
+
+    await this.openSession({ sessionId });
+    await this.sendPrompt(sessionId, prompt, {
+      turnId: record.turnId,
+      source,
+      walReplayId: record.walId,
+      waitForCompletion: false,
+    });
+  }
+
+  private startTurnWalCompaction(): void {
+    if (!this.turnWalStore?.isEnabled || this.turnWalCompactTimer) {
+      return;
+    }
+    this.turnWalCompactTimer = setInterval(() => {
+      try {
+        const result = this.turnWalStore?.compact();
+        if (result && result.dropped > 0) {
+          this.options.logger.debug("turn wal compacted", {
+            scope: this.turnWalStore?.scope,
+            scanned: result.scanned,
+            retained: result.retained,
+            dropped: result.dropped,
+          });
+        }
+      } catch (error) {
+        this.options.logger.warn("turn wal compact failed", {
+          error: toErrorMessage(error),
+        });
+      }
+    }, this.turnWalCompactIntervalMs);
+    this.turnWalCompactTimer.unref?.();
   }
 
   private readRegistry(): ChildRegistryEntry[] {

@@ -51,6 +51,13 @@ const DEBUG_EVENT_TYPES = new Set<string>([
   "cognitive_outcome_reflection_failed",
 ]);
 
+const TURN_WAL_EVENT_TYPES = new Set<string>([
+  "turn_wal_appended",
+  "turn_wal_status_changed",
+  "turn_wal_recovery_completed",
+  "turn_wal_compacted",
+]);
+
 export interface RuntimeRecordEventInput {
   sessionId: string;
   type: string;
@@ -127,6 +134,7 @@ export class EventPipelineService {
   private classifyEventLevel(type: string): "audit" | "ops" | "debug" {
     if (AUDIT_EVENT_TYPES.has(type)) return "audit";
     if (DEBUG_EVENT_TYPES.has(type)) return "debug";
+    if (TURN_WAL_EVENT_TYPES.has(type)) return "ops";
     if (type.startsWith("viewport_")) return "debug";
     if (type.startsWith("cognitive_")) return "debug";
     return "ops";

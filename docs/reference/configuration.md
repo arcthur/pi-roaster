@@ -114,6 +114,12 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `infrastructure.costTracking.maxCostUsdPerSession`: `0`
 - `infrastructure.costTracking.alertThresholdRatio`: `0.8`
 - `infrastructure.costTracking.actionOnExceed`: `warn`
+- `infrastructure.turnWal.enabled`: `true`
+- `infrastructure.turnWal.dir`: `.orchestrator/turn-wal`
+- `infrastructure.turnWal.defaultTtlMs`: `300000`
+- `infrastructure.turnWal.maxRetries`: `2`
+- `infrastructure.turnWal.compactAfterMs`: `3600000`
+- `infrastructure.turnWal.scheduleTurnTtlMs`: `600000`
 
 ### `ui`
 
@@ -151,6 +157,16 @@ With `infrastructure.contextBudget.enabled=true`, runtime enforces:
 - truncation policy (`truncationStrategy`)
 
 `enabled=false` disables runtime token-budget enforcement for context injection.
+
+## Turn WAL Model
+
+With `infrastructure.turnWal.enabled=true`, runtime and daemon surfaces can persist inbound/execution turns
+to append-only JSONL WAL files under `infrastructure.turnWal.dir`.
+
+- `defaultTtlMs` controls stale retry cutoff for normal turns.
+- `scheduleTurnTtlMs` applies a longer default TTL for scheduled turns.
+- `maxRetries` limits startup recovery replay attempts for pending/inflight rows.
+- `compactAfterMs` controls retention window before terminal rows are compacted.
 
 ## Why-Based Public Surface
 

@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { addMilliseconds, subMilliseconds } from "date-fns";
+import type { TurnEnvelope } from "../channels/turn.js";
 import type {
   BrewvaConfig,
   BrewvaEventQuery,
@@ -17,6 +18,7 @@ import type {
   ScheduleIntentUpdateResult,
   ScheduleProjectionSnapshot,
   TaskState,
+  TurnWALRecord,
   TruthState,
 } from "../types.js";
 import {
@@ -51,6 +53,48 @@ function normalizeOptionalString(value: string | undefined): string | undefined 
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function buildScheduleWalDedupeKey(intentId: string, runIndex: number): string {
+  return `schedule:${intentId}:${runIndex}`;
+}
+
+function buildScheduleTurnEnvelope(input: {
+  intent: ScheduleIntentProjectionRecord;
+  runIndex: number;
+  now: number;
+}): TurnEnvelope {
+  return {
+    schema: "brewva.turn.v1",
+    kind: "user",
+    sessionId: input.intent.parentSessionId,
+    turnId: buildScheduleWalDedupeKey(input.intent.intentId, input.runIndex),
+    channel: "schedule",
+    conversationId: input.intent.parentSessionId,
+    timestamp: input.now,
+    parts: [
+      {
+        type: "text",
+        text: `schedule intent ${input.intent.intentId} run ${input.runIndex}: ${input.intent.reason}`,
+      },
+    ],
+    meta: {
+      source: "schedule",
+      intentId: input.intent.intentId,
+      runIndex: input.runIndex,
+      continuityMode: input.intent.continuityMode,
+      goalRef: input.intent.goalRef ?? null,
+    },
+  };
+}
+
+function readIntentIdFromWal(record: TurnWALRecord): string | undefined {
+  const meta = record.envelope.meta;
+  if (!meta || typeof meta !== "object") return undefined;
+  const intentId = (meta as { intentId?: unknown }).intentId;
+  if (typeof intentId !== "string") return undefined;
+  const normalized = intentId.trim();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function detectDefaultCronTimeZone(): string {
@@ -124,6 +168,18 @@ export interface SchedulerRuntimePort {
   subscribeEvents(listener: (event: BrewvaStructuredEvent) => void): () => void;
   getTruthState(sessionId: string): TruthState;
   getTaskState(sessionId: string): TaskState;
+  turnWal?: {
+    appendPending(
+      envelope: TurnEnvelope,
+      source: "schedule",
+      options?: { ttlMs?: number; dedupeKey?: string },
+    ): TurnWALRecord;
+    markInflight(walId: string): TurnWALRecord | undefined;
+    markDone(walId: string): TurnWALRecord | undefined;
+    markFailed(walId: string, error?: string): TurnWALRecord | undefined;
+    markExpired?(walId: string): TurnWALRecord | undefined;
+    listPending(): TurnWALRecord[];
+  };
 }
 
 interface SchedulerLegacyRuntimePort {
@@ -144,6 +200,7 @@ interface SchedulerLegacyRuntimePort {
   subscribeEvents(listener: (event: BrewvaStructuredEvent) => void): () => void;
   getTruthState(sessionId: string): TruthState;
   getTaskState(sessionId: string): TaskState;
+  turnWal?: SchedulerRuntimePort["turnWal"];
 }
 
 function toSchedulerRuntimePort(
@@ -162,6 +219,7 @@ function toSchedulerRuntimePort(
     subscribeEvents: (listener) => runtime.subscribeEvents(listener),
     getTruthState: (sessionId) => runtime.getTruthState(sessionId),
     getTaskState: (sessionId) => runtime.getTaskState(sessionId),
+    turnWal: runtime.turnWal,
   };
 }
 
@@ -849,11 +907,36 @@ export class SchedulerService {
     this.timersByIntentId.delete(intentId);
   }
 
+  private buildPendingScheduleWalIndex(now: number): Map<string, TurnWALRecord> {
+    const rows = this.runtimePort.turnWal?.listPending() ?? [];
+    const byIntentId = new Map<string, TurnWALRecord>();
+    for (const row of rows) {
+      if (row.source !== "schedule") continue;
+      const intentId = readIntentIdFromWal(row);
+      if (!intentId) continue;
+      const ttlMs =
+        typeof row.ttlMs === "number" && Number.isFinite(row.ttlMs) && row.ttlMs > 0
+          ? row.ttlMs
+          : Math.max(this.runtimePort.scheduleConfig.minIntervalMs, 1);
+      const lastActivity = Math.max(row.createdAt, row.updatedAt);
+      if (lastActivity + ttlMs < now) {
+        this.runtimePort.turnWal?.markExpired?.(row.walId);
+        continue;
+      }
+      const existing = byIntentId.get(intentId);
+      if (!existing || row.updatedAt > existing.updatedAt) {
+        byIntentId.set(intentId, row);
+      }
+    }
+    return byIntentId;
+  }
+
   private deferIntentAfterRecovery(input: {
     intent: ScheduleIntentProjectionRecord;
     now: number;
     sequence: number;
     backlogSize: number;
+    reason?: "max_recovery_catchups_exceeded" | "turn_wal_inflight";
   }): boolean {
     const deferredFrom = input.intent.nextRunAt;
     const deferredTo = addMilliseconds(
@@ -883,7 +966,7 @@ export class SchedulerService {
       payload: {
         schema: "brewva.schedule-recovery.v1",
         intentId: input.intent.intentId,
-        reason: "max_recovery_catchups_exceeded",
+        reason: input.reason ?? "max_recovery_catchups_exceeded",
         deferredFrom: deferredFrom ?? null,
         deferredTo,
         queueSequence: input.sequence,
@@ -918,7 +1001,8 @@ export class SchedulerService {
   private async catchUpMissedRuns(): Promise<SchedulerCatchUpSummary> {
     const now = this.now();
     const limit = this.runtimePort.scheduleConfig.maxRecoveryCatchUps;
-    const due = [...this.intentsById.values()]
+    const pendingScheduleWalByIntent = this.buildPendingScheduleWalIndex(now);
+    const allDue = [...this.intentsById.values()]
       .filter(
         (intent) =>
           intent.status === "active" &&
@@ -926,9 +1010,17 @@ export class SchedulerService {
           intent.nextRunAt <= now,
       )
       .toSorted((left, right) => (left.nextRunAt ?? 0) - (right.nextRunAt ?? 0));
+    const deferredByWal = allDue.filter((intent) => {
+      const wal = pendingScheduleWalByIntent.get(intent.intentId);
+      return wal?.status === "inflight";
+    });
+    const due = allDue.filter((intent) => {
+      const wal = pendingScheduleWalByIntent.get(intent.intentId);
+      return wal?.status !== "inflight";
+    });
 
     const sessions = new Map<string, SchedulerCatchUpSessionSummary>();
-    for (const intent of due) {
+    for (const intent of allDue) {
       const existing = sessions.get(intent.parentSessionId);
       if (existing) {
         existing.dueIntents += 1;
@@ -980,6 +1072,25 @@ export class SchedulerService {
       }
     }
     let deferredIntents = 0;
+    for (let index = 0; index < deferredByWal.length; index += 1) {
+      const intent = deferredByWal[index];
+      if (!intent) continue;
+      if (
+        this.deferIntentAfterRecovery({
+          intent,
+          now,
+          sequence: index + 1,
+          backlogSize: deferredByWal.length,
+          reason: "turn_wal_inflight",
+        })
+      ) {
+        deferredIntents += 1;
+        const summary = sessions.get(intent.parentSessionId);
+        if (summary) {
+          summary.deferredIntents += 1;
+        }
+      }
+    }
     for (let index = 0; index < overflow.length; index += 1) {
       const intent = overflow[index];
       if (!intent) continue;
@@ -1000,7 +1111,7 @@ export class SchedulerService {
     }
 
     return {
-      dueIntents: due.length,
+      dueIntents: allDue.length,
       firedIntents: toFire.length,
       deferredIntents,
       sessions: [...sessions.values()].toSorted((left, right) =>
@@ -1101,6 +1212,21 @@ export class SchedulerService {
       this.persistProjection(now);
 
       const runIndex = intent.runCount + 1;
+      const walDedupeKey = buildScheduleWalDedupeKey(intent.intentId, runIndex);
+      let walId: string | undefined;
+      if (this.runtimePort.turnWal) {
+        const walEnvelope = buildScheduleTurnEnvelope({
+          intent,
+          runIndex,
+          now,
+        });
+        const walRecord = this.runtimePort.turnWal.appendPending(walEnvelope, "schedule", {
+          dedupeKey: walDedupeKey,
+        });
+        walId = walRecord.walId;
+        this.runtimePort.turnWal.markInflight(walId);
+      }
+
       let executionErrorText: string | undefined;
       let executionResult: ScheduleIntentExecutionResult | undefined;
 
@@ -1108,6 +1234,13 @@ export class SchedulerService {
         executionResult = (await this.executeIntent(intent)) ?? undefined;
       } catch (error) {
         executionErrorText = error instanceof Error ? error.message : String(error);
+        if (walId) {
+          this.runtimePort.turnWal?.markFailed(walId, executionErrorText);
+        }
+      }
+
+      if (!executionErrorText && walId) {
+        this.runtimePort.turnWal?.markDone(walId);
       }
 
       const evaluationSessionId =

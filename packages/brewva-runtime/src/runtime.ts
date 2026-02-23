@@ -1,4 +1,7 @@
 import { resolve } from "node:path";
+import { TurnWALRecovery } from "./channels/turn-wal-recovery.js";
+import { TurnWALStore } from "./channels/turn-wal.js";
+import type { TurnEnvelope } from "./channels/turn.js";
 import type {
   CognitivePort,
   CognitiveTokenBudgetStatus,
@@ -75,6 +78,9 @@ import type {
   TapeStatusState,
   TaskSpec,
   TaskState,
+  TurnWALRecord,
+  TurnWALRecoveryResult,
+  TurnWALSource,
   VerificationLevel,
   VerificationReport,
   WorkerMergeReport,
@@ -108,6 +114,7 @@ type RuntimeCoreDependencies = {
   parallel: ParallelBudgetManager;
   parallelResults: ParallelResultStore;
   eventStore: BrewvaEventStore;
+  turnWalStore: TurnWALStore;
   contextBudget: ContextBudgetManager;
   contextInjection: ContextInjectionCollector;
   turnReplay: TurnReplayEngine;
@@ -344,6 +351,26 @@ export class BrewvaRuntime {
     listIntents(query?: ScheduleIntentListQuery): Promise<ScheduleIntentProjectionRecord[]>;
     getProjectionSnapshot(): Promise<ScheduleProjectionSnapshot>;
   };
+  readonly turnWal: {
+    appendPending(
+      envelope: TurnEnvelope,
+      source: TurnWALSource,
+      options?: { ttlMs?: number; dedupeKey?: string },
+    ): TurnWALRecord;
+    markInflight(walId: string): TurnWALRecord | undefined;
+    markDone(walId: string): TurnWALRecord | undefined;
+    markFailed(walId: string, error?: string): TurnWALRecord | undefined;
+    markExpired(walId: string): TurnWALRecord | undefined;
+    listPending(): TurnWALRecord[];
+    recover(): Promise<TurnWALRecoveryResult>;
+    compact(): {
+      scope: string;
+      filePath: string;
+      scanned: number;
+      retained: number;
+      dropped: number;
+    };
+  };
   readonly events: {
     record(input: RuntimeRecordEventInput): BrewvaEventRecord | undefined;
     query(sessionId: string, query?: BrewvaEventQuery): BrewvaEventRecord[];
@@ -411,6 +438,7 @@ export class BrewvaRuntime {
   private readonly skillRegistry: SkillRegistry;
   private readonly verificationGate: VerificationGate;
   private readonly eventStore: BrewvaEventStore;
+  private readonly turnWalStore: TurnWALStore;
   private readonly memoryEngine: MemoryEngine;
 
   private readonly sessionState = new RuntimeSessionStateStore();
@@ -444,6 +472,7 @@ export class BrewvaRuntime {
     this.parallel = coreDependencies.parallel;
     this.parallelResults = coreDependencies.parallelResults;
     this.eventStore = coreDependencies.eventStore;
+    this.turnWalStore = coreDependencies.turnWalStore;
     this.contextBudget = coreDependencies.contextBudget;
     this.contextInjection = coreDependencies.contextInjection;
     this.turnReplay = coreDependencies.turnReplay;
@@ -476,6 +505,7 @@ export class BrewvaRuntime {
     this.truth = domainApis.truth;
     this.memory = domainApis.memory;
     this.schedule = domainApis.schedule;
+    this.turnWal = domainApis.turnWal;
     this.events = domainApis.events;
     this.verification = domainApis.verification;
     this.cost = domainApis.cost;
@@ -512,6 +542,19 @@ export class BrewvaRuntime {
     const parallel = new ParallelBudgetManager(this.config.parallel);
     const parallelResults = new ParallelResultStore();
     const eventStore = new BrewvaEventStore(this.config.infrastructure.events, this.workspaceRoot);
+    const turnWalStore = new TurnWALStore({
+      workspaceRoot: this.workspaceRoot,
+      config: this.config.infrastructure.turnWal,
+      scope: "runtime",
+      recordEvent: (input) => {
+        this.recordEvent({
+          sessionId: input.sessionId,
+          type: input.type,
+          payload: input.payload,
+          skipTapeCheckpoint: true,
+        });
+      },
+    });
     const contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
     const contextInjection = new ContextInjectionCollector({
       sourceTokenLimits: this.isContextBudgetEnabled()
@@ -560,6 +603,7 @@ export class BrewvaRuntime {
       parallel,
       parallelResults,
       eventStore,
+      turnWalStore,
       contextBudget,
       contextInjection,
       turnReplay,
@@ -695,6 +739,15 @@ export class BrewvaRuntime {
             subscribeEvents: (listener) => eventPipeline.subscribeEvents(listener),
             getTruthState: (sessionId) => this.getTruthState(sessionId),
             getTaskState: (sessionId) => this.getTaskState(sessionId),
+            turnWal: {
+              appendPending: (envelope, source, walOptions) =>
+                this.turnWalStore.appendPending(envelope, source, walOptions),
+              markInflight: (walId) => this.turnWalStore.markInflight(walId),
+              markDone: (walId) => this.turnWalStore.markDone(walId),
+              markFailed: (walId, error) => this.turnWalStore.markFailed(walId, error),
+              markExpired: (walId) => this.turnWalStore.markExpired(walId),
+              listPending: () => this.turnWalStore.listPending(),
+            },
           },
           enableExecution: false,
         }),
@@ -770,6 +823,7 @@ export class BrewvaRuntime {
     truth: BrewvaRuntime["truth"];
     memory: BrewvaRuntime["memory"];
     schedule: BrewvaRuntime["schedule"];
+    turnWal: BrewvaRuntime["turnWal"];
     events: BrewvaRuntime["events"];
     verification: BrewvaRuntime["verification"];
     cost: BrewvaRuntime["cost"];
@@ -891,6 +945,31 @@ export class BrewvaRuntime {
           this.scheduleIntentService.updateScheduleIntent(sessionId, input),
         listIntents: (query) => this.scheduleIntentService.listScheduleIntents(query),
         getProjectionSnapshot: () => this.scheduleIntentService.getScheduleProjectionSnapshot(),
+      },
+      turnWal: {
+        appendPending: (envelope, source, options) =>
+          this.turnWalStore.appendPending(envelope, source, options),
+        markInflight: (walId) => this.turnWalStore.markInflight(walId),
+        markDone: (walId) => this.turnWalStore.markDone(walId),
+        markFailed: (walId, error) => this.turnWalStore.markFailed(walId, error),
+        markExpired: (walId) => this.turnWalStore.markExpired(walId),
+        listPending: () => this.turnWalStore.listPending(),
+        recover: async () => {
+          const recovery = new TurnWALRecovery({
+            workspaceRoot: this.workspaceRoot,
+            config: this.config.infrastructure.turnWal,
+            recordEvent: (input) => {
+              this.recordEvent({
+                sessionId: input.sessionId,
+                type: input.type,
+                payload: input.payload,
+                skipTapeCheckpoint: true,
+              });
+            },
+          });
+          return await recovery.recover();
+        },
+        compact: () => this.turnWalStore.compact(),
       },
       events: {
         record: (input) => this.eventPipeline.recordEvent(input),
