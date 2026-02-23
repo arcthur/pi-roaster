@@ -64,6 +64,87 @@ export interface MemoryCrystal {
   updatedAt: number;
 }
 
+export const MEMORY_SEARCH_RESULT_SCHEMA = "brewva.memory.search.v1";
+export const MEMORY_RANKING_SIGNAL_SCHEMA = "brewva.memory.ranking.v1";
+export const GLOBAL_CRYSTAL_PROTOCOL_SCHEMA = "brewva.memory.global-crystal.v1";
+export const GLOBAL_LESSON_PROTOCOL_SCHEMA = "brewva.memory.global-lesson.v1";
+
+export interface MemorySearchRankingSignal {
+  schema: typeof MEMORY_RANKING_SIGNAL_SCHEMA;
+  lexical: number;
+  recency: number;
+  confidence: number;
+  weightedLexical: number;
+  weightedRecency: number;
+  weightedConfidence: number;
+  weakSemantic: boolean;
+  rank: number;
+}
+
+export interface MemorySearchRankingModel {
+  schema: typeof MEMORY_RANKING_SIGNAL_SCHEMA;
+  lexicalWeight: number;
+  recencyWeight: number;
+  confidenceWeight: number;
+}
+
+export interface MemoryKnowledgeFacets {
+  pattern: string | null;
+  patterns: string[];
+  rootCause: string | null;
+  rootCauses: string[];
+  recommendation: string | null;
+  recommendations: string[];
+  lessonKey: string | null;
+  lessonKeys: string[];
+  outcomes: {
+    pass: number;
+    fail: number;
+  };
+  sourceSessionIds: string[];
+  sourceSessionCount: number;
+  unitCount: number | null;
+}
+
+export interface MemoryGlobalCrystalProtocol {
+  schema: typeof GLOBAL_CRYSTAL_PROTOCOL_SCHEMA;
+  version: 1;
+  pattern: string | null;
+  patterns: string[];
+  rootCause: string | null;
+  rootCauses: string[];
+  recommendation: string | null;
+  recommendations: string[];
+  lessonKeys: string[];
+  outcomes: {
+    pass: number;
+    fail: number;
+  };
+  sourceSessionIds: string[];
+  sourceSessionCount: number;
+  unitCount: number;
+  updatedAt: number;
+}
+
+export interface MemoryGlobalLessonProtocol {
+  schema: typeof GLOBAL_LESSON_PROTOCOL_SCHEMA;
+  version: 1;
+  lessonKey: string | null;
+  pattern: string | null;
+  patterns: string[];
+  rootCause: string | null;
+  rootCauses: string[];
+  recommendation: string | null;
+  recommendations: string[];
+  outcomes: {
+    pass: number;
+    fail: number;
+  };
+  sourceSessionIds: string[];
+  sourceSessionCount: number;
+  updatedAt: number;
+}
+
 export interface MemoryInsight {
   id: string;
   sessionId: string;
@@ -91,7 +172,7 @@ export interface MemoryEvolvesEdge {
 }
 
 export interface WorkingMemorySection {
-  title: "Now" | "Decisions" | "Constraints" | "Risks" | "Open Threads";
+  title: "Now" | "Decisions" | "Constraints" | "Risks" | "Lessons Learned" | "Open Threads";
   lines: string[];
 }
 
@@ -108,15 +189,24 @@ export interface WorkingMemorySnapshot {
 export interface MemorySearchHit {
   kind: "unit" | "crystal";
   id: string;
+  sourceTier: "session" | "global";
   topic: string;
   excerpt: string;
   score: number;
   confidence: number;
   updatedAt: number;
+  ranking: MemorySearchRankingSignal;
   unitIds?: string[];
+  knowledgeFacets?: MemoryKnowledgeFacets;
+  crystalProtocol?: MemoryGlobalCrystalProtocol;
+  lessonProtocol?: MemoryGlobalLessonProtocol;
 }
 
 export interface MemorySearchResult {
+  schema: typeof MEMORY_SEARCH_RESULT_SCHEMA;
+  version: 1;
+  generatedAt: number;
+  rankingModel: MemorySearchRankingModel;
   sessionId: string;
   query: string;
   scanned: number;
@@ -143,7 +233,7 @@ export interface MemoryUnitCandidate {
 
 export interface MemoryUnitResolveDirective {
   sessionId: string;
-  sourceType: "truth_fact" | "task_blocker" | "memory_signal" | "task_kind";
+  sourceType: "truth_fact" | "task_blocker" | "memory_signal" | "task_kind" | "lesson_key";
   sourceId: string;
   resolvedAt: number;
 }

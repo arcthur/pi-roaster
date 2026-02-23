@@ -350,10 +350,177 @@ function extractVerificationStateReset(event: BrewvaEventRecord): MemoryExtracti
   };
 }
 
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function readOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeLessonKeyToken(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "unknown";
+}
+
+function extractVerificationOutcomeRecorded(event: BrewvaEventRecord): MemoryExtractionResult {
+  const payload =
+    event.payload && typeof event.payload === "object"
+      ? (event.payload as Record<string, unknown>)
+      : {};
+  const outcome =
+    payload.outcome === "pass" || payload.outcome === "fail" ? payload.outcome : ("fail" as const);
+  const level = readOptionalString(payload.level) ?? "unknown";
+  const strategy = readOptionalString(payload.strategy) ?? "unspecified";
+  const lessonKey =
+    readOptionalString(payload.lessonKey) ??
+    `verification:${normalizeLessonKeyToken(level)}:${normalizeLessonKeyToken(strategy)}`;
+  const pattern =
+    readOptionalString(payload.pattern) ?? `verification:${normalizeLessonKeyToken(level)}`;
+  const rootCause =
+    readOptionalString(payload.rootCause) ??
+    (outcome === "fail" ? "verification checks failed" : "verification checks passed");
+  const recommendation =
+    readOptionalString(payload.recommendation) ??
+    (outcome === "fail"
+      ? "adjust strategy and rerun verification"
+      : "reuse successful verification strategy");
+  const failedChecks = toStringArray(payload.failedChecks);
+  const missingEvidence = toStringArray(payload.missingEvidence);
+
+  const statementParts: string[] = [];
+  if (outcome === "fail") {
+    statementParts.push(`Verification failed at ${level} level.`);
+    if (failedChecks.length > 0) {
+      statementParts.push(`Failed checks: ${failedChecks.join(", ")}.`);
+    }
+    if (missingEvidence.length > 0) {
+      statementParts.push(`Missing evidence: ${missingEvidence.join(", ")}.`);
+    }
+  } else {
+    statementParts.push(`Verification passed at ${level} level.`);
+  }
+  statementParts.push(`Root cause: ${rootCause}.`);
+  statementParts.push(`Recommendation: ${recommendation}.`);
+  return {
+    upserts: [
+      {
+        sessionId: event.sessionId,
+        type: "learning",
+        status: "active",
+        topic: "verification lessons",
+        statement: statementParts.join("; "),
+        confidence: outcome === "pass" ? 0.82 : 0.9,
+        sourceRefs: [createSourceRef(event)],
+        metadata: {
+          source: "verification_outcome_recorded",
+          memorySignal:
+            outcome === "pass" ? "verification_outcome_pass" : "verification_outcome_fail",
+          lessonKey,
+          lessonOutcome: outcome,
+          pattern,
+          rootCause,
+          recommendation,
+          verificationOutcome: outcome,
+          verificationLevel: level,
+          failedChecks,
+          missingEvidence,
+        },
+      },
+    ],
+    resolves:
+      outcome === "pass"
+        ? [
+            {
+              sessionId: event.sessionId,
+              sourceType: "lesson_key",
+              sourceId: lessonKey,
+              resolvedAt: event.timestamp,
+            },
+          ]
+        : [],
+  };
+}
+
+function extractCognitiveOutcomeReflection(event: BrewvaEventRecord): MemoryExtractionResult {
+  const payload =
+    event.payload && typeof event.payload === "object"
+      ? (event.payload as Record<string, unknown>)
+      : {};
+  const lesson = readOptionalString(payload.lesson);
+  if (!lesson) return emptyResult();
+
+  const adjusted = readOptionalString(payload.adjustedStrategy);
+  const strategy = readOptionalString(payload.strategy);
+  const outcome =
+    payload.outcome === "pass" || payload.outcome === "fail" ? payload.outcome : "fail";
+  const pattern = readOptionalString(payload.pattern) ?? strategy ?? "verification:reflection";
+  const lessonKey =
+    readOptionalString(payload.lessonKey) ??
+    `reflection:${normalizeLessonKeyToken(pattern)}:${normalizeLessonKeyToken(strategy ?? "none")}`;
+  const rootCause = readOptionalString(payload.rootCause);
+  const recommendation = readOptionalString(payload.recommendation) ?? adjusted;
+  const statementParts = [lesson];
+  if (rootCause) statementParts.push(`Root cause: ${rootCause}.`);
+  if (recommendation) statementParts.push(`Recommendation: ${recommendation}.`);
+  const statement = statementParts.join(" ");
+
+  return {
+    upserts: [
+      {
+        sessionId: event.sessionId,
+        type: "learning",
+        status: "active",
+        topic: "lessons learned",
+        statement,
+        confidence: 0.9,
+        sourceRefs: [createSourceRef(event)],
+        metadata: {
+          source: "cognitive_outcome_reflection",
+          memorySignal: "lesson",
+          lessonKey,
+          lessonOutcome: outcome,
+          pattern,
+          rootCause,
+          recommendation,
+          strategy,
+          adjustedStrategy: adjusted,
+          outcome,
+        },
+      },
+    ],
+    resolves:
+      outcome === "pass"
+        ? [
+            {
+              sessionId: event.sessionId,
+              sourceType: "lesson_key",
+              sourceId: lessonKey,
+              resolvedAt: event.timestamp,
+            },
+          ]
+        : [],
+  };
+}
+
 export function extractMemoryFromEvent(event: BrewvaEventRecord): MemoryExtractionResult {
   if (event.type === TRUTH_EVENT_TYPE) return extractTruth(event);
   if (event.type === TASK_EVENT_TYPE) return extractTask(event);
   if (event.type === "skill_completed") return extractSkillCompleted(event);
   if (event.type === "verification_state_reset") return extractVerificationStateReset(event);
+  if (event.type === "verification_outcome_recorded")
+    return extractVerificationOutcomeRecorded(event);
+  if (event.type === "cognitive_outcome_reflection")
+    return extractCognitiveOutcomeReflection(event);
   return emptyResult();
 }

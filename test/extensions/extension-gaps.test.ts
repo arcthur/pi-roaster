@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  createBrewvaExtension,
   registerContextTransform,
   registerEventStream,
   registerLedgerWriter,
@@ -53,6 +54,20 @@ function invokeHandler<T = unknown>(
     throw new Error(`Missing handler for event: ${eventName}`);
   }
   return handler(event, ctx) as T;
+}
+
+async function invokeHandlerAsync<T = unknown>(
+  handlers: Map<string, Handler[]>,
+  eventName: string,
+  event: Record<string, unknown>,
+  ctx: Record<string, unknown>,
+): Promise<T> {
+  const list = handlers.get(eventName) ?? [];
+  const handler = list[0];
+  if (!handler) {
+    throw new Error(`Missing handler for event: ${eventName}`);
+  }
+  return (await handler(event, ctx)) as T;
 }
 
 function invokeHandlers<T = unknown>(
@@ -106,7 +121,7 @@ function buildRuntimeConfig(patch?: DeepPartial<BrewvaConfig>): BrewvaConfig {
   return deepMerge<BrewvaConfig>(DEFAULT_BREWVA_CONFIG, patch);
 }
 
-function withRuntimeConfig<T extends Record<string, unknown>>(
+function withRuntimeConfig<T extends object>(
   runtime: T,
   patch?: DeepPartial<BrewvaConfig>,
 ): T & { config: BrewvaConfig } {
@@ -222,7 +237,7 @@ function withRuntimeConfig<T extends Record<string, unknown>>(
 }
 
 describe("Extension gaps: context transform", () => {
-  test("registers context hooks and injects hidden context message", () => {
+  test("registers context hooks and injects hidden context message", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const runtime = withRuntimeConfig({
       onTurnStart: () => undefined,
@@ -248,7 +263,7 @@ describe("Extension gaps: context transform", () => {
     expect(handlers.has("turn_end")).toBe(false);
     expect(handlers.has("agent_end")).toBe(false);
 
-    const result = invokeHandler<{
+    const result = await invokeHandlerAsync<{
       systemPrompt?: string;
       message: {
         customType: string;
@@ -278,7 +293,7 @@ describe("Extension gaps: context transform", () => {
     expect(result.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
   });
 
-  test("does not inject context message when budget drops injection", () => {
+  test("does not inject context message when budget drops injection", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const runtime = withRuntimeConfig({
       onTurnStart: () => undefined,
@@ -296,7 +311,10 @@ describe("Extension gaps: context transform", () => {
 
     registerContextTransform(api, runtime);
 
-    const result = invokeHandler<{ systemPrompt?: string; message?: { content?: string } }>(
+    const result = await invokeHandlerAsync<{
+      systemPrompt?: string;
+      message?: { content?: string };
+    }>(
       handlers,
       "before_agent_start",
       {
@@ -317,7 +335,7 @@ describe("Extension gaps: context transform", () => {
     expect(result.message?.content?.includes("[Brewva Context]")).toBe(false);
   });
 
-  test("passes leaf id into runtime injection scope", () => {
+  test("passes leaf id into runtime injection scope", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const scopes: Array<string | undefined> = [];
     const runtime = withRuntimeConfig({
@@ -344,7 +362,7 @@ describe("Extension gaps: context transform", () => {
 
     registerContextTransform(api, runtime);
 
-    invokeHandler(
+    await invokeHandlerAsync(
       handlers,
       "before_agent_start",
       {
@@ -362,6 +380,179 @@ describe("Extension gaps: context transform", () => {
     );
 
     expect(scopes).toEqual(["leaf-1"]);
+  });
+
+  test("prefers async context injection when runtime supports it", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const calls: string[] = [];
+    const runtime = withRuntimeConfig({
+      onTurnStart: () => undefined,
+      observeContextUsage: () => undefined,
+      shouldRequestCompaction: () => false,
+      markContextCompacted: () => undefined,
+      buildContextInjection: () => {
+        calls.push("sync");
+        return {
+          text: "[sync]",
+          accepted: true,
+          originalTokens: 1,
+          finalTokens: 1,
+          truncated: false,
+        };
+      },
+      buildContextInjectionAsync: async () => {
+        calls.push("async");
+        return {
+          text: "[async]",
+          accepted: true,
+          originalTokens: 2,
+          finalTokens: 2,
+          truncated: false,
+        };
+      },
+    } as any);
+
+    registerContextTransform(api, runtime);
+
+    const result = await invokeHandlerAsync<{
+      message: {
+        content: string;
+      };
+    }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "prefer async",
+        systemPrompt: "base prompt",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-async-pref",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(calls).toEqual(["async"]);
+    expect(result.message.content.includes("[async]")).toBe(true);
+  });
+
+  test("allows forcing sync context injection when async is available", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const calls: string[] = [];
+    const runtime = withRuntimeConfig({
+      onTurnStart: () => undefined,
+      observeContextUsage: () => undefined,
+      shouldRequestCompaction: () => false,
+      markContextCompacted: () => undefined,
+      buildContextInjection: () => {
+        calls.push("sync");
+        return {
+          text: "[sync]",
+          accepted: true,
+          originalTokens: 1,
+          finalTokens: 1,
+          truncated: false,
+        };
+      },
+      buildContextInjectionAsync: async () => {
+        calls.push("async");
+        return {
+          text: "[async]",
+          accepted: true,
+          originalTokens: 2,
+          finalTokens: 2,
+          truncated: false,
+        };
+      },
+    } as any);
+
+    registerContextTransform(api, runtime, { preferAsyncContextInjection: false });
+
+    const result = await invokeHandlerAsync<{
+      message: {
+        content: string;
+      };
+    }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "force sync",
+        systemPrompt: "base prompt",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-sync-pref",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(calls).toEqual(["sync"]);
+    expect(result.message.content.includes("[sync]")).toBe(true);
+  });
+
+  test("passes async preference through createBrewvaExtension", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const calls: string[] = [];
+    const runtime = withRuntimeConfig({
+      onTurnStart: () => undefined,
+      observeContextUsage: () => undefined,
+      shouldRequestCompaction: () => false,
+      markContextCompacted: () => undefined,
+      buildContextInjection: () => {
+        calls.push("sync");
+        return {
+          text: "[sync]",
+          accepted: true,
+          originalTokens: 1,
+          finalTokens: 1,
+          truncated: false,
+        };
+      },
+      buildContextInjectionAsync: async () => {
+        calls.push("async");
+        return {
+          text: "[async]",
+          accepted: true,
+          originalTokens: 2,
+          finalTokens: 2,
+          truncated: false,
+        };
+      },
+    } as unknown as BrewvaRuntime);
+
+    const extension = createBrewvaExtension({
+      runtime,
+      registerTools: false,
+      preferAsyncContextInjection: false,
+    });
+    await extension(api);
+
+    const result = await invokeHandlerAsync<{
+      message: {
+        content: string;
+      };
+    }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "factory force sync",
+        systemPrompt: "base prompt",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-factory-sync",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(calls).toEqual(["sync"]);
+    expect(result.message.content.includes("[sync]")).toBe(true);
   });
 
   test("records non-interactive compaction skip when compaction is requested", () => {
@@ -410,7 +601,7 @@ describe("Extension gaps: context transform", () => {
     expect(skippedReasons).toContain("non_interactive_mode");
   });
 
-  test("gates non-session_compact tools when context pressure is critical", () => {
+  test("gates non-session_compact tools when context pressure is critical", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const eventTypes: string[] = [];
     const capturedCompactions: Array<Record<string, unknown>> = [];
@@ -449,7 +640,7 @@ describe("Extension gaps: context transform", () => {
       getSessionId: () => "s-gate",
     };
 
-    const before = invokeHandler<{ message?: { content?: string } }>(
+    const before = await invokeHandlerAsync<{ message?: { content?: string } }>(
       handlers,
       "before_agent_start",
       {
@@ -502,7 +693,7 @@ describe("Extension gaps: context transform", () => {
     expect(eventTypes).toContain("context_compaction_gate_cleared");
   });
 
-  test("does not arm gate when critical usage has recent compaction", () => {
+  test("does not arm gate when critical usage has recent compaction", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const eventTypes: string[] = [];
 
@@ -562,7 +753,10 @@ describe("Extension gaps: context transform", () => {
       },
     );
 
-    const before = invokeHandler<{ systemPrompt?: string; message?: { content?: string } }>(
+    const before = await invokeHandlerAsync<{
+      systemPrompt?: string;
+      message?: { content?: string };
+    }>(
       handlers,
       "before_agent_start",
       {
@@ -582,7 +776,7 @@ describe("Extension gaps: context transform", () => {
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
   });
 
-  test("treats compaction as recent for configured N-turn window", () => {
+  test("treats compaction as recent for configured N-turn window", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const eventTypes: string[] = [];
 
@@ -637,7 +831,10 @@ describe("Extension gaps: context transform", () => {
     );
 
     invokeHandler(handlers, "turn_start", { turnIndex: 4 }, { sessionManager });
-    const withinWindow = invokeHandler<{ message?: { content?: string }; systemPrompt?: string }>(
+    const withinWindow = await invokeHandlerAsync<{
+      message?: { content?: string };
+      systemPrompt?: string;
+    }>(
       handlers,
       "before_agent_start",
       {
@@ -656,7 +853,7 @@ describe("Extension gaps: context transform", () => {
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
 
     invokeHandler(handlers, "turn_start", { turnIndex: 5 }, { sessionManager });
-    const afterWindow = invokeHandler<{ message?: { content?: string } }>(
+    const afterWindow = await invokeHandlerAsync<{ message?: { content?: string } }>(
       handlers,
       "before_agent_start",
       {
@@ -676,7 +873,7 @@ describe("Extension gaps: context transform", () => {
     expect(eventTypes).toContain("critical_without_compact");
   });
 
-  test("hydrates recent compaction from tape events before gating", () => {
+  test("hydrates recent compaction from tape events before gating", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const eventTypes: string[] = [];
 
@@ -721,7 +918,10 @@ describe("Extension gaps: context transform", () => {
 
     invokeHandler(handlers, "turn_start", { turnIndex: 8 }, { sessionManager });
 
-    const before = invokeHandler<{ systemPrompt?: string; message?: { content?: string } }>(
+    const before = await invokeHandlerAsync<{
+      systemPrompt?: string;
+      message?: { content?: string };
+    }>(
       handlers,
       "before_agent_start",
       {

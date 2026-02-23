@@ -1,3 +1,4 @@
+import type { CognitiveTokenBudgetStatus, CognitiveUsage } from "../cognitive/port.js";
 import type { BrewvaConfig, SessionCostSummary, SessionCostTotals } from "../types.js";
 
 export interface ModelUsageInput {
@@ -35,11 +36,16 @@ interface SessionCostState {
   models: Record<string, SessionCostTotals>;
   skills: Record<string, SkillCostState>;
   tools: Record<string, ToolCostState>;
+  cognitiveTokensByTurn: Map<number, number>;
   turnToolCalls: Map<number, Map<string, number>>;
   alerts: CostAlert[];
   sessionThresholdAlerted: boolean;
   sessionCapAlerted: boolean;
   skillCapAlerted: Set<string>;
+}
+
+export interface SessionCostTrackerOptions {
+  cognitiveTokensBudget?: number;
 }
 
 export interface BudgetStatus {
@@ -91,12 +97,31 @@ function normalizeTurn(turn: number): number {
   return Math.max(0, Math.trunc(turn));
 }
 
+function normalizeNonNegativeMetric(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, value);
+}
+
+function deriveCognitiveTotalTokens(usage: CognitiveUsage): number {
+  const explicit = normalizeNonNegativeMetric(usage.totalTokens);
+  if (explicit > 0 || usage.totalTokens === 0) return explicit;
+  const inputTokens = normalizeNonNegativeMetric(usage.inputTokens);
+  const outputTokens = normalizeNonNegativeMetric(usage.outputTokens);
+  const derived = inputTokens + outputTokens;
+  return Number.isFinite(derived) ? Math.max(0, derived) : 0;
+}
+
 export class SessionCostTracker {
   private readonly config: BrewvaConfig["infrastructure"]["costTracking"];
+  private readonly cognitiveTokensBudget: number;
   private readonly sessions = new Map<string, SessionCostState>();
 
-  constructor(config: BrewvaConfig["infrastructure"]["costTracking"]) {
+  constructor(
+    config: BrewvaConfig["infrastructure"]["costTracking"],
+    options: SessionCostTrackerOptions = {},
+  ) {
     this.config = config;
+    this.cognitiveTokensBudget = Math.max(0, Math.trunc(options.cognitiveTokensBudget ?? 0));
   }
 
   recordToolCall(sessionId: string, input: { toolName: string; turn: number }): void {
@@ -173,6 +198,33 @@ export class SessionCostTracker {
     const normalized = skillName.trim() || "(none)";
     const total = state.skills[normalized]?.totals.totalTokens ?? 0;
     return Number.isFinite(total) ? total : 0;
+  }
+
+  getCognitiveBudgetStatus(sessionId: string, turn: number): CognitiveTokenBudgetStatus {
+    const state = this.getOrCreate(sessionId);
+    return this.getCognitiveBudgetStatusFromState(state, normalizeTurn(turn));
+  }
+
+  recordCognitiveUsage(
+    sessionId: string,
+    input: { turn: number; usage: CognitiveUsage },
+  ): CognitiveTokenBudgetStatus {
+    const state = this.getOrCreate(sessionId);
+    const turn = normalizeTurn(input.turn);
+    const totalTokens = deriveCognitiveTotalTokens(input.usage);
+    if (totalTokens > 0) {
+      const consumed = state.cognitiveTokensByTurn.get(turn) ?? 0;
+      state.cognitiveTokensByTurn.set(turn, consumed + totalTokens);
+      if (state.cognitiveTokensByTurn.size > 64) {
+        const keepAfter = Math.max(0, turn - 4);
+        for (const key of state.cognitiveTokensByTurn.keys()) {
+          if (key < keepAfter) {
+            state.cognitiveTokensByTurn.delete(key);
+          }
+        }
+      }
+    }
+    return this.getCognitiveBudgetStatusFromState(state, turn);
   }
 
   getBudgetStatus(sessionId: string, skillName?: string): BudgetStatus {
@@ -267,6 +319,7 @@ export class SessionCostTracker {
           },
         ]),
       ),
+      cognitiveTokensByTurn: new Map<number, number>(),
       turnToolCalls: new Map<number, Map<string, number>>(),
       alerts: snapshot.alerts.map((alert) => ({ ...alert })),
       sessionThresholdAlerted,
@@ -404,6 +457,28 @@ export class SessionCostTracker {
     };
   }
 
+  private getCognitiveBudgetStatusFromState(
+    state: SessionCostState,
+    turn: number,
+  ): CognitiveTokenBudgetStatus {
+    const consumedTokens = state.cognitiveTokensByTurn.get(turn) ?? 0;
+    if (this.cognitiveTokensBudget <= 0) {
+      return {
+        maxTokensPerTurn: 0,
+        consumedTokens,
+        remainingTokens: null,
+        exhausted: false,
+      };
+    }
+    const remainingTokens = Math.max(0, this.cognitiveTokensBudget - consumedTokens);
+    return {
+      maxTokensPerTurn: this.cognitiveTokensBudget,
+      consumedTokens,
+      remainingTokens,
+      exhausted: consumedTokens >= this.cognitiveTokensBudget,
+    };
+  }
+
   private getExceededSkillNames(state: SessionCostState): string[] {
     if (this.config.maxCostUsdPerSkill <= 0) {
       return [];
@@ -422,6 +497,7 @@ export class SessionCostTracker {
       models: {},
       skills: {},
       tools: {},
+      cognitiveTokensByTurn: new Map<number, number>(),
       turnToolCalls: new Map<number, Map<string, number>>(),
       alerts: [],
       sessionThresholdAlerted: false,

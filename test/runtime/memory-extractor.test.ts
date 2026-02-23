@@ -147,6 +147,88 @@ describe("memory extractor", () => {
     ]);
   });
 
+  test("extracts verification_outcome_recorded into verification lessons", () => {
+    const result = extractMemoryFromEvent(
+      event({
+        id: "evt-verification-outcome",
+        type: "verification_outcome_recorded",
+        payload: {
+          schema: "brewva.verification.outcome.v1",
+          level: "standard",
+          outcome: "fail",
+          strategy: "verification_level=standard; checks=tests:fail",
+          failedChecks: ["tests"],
+          missingEvidence: ["tests"],
+          evidence: "tests: exitCode=1",
+        },
+      }),
+    );
+
+    expect(result.upserts).toHaveLength(1);
+    expect(result.upserts[0]?.type).toBe("learning");
+    expect(result.upserts[0]?.topic).toBe("verification lessons");
+    expect(result.upserts[0]?.metadata?.memorySignal).toBe("verification_outcome_fail");
+    expect(typeof result.upserts[0]?.metadata?.lessonKey).toBe("string");
+    expect(result.upserts[0]?.metadata?.lessonOutcome).toBe("fail");
+    expect(typeof result.upserts[0]?.metadata?.pattern).toBe("string");
+    expect(result.upserts[0]?.status).toBe("active");
+    expect(result.resolves).toHaveLength(0);
+  });
+
+  test("verification_outcome_recorded pass resolves fail lessons by lesson key", () => {
+    const result = extractMemoryFromEvent(
+      event({
+        id: "evt-verification-outcome-pass",
+        type: "verification_outcome_recorded",
+        payload: {
+          schema: "brewva.verification.outcome.v1",
+          level: "standard",
+          outcome: "pass",
+          lessonKey: "verification:standard:none:type-check+tests",
+          strategy: "verification_level=standard",
+        },
+      }),
+    );
+
+    expect(result.upserts).toHaveLength(1);
+    expect(result.upserts[0]?.metadata?.memorySignal).toBe("verification_outcome_pass");
+    expect(result.upserts[0]?.metadata?.lessonOutcome).toBe("pass");
+    expect(result.resolves).toEqual([
+      {
+        sessionId: "mem-extractor-session",
+        sourceType: "lesson_key",
+        sourceId: "verification:standard:none:type-check+tests",
+        resolvedAt: 1_700_000_000_000,
+      },
+    ]);
+  });
+
+  test("extracts cognitive_outcome_reflection into lesson units", () => {
+    const result = extractMemoryFromEvent(
+      event({
+        id: "evt-cognitive-reflection",
+        type: "cognitive_outcome_reflection",
+        payload: {
+          stage: "verification_outcome",
+          lesson: "Prefer running type-check before full test suite.",
+          adjustedStrategy: "Run type-check first, then focused tests.",
+          outcome: "fail",
+        },
+      }),
+    );
+
+    expect(result.upserts).toHaveLength(1);
+    expect(result.upserts[0]?.type).toBe("learning");
+    expect(result.upserts[0]?.topic).toBe("lessons learned");
+    expect(result.upserts[0]?.metadata?.memorySignal).toBe("lesson");
+    expect(result.upserts[0]?.metadata?.lessonOutcome).toBe("fail");
+    expect(
+      result.upserts[0]?.statement.includes(
+        "Recommendation: Run type-check first, then focused tests.",
+      ),
+    ).toBe(true);
+  });
+
   test("extracts preference units from soft constraints", () => {
     const result = extractMemoryFromEvent(
       event({

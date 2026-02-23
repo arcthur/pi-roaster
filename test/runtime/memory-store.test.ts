@@ -199,4 +199,136 @@ describe("memory store", () => {
 
     expect(lines.length).toBeLessThan(200);
   });
+
+  test("updateUnitConfidence can decrease confidence for decay flows", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "brewva-memory-store-reweight-"));
+    const store = new MemoryStore({
+      rootDir,
+      workingFile: "working.md",
+    });
+
+    const created = store.upsertUnit(
+      candidate({
+        topic: "test runner",
+        statement: "use bun test instead of jest",
+      }),
+    ).unit;
+    const updated = store.updateUnitConfidence({
+      sessionId: created.sessionId,
+      unitId: created.id,
+      confidence: 0.35,
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.unit.confidence).toBe(0.35);
+  });
+
+  test("removeUnit deletes unit from in-memory index and persisted log", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "brewva-memory-store-remove-"));
+    const store = new MemoryStore({
+      rootDir,
+      workingFile: "working.md",
+    });
+
+    const created = store.upsertUnit(
+      candidate({
+        topic: "build command",
+        statement: "run bun build",
+      }),
+    ).unit;
+    expect(store.listUnits(created.sessionId).some((unit) => unit.id === created.id)).toBe(true);
+    expect(store.removeUnit(created.id)).toBe(true);
+    expect(store.listUnits(created.sessionId).some((unit) => unit.id === created.id)).toBe(false);
+  });
+
+  test("resolveUnits supports lesson_key directives without resolving pass lessons", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "brewva-memory-store-lesson-key-"));
+    const store = new MemoryStore({
+      rootDir,
+      workingFile: "working.md",
+    });
+
+    const failing = store.upsertUnit(
+      candidate({
+        topic: "verification lessons",
+        statement: "verification fail; lesson_key=v1",
+        metadata: {
+          lessonKey: "v1",
+          lessonOutcome: "fail",
+        },
+      }),
+    ).unit;
+    const passing = store.upsertUnit(
+      candidate({
+        topic: "verification lessons",
+        statement: "verification pass; lesson_key=v1",
+        metadata: {
+          lessonKey: "v1",
+          lessonOutcome: "pass",
+        },
+      }),
+    ).unit;
+
+    const resolved = store.resolveUnits({
+      sessionId: "memory-store-session",
+      sourceType: "lesson_key",
+      sourceId: "v1",
+      resolvedAt: Date.now(),
+    });
+    expect(resolved).toBe(1);
+    const units = store.listUnits("memory-store-session");
+    expect(units.find((unit) => unit.id === failing.id)?.status).toBe("resolved");
+    expect(units.find((unit) => unit.id === passing.id)?.status).toBe("active");
+  });
+
+  test("removeUnit tombstone survives reload from disk", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "brewva-memory-store-tombstone-"));
+    const store = new MemoryStore({
+      rootDir,
+      workingFile: "working.md",
+    });
+
+    const created = store.upsertUnit(
+      candidate({
+        topic: "ephemeral fact",
+        statement: "this will be removed",
+      }),
+    ).unit;
+    expect(store.removeUnit(created.id)).toBe(true);
+
+    const reloaded = new MemoryStore({
+      rootDir,
+      workingFile: "working.md",
+    });
+    expect(reloaded.listUnits(created.sessionId).some((unit) => unit.id === created.id)).toBe(
+      false,
+    );
+  });
+
+  test("removeCrystal deletes crystal from in-memory index and persisted log", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "brewva-memory-store-remove-crystal-"));
+    const store = new MemoryStore({
+      rootDir,
+      workingFile: "working.md",
+    });
+
+    const crystal = store.upsertCrystal({
+      sessionId: "memory-store-session",
+      topic: "global pattern: verification:standard",
+      summary: "[GlobalCrystal]\\n- pattern: verification:standard",
+      unitIds: ["u1", "u2"],
+      confidence: 0.9,
+      sourceRefs: [],
+      metadata: {
+        scope: "global",
+      },
+    });
+    expect(store.listCrystals("memory-store-session").some((item) => item.id === crystal.id)).toBe(
+      true,
+    );
+    expect(store.removeCrystal(crystal.id)).toBe(true);
+    expect(store.listCrystals("memory-store-session").some((item) => item.id === crystal.id)).toBe(
+      false,
+    );
+  });
 });

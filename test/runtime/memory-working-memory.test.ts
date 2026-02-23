@@ -15,6 +15,7 @@ function unit(input: {
   status?: MemoryUnit["status"];
   confidence?: number;
   updatedAt?: number;
+  metadata?: MemoryUnit["metadata"];
 }): MemoryUnit {
   const timestamp = input.updatedAt ?? 1_700_000_000_000;
   return {
@@ -34,6 +35,7 @@ function unit(input: {
         timestamp,
       },
     ],
+    metadata: input.metadata,
     createdAt: timestamp,
     updatedAt: timestamp,
     firstSeenAt: timestamp,
@@ -98,6 +100,16 @@ describe("working memory builder", () => {
           topic: "skill",
           statement: "Skill completion should emit semantic event.",
         }),
+        unit({
+          id: "u5",
+          type: "learning",
+          topic: "lessons learned",
+          statement: "When verification fails, tighten strategy before retrying.",
+          metadata: {
+            memorySignal: "lesson",
+            source: "cognitive_outcome_reflection",
+          },
+        }),
       ],
       crystals: [
         crystal("c1", "architecture", "[Crystal]\n- Keep event tape.\n- Build memory projections."),
@@ -110,7 +122,9 @@ describe("working memory builder", () => {
     expect(snapshot.content.includes("Decisions")).toBe(true);
     expect(snapshot.content.includes("Constraints")).toBe(true);
     expect(snapshot.content.includes("Risks")).toBe(true);
+    expect(snapshot.content.includes("Lessons Learned")).toBe(true);
     expect(snapshot.content.includes("Open Threads")).toBe(true);
+    expect(snapshot.content.includes("tighten strategy before retrying")).toBe(true);
   });
 
   test("respects max chars by trimming output", () => {

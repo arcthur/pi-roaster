@@ -260,6 +260,33 @@ export class SessionLifecycleService {
       return;
     }
 
+    if (event.type === "cognitive_usage_recorded" && payload) {
+      const usagePayload =
+        payload.usage && typeof payload.usage === "object" && !Array.isArray(payload.usage)
+          ? (payload.usage as Record<string, unknown>)
+          : null;
+      if (!usagePayload) return;
+      const model =
+        typeof usagePayload.model === "string" && usagePayload.model.trim().length > 0
+          ? usagePayload.model.trim()
+          : undefined;
+      const inputTokens = this.readNonNegativeNumber(usagePayload.inputTokens);
+      const outputTokens = this.readNonNegativeNumber(usagePayload.outputTokens);
+      const totalTokens = this.readNonNegativeNumber(usagePayload.totalTokens);
+      const costUsd = this.readNonNegativeNumber(usagePayload.costUsd);
+      this.costTracker.recordCognitiveUsage(sessionId, {
+        turn,
+        usage: {
+          model,
+          inputTokens: inputTokens ?? undefined,
+          outputTokens: outputTokens ?? undefined,
+          totalTokens: totalTokens ?? undefined,
+          costUsd: costUsd ?? undefined,
+        },
+      });
+      return;
+    }
+
     if (event.type !== "cost_update" || !payload) return;
 
     const model = typeof payload.model === "string" ? payload.model.trim() : "";

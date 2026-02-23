@@ -131,6 +131,21 @@ describe("Brewva config loader normalization", () => {
               confidence: 2,
             },
             evolvesMode: "unsupported",
+            cognitive: {
+              mode: "unsupported",
+              maxInferenceCallsPerRefresh: -2,
+              maxRankCandidatesPerSearch: -4,
+              maxReflectionsPerVerification: -3,
+              maxTokensPerTurn: -50,
+            },
+            global: {
+              enabled: "yes",
+              minConfidence: 9,
+              minSessionRecurrence: -4,
+              decayIntervalDays: -2,
+              decayFactor: -1,
+              pruneBelowConfidence: 2,
+            },
           },
         },
         null,
@@ -152,6 +167,17 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.memory.retrievalWeights.recency).toBe(0.5);
     expect(loaded.memory.retrievalWeights.confidence).toBe(0.5);
     expect(loaded.memory.evolvesMode).toBe(defaults.evolvesMode);
+    expect(loaded.memory.cognitive.mode).toBe(defaults.cognitive.mode);
+    expect(loaded.memory.cognitive.maxInferenceCallsPerRefresh).toBe(0);
+    expect(loaded.memory.cognitive.maxRankCandidatesPerSearch).toBe(0);
+    expect(loaded.memory.cognitive.maxReflectionsPerVerification).toBe(0);
+    expect(loaded.memory.cognitive.maxTokensPerTurn).toBe(0);
+    expect(loaded.memory.global.enabled).toBe(defaults.global.enabled);
+    expect(loaded.memory.global.minConfidence).toBe(1);
+    expect(loaded.memory.global.minSessionRecurrence).toBe(2);
+    expect(loaded.memory.global.decayIntervalDays).toBe(defaults.global.decayIntervalDays);
+    expect(loaded.memory.global.decayFactor).toBe(0);
+    expect(loaded.memory.global.pruneBelowConfidence).toBe(1);
   });
 
   test("returns isolated config instances when no config file exists", () => {

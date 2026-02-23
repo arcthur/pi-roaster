@@ -342,6 +342,21 @@ export interface BrewvaConfig {
       confidence: number;
     };
     evolvesMode: "off" | "shadow";
+    cognitive: {
+      mode: "off" | "shadow" | "active";
+      maxInferenceCallsPerRefresh: number;
+      maxRankCandidatesPerSearch: number;
+      maxReflectionsPerVerification: number;
+      maxTokensPerTurn: number;
+    };
+    global: {
+      enabled: boolean;
+      minConfidence: number;
+      minSessionRecurrence: number;
+      decayIntervalDays: number;
+      decayFactor: number;
+      pruneBelowConfidence: number;
+    };
   };
   security: {
     sanitizeContext: boolean;
@@ -416,6 +431,14 @@ export interface BrewvaConfig {
   };
 }
 
+type DeepPartial<T> = T extends readonly (infer U)[]
+  ? readonly DeepPartial<U>[]
+  : T extends (infer U)[]
+    ? DeepPartial<U>[]
+    : T extends object
+      ? { [K in keyof T]?: DeepPartial<T[K]> }
+      : T;
+
 // JSON file schema for `.brewva/brewva.json` (and global `$XDG_CONFIG_HOME/brewva/brewva.json`).
 // This is a patch/overlay file: all fields are optional and merged on top of defaults.
 export interface BrewvaConfigFile {
@@ -432,7 +455,7 @@ export interface BrewvaConfigFile {
   tape?: Partial<Omit<BrewvaConfig["tape"], "tapePressureThresholds">> & {
     tapePressureThresholds?: Partial<BrewvaConfig["tape"]["tapePressureThresholds"]>;
   };
-  memory?: Partial<BrewvaConfig["memory"]>;
+  memory?: DeepPartial<BrewvaConfig["memory"]>;
   security?: Partial<BrewvaConfig["security"]>;
   schedule?: Partial<BrewvaConfig["schedule"]>;
   parallel?: Partial<BrewvaConfig["parallel"]>;

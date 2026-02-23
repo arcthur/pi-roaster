@@ -1,5 +1,21 @@
 import { differenceInMilliseconds } from "date-fns";
-import type { MemoryCrystal, MemorySearchResult, MemoryUnit, MemorySearchHit } from "./types.js";
+import {
+  buildKnowledgeFacetsFromCrystalProtocol,
+  buildKnowledgeFacetsFromLessonProtocol,
+  readGlobalCrystalProtocol,
+  readGlobalLessonProtocol,
+  readLearningKnowledgeFacets,
+} from "./global-protocol.js";
+import {
+  MEMORY_RANKING_SIGNAL_SCHEMA,
+  MEMORY_SEARCH_RESULT_SCHEMA,
+  type MemoryCrystal,
+  type MemorySearchHit,
+  type MemorySearchRankingModel,
+  type MemorySearchRankingSignal,
+  type MemorySearchResult,
+  type MemoryUnit,
+} from "./types.js";
 
 export interface MemoryRetrievalWeights {
   lexical: number;
@@ -13,6 +29,9 @@ const DEFAULT_RETRIEVAL_WEIGHTS: MemoryRetrievalWeights = {
   confidence: 0.2,
 };
 
+const SEARCH_RESULT_VERSION = 1 as const;
+const GLOBAL_SESSION_ID = "__global__";
+
 const TOKEN_ALIASES: Record<string, string[]> = {
   db: ["database", "sql", "postgres", "postgresql", "mysql", "sqlite"],
   database: ["db", "sql", "postgres", "postgresql", "mysql", "sqlite"],
@@ -24,6 +43,10 @@ const TOKEN_ALIASES: Record<string, string[]> = {
   verification: ["verify", "validated", "testing", "test"],
   verify: ["verification", "validated", "testing", "test"],
 };
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
 
 function stem(token: string): string {
   if (token.length <= 3) return token;
@@ -101,16 +124,37 @@ function normalizeWeights(input?: MemoryRetrievalWeights): MemoryRetrievalWeight
   };
 }
 
-function weakSemanticScore(
-  recency: number,
-  confidence: number,
-  weights: MemoryRetrievalWeights,
-): number {
-  return (weights.recency * recency + weights.confidence * confidence) * 0.45;
-}
-
 function weakSemanticFloor(weights: MemoryRetrievalWeights): number {
   return Math.max(0.05, Math.min(0.2, (weights.recency + weights.confidence) * 0.35));
+}
+
+function sourceTierForSession(sessionId: string): MemorySearchHit["sourceTier"] {
+  return sessionId === GLOBAL_SESSION_ID ? "global" : "session";
+}
+
+function buildRankingSignal(input: {
+  lexical: number;
+  recency: number;
+  confidence: number;
+  weights: MemoryRetrievalWeights;
+  weakSemantic: boolean;
+}): MemorySearchRankingSignal {
+  const semanticScale = input.weakSemantic ? 0.45 : 1;
+  return {
+    schema: MEMORY_RANKING_SIGNAL_SCHEMA,
+    lexical: input.lexical,
+    recency: input.recency,
+    confidence: input.confidence,
+    weightedLexical: input.weakSemantic ? 0 : input.weights.lexical * input.lexical,
+    weightedRecency: input.weights.recency * input.recency * semanticScale,
+    weightedConfidence: input.weights.confidence * input.confidence * semanticScale,
+    weakSemantic: input.weakSemantic,
+    rank: 0,
+  };
+}
+
+function rankSignalScore(signal: MemorySearchRankingSignal): number {
+  return signal.weightedLexical + signal.weightedRecency + signal.weightedConfidence;
 }
 
 function scoreUnit(
@@ -119,25 +163,50 @@ function scoreUnit(
   weights: MemoryRetrievalWeights,
 ): MemorySearchHit | null {
   if (unit.status === "superseded") return null;
+  if (
+    unit.type === "learning" &&
+    unit.status === "resolved" &&
+    unit.metadata?.["lessonOutcome"] === "fail"
+  ) {
+    return null;
+  }
   const taskKind = unit.metadata?.["taskKind"];
   if (taskKind === "status_set" && unit.metadata?.["memorySignal"] !== "verification") return null;
   const lexical = lexicalScore(queryTokens, tokenize(`${unit.topic} ${unit.statement}`));
   const recency = recencyScore(unit.updatedAt);
   const confidence = clampConfidence(unit.confidence);
-  const score =
-    lexical > 0
-      ? weights.lexical * lexical + weights.recency * recency + weights.confidence * confidence
-      : weakSemanticScore(recency, confidence, weights);
-  if (lexical <= 0 && score < weakSemanticFloor(weights)) return null;
+  const ranking = buildRankingSignal({
+    lexical,
+    recency,
+    confidence,
+    weights,
+    weakSemantic: lexical <= 0,
+  });
+  const score = rankSignalScore(ranking);
+  if (ranking.weakSemantic && score < weakSemanticFloor(weights)) return null;
   if (score <= 0) return null;
+  const lessonProtocol =
+    unit.sessionId === GLOBAL_SESSION_ID && unit.type === "learning"
+      ? (readGlobalLessonProtocol(unit.metadata) ?? undefined)
+      : undefined;
+  const knowledgeFacets =
+    unit.type === "learning"
+      ? (readLearningKnowledgeFacets(unit.metadata) ?? undefined)
+      : undefined;
   return {
     kind: "unit",
     id: unit.id,
+    sourceTier: sourceTierForSession(unit.sessionId),
     topic: unit.topic,
     excerpt: toExcerpt(unit.statement),
     score,
     confidence,
     updatedAt: unit.updatedAt,
+    ranking,
+    lessonProtocol,
+    knowledgeFacets:
+      knowledgeFacets ??
+      (lessonProtocol ? buildKnowledgeFacetsFromLessonProtocol(lessonProtocol) : undefined),
   };
 }
 
@@ -149,26 +218,63 @@ function scoreCrystal(
   const lexical = lexicalScore(queryTokens, tokenize(`${crystal.topic} ${crystal.summary}`));
   const recency = recencyScore(crystal.updatedAt);
   const confidence = clampConfidence(crystal.confidence);
-  const score =
-    lexical > 0
-      ? weights.lexical * lexical + weights.recency * recency + weights.confidence * confidence
-      : weakSemanticScore(recency, confidence, weights);
-  if (lexical <= 0 && score < weakSemanticFloor(weights)) return null;
+  const ranking = buildRankingSignal({
+    lexical,
+    recency,
+    confidence,
+    weights,
+    weakSemantic: lexical <= 0,
+  });
+  const score = rankSignalScore(ranking);
+  if (ranking.weakSemantic && score < weakSemanticFloor(weights)) return null;
   if (score <= 0) return null;
+  const protocol = readGlobalCrystalProtocol(crystal.metadata) ?? undefined;
   return {
     kind: "crystal",
     id: crystal.id,
+    sourceTier: sourceTierForSession(crystal.sessionId),
     topic: crystal.topic,
     excerpt: toExcerpt(crystal.summary),
     score,
     confidence,
     updatedAt: crystal.updatedAt,
+    ranking,
     unitIds: crystal.unitIds,
+    crystalProtocol: protocol,
+    knowledgeFacets: protocol ? buildKnowledgeFacetsFromCrystalProtocol(protocol) : undefined,
+  };
+}
+
+function buildRankingModel(weights: MemoryRetrievalWeights): MemorySearchRankingModel {
+  return {
+    schema: MEMORY_RANKING_SIGNAL_SCHEMA,
+    lexicalWeight: round3(weights.lexical),
+    recencyWeight: round3(weights.recency),
+    confidenceWeight: round3(weights.confidence),
+  };
+}
+
+function finalizeHit(hit: MemorySearchHit, rank: number): MemorySearchHit {
+  return {
+    ...hit,
+    score: round3(hit.score),
+    confidence: round3(hit.confidence),
+    ranking: {
+      ...hit.ranking,
+      lexical: round3(hit.ranking.lexical),
+      recency: round3(hit.ranking.recency),
+      confidence: round3(hit.ranking.confidence),
+      weightedLexical: round3(hit.ranking.weightedLexical),
+      weightedRecency: round3(hit.ranking.weightedRecency),
+      weightedConfidence: round3(hit.ranking.weightedConfidence),
+      rank,
+    },
   };
 }
 
 export function searchMemory(input: {
   sessionId: string;
+  includeSessionIds?: string[];
   query: string;
   units: MemoryUnit[];
   crystals: MemoryCrystal[];
@@ -176,8 +282,14 @@ export function searchMemory(input: {
   weights?: MemoryRetrievalWeights;
 }): MemorySearchResult {
   const query = input.query.trim();
+  const weights = normalizeWeights(input.weights);
+  const rankingModel = buildRankingModel(weights);
   if (!query) {
     return {
+      schema: MEMORY_SEARCH_RESULT_SCHEMA,
+      version: SEARCH_RESULT_VERSION,
+      generatedAt: Date.now(),
+      rankingModel,
       sessionId: input.sessionId,
       query,
       scanned: 0,
@@ -186,12 +298,17 @@ export function searchMemory(input: {
   }
 
   const queryTokens = tokenize(query);
-  const weights = normalizeWeights(input.weights);
+  const allowedSessionIds = new Set<string>([input.sessionId]);
+  for (const extraSessionId of input.includeSessionIds ?? []) {
+    const normalized = extraSessionId.trim();
+    if (!normalized) continue;
+    allowedSessionIds.add(normalized);
+  }
   const hits: MemorySearchHit[] = [];
   let scanned = 0;
 
   for (const unit of input.units) {
-    if (unit.sessionId !== input.sessionId) continue;
+    if (!allowedSessionIds.has(unit.sessionId)) continue;
     const hit = scoreUnit(queryTokens, unit, weights);
     scanned += 1;
     if (!hit) continue;
@@ -199,7 +316,7 @@ export function searchMemory(input: {
   }
 
   for (const crystal of input.crystals) {
-    if (crystal.sessionId !== input.sessionId) continue;
+    if (!allowedSessionIds.has(crystal.sessionId)) continue;
     const hit = scoreCrystal(queryTokens, crystal, weights);
     scanned += 1;
     if (!hit) continue;
@@ -212,14 +329,14 @@ export function searchMemory(input: {
       if (right.score !== left.score) return right.score - left.score;
       return right.updatedAt - left.updatedAt;
     })
-    .slice(0, limit);
-
-  for (const hit of selected) {
-    hit.score = Math.round(hit.score * 1000) / 1000;
-    hit.confidence = Math.round(hit.confidence * 1000) / 1000;
-  }
+    .slice(0, limit)
+    .map((hit, index) => finalizeHit(hit, index + 1));
 
   return {
+    schema: MEMORY_SEARCH_RESULT_SCHEMA,
+    version: SEARCH_RESULT_VERSION,
+    generatedAt: Date.now(),
+    rankingModel,
     sessionId: input.sessionId,
     query,
     scanned,

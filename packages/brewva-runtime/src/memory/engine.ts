@@ -1,25 +1,97 @@
+import { join } from "node:path";
 import { format, getHours } from "date-fns";
+import type {
+  CognitiveInferRelationOutput,
+  CognitivePort,
+  CognitiveTokenBudgetStatus,
+  CognitiveUsage,
+} from "../cognitive/port.js";
+import {
+  cognitiveBudgetPayload,
+  cognitiveUsagePayload,
+  normalizeCognitiveRankResult,
+  normalizeCognitiveUsage,
+} from "../cognitive/usage.js";
 import type { BrewvaEventRecord } from "../types.js";
 import { compileCrystalDrafts } from "./crystal.js";
 import { extractMemoryFromEvent } from "./extractor.js";
+import {
+  GlobalMemoryTier,
+  GLOBAL_MEMORY_SESSION_ID,
+  type GlobalMemorySnapshot,
+} from "./global-tier.js";
 import { searchMemory, type MemoryRetrievalWeights } from "./retrieval.js";
 import { MemoryStore } from "./store.js";
 import type {
   MemoryCrystal,
   MemoryEvolvesEdge,
+  MemoryKnowledgeFacets,
   MemoryInsight,
   MemorySearchResult,
   MemoryUnit,
   WorkingMemorySnapshot,
 } from "./types.js";
+import { MEMORY_RANKING_SIGNAL_SCHEMA, MEMORY_SEARCH_RESULT_SCHEMA } from "./types.js";
 import { buildWorkingMemorySnapshot } from "./working-memory.js";
+
+const GLOBAL_LIFECYCLE_COOLDOWN_MS = 60_000;
 
 function toDayKey(date: Date): string {
   return format(date, "yyyy-MM-dd");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object";
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
+  return (
+    !!value &&
+    (typeof value === "object" || typeof value === "function") &&
+    "then" in value &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+function clampProbability(value: number, fallback = 0.5): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.min(1, value));
+}
+
+function sanitizeRationale(value: string | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return null;
+  const maxChars = 500;
+  return compact.length > maxChars ? `${compact.slice(0, maxChars - 3)}...` : compact;
+}
+
+function sanitizeRankScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(Math.max(0, value) * 1000) / 1000;
+}
+
+function normalizeTopicKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function formatRecallKnowledgeFacets(facets: MemoryKnowledgeFacets | undefined): string | null {
+  if (!facets) return null;
+  const parts: string[] = [];
+  if (facets.pattern) {
+    parts.push(`pattern=${facets.pattern}`);
+  }
+  if (facets.rootCause) {
+    parts.push(`root_cause=${facets.rootCause}`);
+  }
+  if (facets.recommendation) {
+    parts.push(`recommendation=${facets.recommendation}`);
+  }
+  if (facets.outcomes.pass > 0 || facets.outcomes.fail > 0) {
+    parts.push(`outcomes=pass:${facets.outcomes.pass},fail:${facets.outcomes.fail}`);
+  }
+  if (parts.length === 0) return null;
+  return `facets: ${parts.join("; ")}`;
 }
 
 function inferEvolvesRelation(input: {
@@ -87,6 +159,23 @@ export interface MemoryEngineOptions {
   retrievalTopK: number;
   retrievalWeights?: MemoryRetrievalWeights;
   evolvesMode: "off" | "shadow";
+  cognitiveMode?: "off" | "shadow" | "active";
+  cognitiveMaxInferenceCallsPerRefresh?: number;
+  cognitiveMaxRankCandidatesPerSearch?: number;
+  cognitivePort?: CognitivePort;
+  getCognitiveBudgetStatus?: (sessionId: string) => CognitiveTokenBudgetStatus;
+  recordCognitiveUsage?: (input: {
+    sessionId: string;
+    stage: string;
+    usage: CognitiveUsage;
+  }) => CognitiveTokenBudgetStatus;
+  globalEnabled?: boolean;
+  globalMinConfidence?: number;
+  globalMinSessionRecurrence?: number;
+  globalDecayIntervalDays?: number;
+  globalDecayFactor?: number;
+  globalPruneBelowConfidence?: number;
+  globalLifecycleCooldownMs?: number;
   recordEvent?: (input: {
     sessionId: string;
     type: string;
@@ -114,8 +203,27 @@ export class MemoryEngine {
   private readonly retrievalTopK: number;
   private readonly retrievalWeights: MemoryRetrievalWeights;
   private readonly evolvesMode: "off" | "shadow";
+  private readonly cognitiveMode: "off" | "shadow" | "active";
+  private readonly cognitiveMaxInferenceCallsPerRefresh: number;
+  private readonly cognitiveMaxRankCandidatesPerSearch: number;
+  private readonly cognitivePort?: CognitivePort;
+  private readonly getCognitiveBudgetStatus?: (sessionId: string) => CognitiveTokenBudgetStatus;
+  private readonly recordCognitiveUsage?: (input: {
+    sessionId: string;
+    stage: string;
+    usage: CognitiveUsage;
+  }) => CognitiveTokenBudgetStatus;
+  private readonly globalEnabled: boolean;
+  private readonly globalMinConfidence: number;
+  private readonly globalMinSessionRecurrence: number;
+  private readonly globalDecayIntervalDays: number;
+  private readonly globalDecayFactor: number;
+  private readonly globalPruneBelowConfidence: number;
+  private readonly globalLifecycleCooldownMs: number;
   private readonly recordEvent?: MemoryEngineOptions["recordEvent"];
   private store: MemoryStore | null = null;
+  private globalTier: GlobalMemoryTier | null = null;
+  private globalLifecycleLastRunAt = 0;
 
   constructor(options: MemoryEngineOptions) {
     this.enabled = options.enabled;
@@ -127,6 +235,34 @@ export class MemoryEngine {
     this.retrievalTopK = Math.max(1, options.retrievalTopK);
     this.retrievalWeights = normalizeRetrievalWeights(options.retrievalWeights);
     this.evolvesMode = options.evolvesMode;
+    this.cognitiveMode = options.cognitiveMode ?? "off";
+    this.cognitiveMaxInferenceCallsPerRefresh = Math.max(
+      0,
+      Math.trunc(options.cognitiveMaxInferenceCallsPerRefresh ?? 0),
+    );
+    this.cognitiveMaxRankCandidatesPerSearch = Math.max(
+      0,
+      Math.trunc(options.cognitiveMaxRankCandidatesPerSearch ?? 0),
+    );
+    this.cognitivePort = options.cognitivePort;
+    this.getCognitiveBudgetStatus = options.getCognitiveBudgetStatus;
+    this.recordCognitiveUsage = options.recordCognitiveUsage;
+    this.globalEnabled = options.globalEnabled ?? false;
+    this.globalMinConfidence = clampProbability(options.globalMinConfidence ?? 0.8, 0.8);
+    this.globalMinSessionRecurrence = Math.max(
+      2,
+      Math.trunc(options.globalMinSessionRecurrence ?? 2),
+    );
+    this.globalDecayIntervalDays = Math.max(1, Math.trunc(options.globalDecayIntervalDays ?? 7));
+    this.globalDecayFactor = clampProbability(options.globalDecayFactor ?? 0.95, 0.95);
+    this.globalPruneBelowConfidence = clampProbability(
+      options.globalPruneBelowConfidence ?? 0.3,
+      0.3,
+    );
+    this.globalLifecycleCooldownMs = Math.max(
+      0,
+      options.globalLifecycleCooldownMs ?? GLOBAL_LIFECYCLE_COOLDOWN_MS,
+    );
     this.recordEvent = options.recordEvent;
   }
 
@@ -202,6 +338,48 @@ export class MemoryEngine {
       }
 
       const units = store.listUnits(input.sessionId);
+      if (this.globalEnabled) {
+        const nowMs = Date.now();
+        if (nowMs - this.globalLifecycleLastRunAt >= this.globalLifecycleCooldownMs) {
+          this.globalLifecycleLastRunAt = nowMs;
+          const tier = this.getGlobalTier();
+          if (tier) {
+            const lifecycle = tier.runLifecycle({
+              sessionId: input.sessionId,
+              sessionUnits: units,
+              allUnits: store.listUnits(),
+            });
+            if (
+              lifecycle.promoted > 0 ||
+              lifecycle.refreshed > 0 ||
+              lifecycle.decayed > 0 ||
+              lifecycle.pruned > 0 ||
+              lifecycle.resolvedByPass > 0 ||
+              lifecycle.crystalsCompiled > 0 ||
+              lifecycle.crystalsRemoved > 0
+            ) {
+              const globalSnapshot = tier.snapshot();
+              this.recordEvent?.({
+                sessionId: input.sessionId,
+                type: "memory_global_sync",
+                payload: {
+                  stage: "refresh",
+                  scannedCandidates: lifecycle.scannedCandidates,
+                  promoted: lifecycle.promoted,
+                  refreshed: lifecycle.refreshed,
+                  decayed: lifecycle.decayed,
+                  pruned: lifecycle.pruned,
+                  resolvedByPass: lifecycle.resolvedByPass,
+                  crystalsCompiled: lifecycle.crystalsCompiled,
+                  crystalsRemoved: lifecycle.crystalsRemoved,
+                  promotedUnitIds: lifecycle.promotedUnitIds,
+                  global: globalSnapshot as unknown as Record<string, unknown>,
+                },
+              });
+            }
+          }
+        }
+      }
       const drafts = compileCrystalDrafts({
         sessionId: input.sessionId,
         units,
@@ -291,9 +469,21 @@ export class MemoryEngine {
     };
   }
 
-  search(sessionId: string, input: { query: string; limit?: number }): MemorySearchResult {
+  private buildSearchResult(
+    sessionId: string,
+    input: { query: string; limit?: number },
+  ): MemorySearchResult {
     if (!this.enabled) {
       return {
+        schema: MEMORY_SEARCH_RESULT_SCHEMA,
+        version: 1,
+        generatedAt: Date.now(),
+        rankingModel: {
+          schema: MEMORY_RANKING_SIGNAL_SCHEMA,
+          lexicalWeight: this.retrievalWeights.lexical,
+          recencyWeight: this.retrievalWeights.recency,
+          confidenceWeight: this.retrievalWeights.confidence,
+        },
         sessionId,
         query: input.query,
         scanned: 0,
@@ -301,14 +491,99 @@ export class MemoryEngine {
       };
     }
     const store = this.getStore();
-    return searchMemory({
+    const globalTier = this.globalEnabled ? this.getGlobalTier() : null;
+    const sessionUnits = store.listUnits(sessionId);
+    const globalUnits = globalTier?.listUnits() ?? [];
+    const sessionCrystals = store.listCrystals(sessionId);
+    const globalCrystals = globalTier?.listCrystals() ?? [];
+
+    const sessionFingerprints = new Set(sessionUnits.map((unit) => unit.fingerprint));
+    const uniqueGlobalUnits = globalUnits.filter(
+      (unit) => !sessionFingerprints.has(unit.fingerprint),
+    );
+    const sessionCrystalTopics = new Set(
+      sessionCrystals.map((crystal) => normalizeTopicKey(crystal.topic)),
+    );
+    const uniqueGlobalCrystals = globalCrystals.filter(
+      (crystal) => !sessionCrystalTopics.has(normalizeTopicKey(crystal.topic)),
+    );
+    const combinedUnits =
+      uniqueGlobalUnits.length > 0 ? [...sessionUnits, ...uniqueGlobalUnits] : sessionUnits;
+    const combinedCrystals =
+      uniqueGlobalCrystals.length > 0
+        ? [...sessionCrystals, ...uniqueGlobalCrystals]
+        : sessionCrystals;
+    const includeGlobal = uniqueGlobalUnits.length > 0 || uniqueGlobalCrystals.length > 0;
+    const result = searchMemory({
       sessionId,
       query: input.query,
-      units: store.listUnits(sessionId),
-      crystals: store.listCrystals(sessionId),
+      includeSessionIds: includeGlobal ? [GLOBAL_MEMORY_SESSION_ID] : undefined,
+      units: combinedUnits,
+      crystals: combinedCrystals,
       limit: Math.max(1, input.limit ?? this.retrievalTopK),
       weights: this.retrievalWeights,
     });
+    if (includeGlobal) {
+      const globalUnitIds = new Set(uniqueGlobalUnits.map((unit) => unit.id));
+      const globalCrystalIds = new Set(uniqueGlobalCrystals.map((crystal) => crystal.id));
+      const globalHits = result.hits.filter(
+        (hit) => globalUnitIds.has(hit.id) || globalCrystalIds.has(hit.id),
+      );
+      if (globalHits.length > 0) {
+        const globalUnitHits = globalHits.filter((hit) => hit.kind === "unit").length;
+        const globalCrystalHits = globalHits.filter((hit) => hit.kind === "crystal").length;
+        this.recordEvent?.({
+          sessionId,
+          type: "memory_global_recall",
+          payload: {
+            schema: result.schema,
+            rankingSchema: result.rankingModel.schema,
+            query: input.query.trim(),
+            totalGlobalUnits: uniqueGlobalUnits.length,
+            totalGlobalCrystals: uniqueGlobalCrystals.length,
+            matchedGlobalHits: globalHits.length,
+            matchedGlobalUnitHits: globalUnitHits,
+            matchedGlobalCrystalHits: globalCrystalHits,
+            topHitIds: globalHits.slice(0, 5).map((hit) => hit.id),
+            topHitSignals: globalHits.slice(0, 5).map((hit) => ({
+              id: hit.id,
+              rank: hit.ranking.rank,
+              score: hit.score,
+              weightedLexical: hit.ranking.weightedLexical,
+              weightedRecency: hit.ranking.weightedRecency,
+              weightedConfidence: hit.ranking.weightedConfidence,
+              weakSemantic: hit.ranking.weakSemantic,
+            })),
+          },
+        });
+      }
+    }
+    return result;
+  }
+
+  search(sessionId: string, input: { query: string; limit?: number }): MemorySearchResult {
+    const result = this.buildSearchResult(sessionId, input);
+    void this.maybeRecordCognitiveRelevanceRanking({
+      sessionId,
+      query: input.query,
+      result,
+      allowAsyncApply: false,
+    });
+    return result;
+  }
+
+  async searchAsync(
+    sessionId: string,
+    input: { query: string; limit?: number },
+  ): Promise<MemorySearchResult> {
+    const result = this.buildSearchResult(sessionId, input);
+    await this.maybeRecordCognitiveRelevanceRanking({
+      sessionId,
+      query: input.query,
+      result,
+      allowAsyncApply: true,
+    });
+    return result;
   }
 
   buildRecallBlock(input: { sessionId: string; query: string; limit?: number }): string {
@@ -327,6 +602,38 @@ export class MemoryEngine {
         `${index + 1}. [${hit.kind}] ${hit.topic} score=${hit.score.toFixed(3)} conf=${hit.confidence.toFixed(3)}`,
       );
       lines.push(`   ${hit.excerpt}`);
+      const facetsLine = formatRecallKnowledgeFacets(hit.knowledgeFacets);
+      if (facetsLine) {
+        lines.push(`   ${facetsLine}`);
+      }
+    });
+    return lines.join("\n");
+  }
+
+  async buildRecallBlockAsync(input: {
+    sessionId: string;
+    query: string;
+    limit?: number;
+  }): Promise<string> {
+    const result = await this.searchAsync(input.sessionId, {
+      query: input.query,
+      limit: input.limit,
+    });
+    if (result.hits.length === 0) return "";
+    const lines: string[] = [
+      "[MemoryRecall]",
+      `query: ${result.query}`,
+      `scanned: ${result.scanned}`,
+    ];
+    result.hits.forEach((hit, index) => {
+      lines.push(
+        `${index + 1}. [${hit.kind}] ${hit.topic} score=${hit.score.toFixed(3)} conf=${hit.confidence.toFixed(3)}`,
+      );
+      lines.push(`   ${hit.excerpt}`);
+      const facetsLine = formatRecallKnowledgeFacets(hit.knowledgeFacets);
+      if (facetsLine) {
+        lines.push(`   ${facetsLine}`);
+      }
     });
     return lines.join("\n");
   }
@@ -612,6 +919,15 @@ export class MemoryEngine {
         importedWorking += 1;
         replayedEvents += 1;
       }
+
+      if (event.type === "memory_global_sync" && isRecord(payload.global)) {
+        const tier = this.getGlobalTier();
+        if (!tier) continue;
+        const imported = tier.importSnapshot(payload.global as unknown as GlobalMemorySnapshot);
+        if (imported.importedUnits > 0 || imported.importedCrystals > 0) {
+          replayedEvents += 1;
+        }
+      }
     }
 
     return {
@@ -669,6 +985,431 @@ export class MemoryEngine {
     return store.listInsights(sessionId);
   }
 
+  private shouldRunCognitiveRelationInference(): boolean {
+    return (
+      this.cognitiveMode !== "off" &&
+      this.cognitiveMaxInferenceCallsPerRefresh > 0 &&
+      typeof this.cognitivePort?.inferRelation === "function"
+    );
+  }
+
+  private resolveCognitiveBudgetStatus(sessionId: string): CognitiveTokenBudgetStatus | null {
+    if (!this.getCognitiveBudgetStatus) return null;
+    try {
+      return this.getCognitiveBudgetStatus(sessionId);
+    } catch {
+      return null;
+    }
+  }
+
+  private recordCognitiveUsageWithBudget(input: {
+    sessionId: string;
+    stage: string;
+    usage: CognitiveUsage | null;
+  }): CognitiveTokenBudgetStatus | null {
+    if (!input.usage) return this.resolveCognitiveBudgetStatus(input.sessionId);
+    if (!this.recordCognitiveUsage) return this.resolveCognitiveBudgetStatus(input.sessionId);
+    try {
+      return this.recordCognitiveUsage({
+        sessionId: input.sessionId,
+        stage: input.stage,
+        usage: input.usage,
+      });
+    } catch {
+      return this.resolveCognitiveBudgetStatus(input.sessionId);
+    }
+  }
+
+  private shouldRunCognitiveRanking(): boolean {
+    return (
+      this.cognitiveMode !== "off" &&
+      this.cognitiveMaxRankCandidatesPerSearch > 1 &&
+      typeof this.cognitivePort?.rankRelevance === "function"
+    );
+  }
+
+  private async maybeRecordCognitiveRelevanceRanking(input: {
+    sessionId: string;
+    query: string;
+    result: MemorySearchResult;
+    allowAsyncApply: boolean;
+  }): Promise<void> {
+    if (!this.shouldRunCognitiveRanking()) return;
+    if (input.result.hits.length <= 1) return;
+    const cognitivePort = this.cognitivePort;
+    if (!cognitivePort?.rankRelevance) return;
+
+    const candidates = input.result.hits
+      .slice(0, this.cognitiveMaxRankCandidatesPerSearch)
+      .map((hit) => ({
+        id: hit.id,
+        statement: `${hit.topic}\n${hit.excerpt}`,
+      }));
+    if (candidates.length <= 1) return;
+    const tokenBudgetBefore = this.resolveCognitiveBudgetStatus(input.sessionId);
+    if (tokenBudgetBefore?.exhausted) {
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_relevance_ranking_skipped",
+        payload: {
+          stage: "memory_recall_ranking",
+          mode: this.cognitiveMode,
+          reason: "token_budget_exhausted",
+          query: input.query.trim(),
+          candidateCount: candidates.length,
+          budget: cognitiveBudgetPayload(tokenBudgetBefore),
+        },
+      });
+      return;
+    }
+
+    const deterministicTopIds = candidates.map((candidate) => candidate.id);
+    const deterministicPositionById = new Map<string, number>(
+      deterministicTopIds.map((id, index) => [id, index]),
+    );
+
+    const commit = (inputCommit: {
+      output: Array<{ id: string; score: number }>;
+      usage: CognitiveUsage | null;
+      applyRanking: boolean;
+      asyncResult: boolean;
+      skippedReason?: string;
+    }) => {
+      const scoreById = new Map<string, number>();
+      for (const item of inputCommit.output ?? []) {
+        if (!item || typeof item.id !== "string") continue;
+        if (!deterministicPositionById.has(item.id)) continue;
+        scoreById.set(item.id, sanitizeRankScore(item.score));
+      }
+      const inferredTopIds = deterministicTopIds.toSorted((left, right) => {
+        const leftScore = scoreById.get(left) ?? 0;
+        const rightScore = scoreById.get(right) ?? 0;
+        if (rightScore !== leftScore) return rightScore - leftScore;
+        return (
+          (deterministicPositionById.get(left) ?? Number.MAX_SAFE_INTEGER) -
+          (deterministicPositionById.get(right) ?? Number.MAX_SAFE_INTEGER)
+        );
+      });
+      const changedPositions = inferredTopIds.filter(
+        (id, index) => id !== deterministicTopIds[index],
+      ).length;
+      const budgetAfter = this.recordCognitiveUsageWithBudget({
+        sessionId: input.sessionId,
+        stage: "memory_recall_ranking",
+        usage: inputCommit.usage,
+      });
+      const appliedRanking = inputCommit.applyRanking && changedPositions > 0;
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_relevance_ranking",
+        payload: {
+          stage: "memory_recall_ranking",
+          mode: this.cognitiveMode,
+          query: input.query.trim(),
+          candidateCount: candidates.length,
+          asyncResult: inputCommit.asyncResult,
+          deterministicTopIds,
+          inferredTopIds,
+          changedPositions,
+          appliedRanking,
+          skippedReason: inputCommit.skippedReason ?? null,
+          usage: cognitiveUsagePayload(inputCommit.usage),
+          budget: cognitiveBudgetPayload(budgetAfter),
+          scores: inferredTopIds.map((id) => ({
+            id,
+            score: scoreById.get(id) ?? 0,
+          })),
+        },
+      });
+      if (appliedRanking) {
+        const hitById = new Map(input.result.hits.map((hit) => [hit.id, hit]));
+        const reordered = inferredTopIds
+          .map((id) => hitById.get(id))
+          .filter((hit): hit is NonNullable<typeof hit> => hit != null);
+        const remainingHits = input.result.hits.filter(
+          (hit) => !deterministicPositionById.has(hit.id),
+        );
+        input.result.hits = [...reordered, ...remainingHits];
+      }
+    };
+
+    const fail = (error: unknown) => {
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_relevance_ranking_failed",
+        payload: {
+          stage: "memory_recall_ranking",
+          mode: this.cognitiveMode,
+          query: input.query.trim(),
+          candidateCount: candidates.length,
+          budget: cognitiveBudgetPayload(this.resolveCognitiveBudgetStatus(input.sessionId)),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    };
+
+    try {
+      const ranking = cognitivePort.rankRelevance({
+        query: input.query,
+        candidates,
+      });
+      if (isPromiseLike(ranking)) {
+        if (input.allowAsyncApply) {
+          const resolved = await ranking;
+          const normalized = normalizeCognitiveRankResult(resolved);
+          commit({
+            output: normalized.scores,
+            usage: normalized.usage,
+            applyRanking: this.cognitiveMode === "active",
+            asyncResult: true,
+          });
+          return;
+        }
+        const skippedReason =
+          this.cognitiveMode === "active"
+            ? "async_result_not_applicable_to_sync_search"
+            : undefined;
+        if (skippedReason) {
+          this.recordEvent?.({
+            sessionId: input.sessionId,
+            type: "cognitive_relevance_ranking_skipped",
+            payload: {
+              stage: "memory_recall_ranking",
+              mode: this.cognitiveMode,
+              reason: skippedReason,
+              query: input.query.trim(),
+              candidateCount: candidates.length,
+              budget: cognitiveBudgetPayload(tokenBudgetBefore),
+            },
+          });
+        }
+        void ranking
+          .then((resolved) => {
+            const normalized = normalizeCognitiveRankResult(resolved);
+            commit({
+              output: normalized.scores,
+              usage: normalized.usage,
+              applyRanking: false,
+              asyncResult: true,
+              skippedReason,
+            });
+          })
+          .catch(fail);
+        return;
+      }
+      const normalized = normalizeCognitiveRankResult(ranking);
+      commit({
+        output: normalized.scores,
+        usage: normalized.usage,
+        applyRanking: this.cognitiveMode === "active",
+        asyncResult: false,
+      });
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  private maybeRecordCognitiveRelationInference(input: {
+    sessionId: string;
+    edgeId: string;
+    topic: string;
+    newer: string;
+    older: string;
+    sourceUnitId: string;
+    targetUnitId: string;
+    deterministicRelation: MemoryEvolvesEdge["relation"];
+    budget: { remaining: number; exhaustedNoted: boolean };
+  }): void {
+    if (!this.shouldRunCognitiveRelationInference()) return;
+    const cognitivePort = this.cognitivePort;
+    if (!cognitivePort?.inferRelation) return;
+    const tokenBudgetBefore = this.resolveCognitiveBudgetStatus(input.sessionId);
+    if (tokenBudgetBefore?.exhausted) {
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_relation_inference_skipped",
+        payload: {
+          stage: "memory_evolves_relation",
+          reason: "token_budget_exhausted",
+          edgeId: input.edgeId,
+          maxInferenceCallsPerRefresh: this.cognitiveMaxInferenceCallsPerRefresh,
+          budget: cognitiveBudgetPayload(tokenBudgetBefore),
+        },
+      });
+      return;
+    }
+
+    if (input.budget.remaining <= 0) {
+      if (!input.budget.exhaustedNoted) {
+        input.budget.exhaustedNoted = true;
+        this.recordEvent?.({
+          sessionId: input.sessionId,
+          type: "cognitive_relation_inference_skipped",
+          payload: {
+            stage: "memory_evolves_relation",
+            reason: "budget_exhausted",
+            edgeId: input.edgeId,
+            maxInferenceCallsPerRefresh: this.cognitiveMaxInferenceCallsPerRefresh,
+            budget: cognitiveBudgetPayload(tokenBudgetBefore),
+          },
+        });
+      }
+      return;
+    }
+    input.budget.remaining -= 1;
+
+    const commit = (output: CognitiveInferRelationOutput) => {
+      const inferred = output?.relation;
+      const relation: MemoryEvolvesEdge["relation"] =
+        inferred === "replaces" ||
+        inferred === "enriches" ||
+        inferred === "confirms" ||
+        inferred === "challenges"
+          ? inferred
+          : input.deterministicRelation;
+      const usage = normalizeCognitiveUsage(output?.usage);
+      const tokenBudgetAfter = this.recordCognitiveUsageWithBudget({
+        sessionId: input.sessionId,
+        stage: "memory_evolves_relation",
+        usage,
+      });
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_relation_inference",
+        payload: {
+          stage: "memory_evolves_relation",
+          mode: this.cognitiveMode,
+          edgeId: input.edgeId,
+          topic: input.topic,
+          sourceUnitId: input.sourceUnitId,
+          targetUnitId: input.targetUnitId,
+          deterministicRelation: input.deterministicRelation,
+          inferredRelation: relation,
+          confidence: clampProbability(output?.confidence, 0.5),
+          rationale: sanitizeRationale(output?.rationale),
+          usage: cognitiveUsagePayload(usage),
+          budget: cognitiveBudgetPayload(tokenBudgetAfter),
+        },
+      });
+      if (this.cognitiveMode === "active") {
+        const store = this.getStore();
+        if (relation !== input.deterministicRelation) {
+          store.updateEvolvesEdgeRelation({
+            edgeId: input.edgeId,
+            relation,
+            confidence: clampProbability(output?.confidence, 0.5),
+            rationale: sanitizeRationale(output?.rationale) ?? undefined,
+          });
+        }
+        const effectiveEdge = store
+          .listEvolvesEdges(input.sessionId)
+          .find((candidate) => candidate.id === input.edgeId);
+        if (effectiveEdge) {
+          this.syncEvolvesPendingInsight({
+            sessionId: input.sessionId,
+            edge: effectiveEdge,
+            topic: input.topic,
+            sourceUnitId: input.sourceUnitId,
+            targetUnitId: input.targetUnitId,
+          });
+        }
+      }
+    };
+
+    const fail = (error: unknown) => {
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_relation_inference_failed",
+        payload: {
+          stage: "memory_evolves_relation",
+          mode: this.cognitiveMode,
+          edgeId: input.edgeId,
+          topic: input.topic,
+          sourceUnitId: input.sourceUnitId,
+          targetUnitId: input.targetUnitId,
+          deterministicRelation: input.deterministicRelation,
+          budget: cognitiveBudgetPayload(this.resolveCognitiveBudgetStatus(input.sessionId)),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    };
+
+    try {
+      const result = cognitivePort.inferRelation({
+        newer: input.newer,
+        older: input.older,
+        topic: input.topic,
+      });
+      if (isPromiseLike<CognitiveInferRelationOutput>(result)) {
+        void result.then(commit).catch(fail);
+        return;
+      }
+      commit(result);
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  private syncEvolvesPendingInsight(input: {
+    sessionId: string;
+    edge: MemoryEvolvesEdge;
+    topic: string;
+    sourceUnitId: string;
+    targetUnitId: string;
+  }): void {
+    const store = this.getStore();
+    const openInsight = store.listInsights(input.sessionId).find((insight) => {
+      if (insight.status !== "open") return false;
+      if (insight.kind !== "evolves_pending") return false;
+      return insight.edgeId === input.edge.id;
+    });
+    const shouldBePending =
+      input.edge.relation === "replaces" || input.edge.relation === "challenges";
+    if (!shouldBePending) {
+      if (openInsight) {
+        this.dismissInsight(input.sessionId, openInsight.id);
+      }
+      return;
+    }
+
+    const relatedUnitIds = [input.sourceUnitId, input.targetUnitId];
+    const message = `Pending evolves: edge=${input.edge.id} topic='${input.topic}' relation=${input.edge.relation} (${input.sourceUnitId} -> ${input.targetUnitId}).`;
+    const isSameOpenInsight =
+      openInsight &&
+      openInsight.relation === input.edge.relation &&
+      openInsight.message === message &&
+      openInsight.relatedUnitIds.length === relatedUnitIds.length &&
+      openInsight.relatedUnitIds.every((id, index) => id === relatedUnitIds[index]);
+    if (isSameOpenInsight) return;
+
+    if (openInsight) {
+      this.dismissInsight(input.sessionId, openInsight.id);
+    }
+    const insight = store.addInsight({
+      sessionId: input.sessionId,
+      kind: "evolves_pending",
+      status: "open",
+      edgeId: input.edge.id,
+      relation: input.edge.relation,
+      message,
+      relatedUnitIds,
+    });
+    this.recordEvent?.({
+      sessionId: input.sessionId,
+      type: "memory_insight_recorded",
+      payload: {
+        insightId: insight.id,
+        kind: insight.kind,
+        edgeId: input.edge.id,
+        relation: input.edge.relation,
+        message: insight.message,
+        relatedUnitIds: insight.relatedUnitIds,
+        insight: insight as unknown as Record<string, unknown>,
+        edge: input.edge as unknown as Record<string, unknown>,
+      },
+    });
+  }
+
   private maybeCreateEvolvesEdges(
     sessionId: string,
     units: ReturnType<MemoryStore["listUnits"]>,
@@ -689,6 +1430,10 @@ export class MemoryEngine {
     const existingKeys = new Set(
       existingEdges.map((edge) => `${edge.sourceUnitId}:${edge.targetUnitId}`),
     );
+    const cognitiveBudget = {
+      remaining: this.cognitiveMaxInferenceCallsPerRefresh,
+      exhaustedNoted: false,
+    };
     for (const topicUnits of byTopic.values()) {
       const limited = topicUnits.slice(0, 4);
       for (let index = 0; index + 1 < limited.length; index += 1) {
@@ -713,34 +1458,44 @@ export class MemoryEngine {
           rationale: `shadow relation inferred from topic=${newer.topic}`,
         });
         existingKeys.add(key);
-
-        if (relation !== "replaces" && relation !== "challenges") continue;
-        const message = `Pending evolves: edge=${edge.id} topic='${newer.topic}' relation=${relation} (${newer.id} -> ${older.id}).`;
-        const insight = store.addInsight({
+        this.maybeRecordCognitiveRelationInference({
           sessionId,
-          kind: "evolves_pending",
-          status: "open",
           edgeId: edge.id,
-          relation: edge.relation,
-          message,
-          relatedUnitIds: [newer.id, older.id],
+          topic: newer.topic,
+          newer: newer.statement,
+          older: older.statement,
+          sourceUnitId: newer.id,
+          targetUnitId: older.id,
+          deterministicRelation: relation,
+          budget: cognitiveBudget,
         });
-        this.recordEvent?.({
+        const effectiveEdge = store
+          .listEvolvesEdges(sessionId)
+          .find((candidate) => candidate.id === edge.id);
+        this.syncEvolvesPendingInsight({
           sessionId,
-          type: "memory_insight_recorded",
-          payload: {
-            insightId: insight.id,
-            kind: insight.kind,
-            edgeId: edge.id,
-            relation: edge.relation,
-            message: insight.message,
-            relatedUnitIds: insight.relatedUnitIds,
-            insight: insight as unknown as Record<string, unknown>,
-            edge: edge as unknown as Record<string, unknown>,
-          },
+          edge: effectiveEdge ?? edge,
+          topic: newer.topic,
+          sourceUnitId: newer.id,
+          targetUnitId: older.id,
         });
       }
     }
+  }
+
+  private getGlobalTier(): GlobalMemoryTier | null {
+    if (!this.globalEnabled) return null;
+    if (!this.globalTier) {
+      this.globalTier = new GlobalMemoryTier({
+        rootDir: join(this.rootDir, "global"),
+        promotionMinConfidence: this.globalMinConfidence,
+        promotionMinSessionRecurrence: this.globalMinSessionRecurrence,
+        decayIntervalDays: this.globalDecayIntervalDays,
+        decayFactor: this.globalDecayFactor,
+        pruneBelowConfidence: this.globalPruneBelowConfidence,
+      });
+    }
+    return this.globalTier;
   }
 
   private getStore(): MemoryStore {

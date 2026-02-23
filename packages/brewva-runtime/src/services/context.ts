@@ -329,36 +329,38 @@ export class ContextService {
     finalTokens: number;
     truncated: boolean;
   } {
-    if (this.config.memory.enabled) {
-      const taskGoal = this.getTaskState(sessionId).spec?.goal;
-      this.memory.refreshIfNeeded({ sessionId });
+    this.registerMemoryContextInjection(sessionId, prompt);
+    return this.finalizeContextInjection(sessionId, prompt, usage, injectionScopeId);
+  }
 
-      const working = this.memory.getWorkingMemory(sessionId);
-      if (working?.content.trim()) {
-        this.registerContextInjection(sessionId, {
-          source: "brewva.working-memory",
-          id: "working-memory",
-          priority: "critical",
-          content: working.content,
-        });
-      }
+  async buildContextInjectionAsync(
+    sessionId: string,
+    prompt: string,
+    usage?: ContextBudgetUsage,
+    injectionScopeId?: string,
+  ): Promise<{
+    text: string;
+    accepted: boolean;
+    originalTokens: number;
+    finalTokens: number;
+    truncated: boolean;
+  }> {
+    await this.registerMemoryContextInjectionAsync(sessionId, prompt);
+    return this.finalizeContextInjection(sessionId, prompt, usage, injectionScopeId);
+  }
 
-      const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
-      const recall = this.memory.buildRecallBlock({
-        sessionId,
-        query: recallQuery,
-        limit: this.config.memory.retrievalTopK,
-      });
-      if (recall.trim()) {
-        this.registerContextInjection(sessionId, {
-          source: "brewva.memory-recall",
-          id: "memory-recall",
-          priority: "high",
-          content: recall,
-        });
-      }
-    }
-
+  private finalizeContextInjection(
+    sessionId: string,
+    prompt: string,
+    usage?: ContextBudgetUsage,
+    injectionScopeId?: string,
+  ): {
+    text: string;
+    accepted: boolean;
+    originalTokens: number;
+    finalTokens: number;
+    truncated: boolean;
+  } {
     return buildContextInjectionOrchestrated(
       {
         cwd: this.cwd,
@@ -404,6 +406,71 @@ export class ContextService {
         injectionScopeId,
       },
     );
+  }
+
+  private registerMemoryContextInjection(sessionId: string, prompt: string): void {
+    if (!this.config.memory.enabled) return;
+    const taskGoal = this.getTaskState(sessionId).spec?.goal;
+    this.memory.refreshIfNeeded({ sessionId });
+
+    const working = this.memory.getWorkingMemory(sessionId);
+    if (working?.content.trim()) {
+      this.registerContextInjection(sessionId, {
+        source: "brewva.working-memory",
+        id: "working-memory",
+        priority: "critical",
+        content: working.content,
+      });
+    }
+
+    const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
+    const recall = this.memory.buildRecallBlock({
+      sessionId,
+      query: recallQuery,
+      limit: this.config.memory.retrievalTopK,
+    });
+    if (recall.trim()) {
+      this.registerContextInjection(sessionId, {
+        source: "brewva.memory-recall",
+        id: "memory-recall",
+        priority: "high",
+        content: recall,
+      });
+    }
+  }
+
+  private async registerMemoryContextInjectionAsync(
+    sessionId: string,
+    prompt: string,
+  ): Promise<void> {
+    if (!this.config.memory.enabled) return;
+    const taskGoal = this.getTaskState(sessionId).spec?.goal;
+    this.memory.refreshIfNeeded({ sessionId });
+
+    const working = this.memory.getWorkingMemory(sessionId);
+    if (working?.content.trim()) {
+      this.registerContextInjection(sessionId, {
+        source: "brewva.working-memory",
+        id: "working-memory",
+        priority: "critical",
+        content: working.content,
+      });
+    }
+
+    const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
+    const recall = await this.memory.buildRecallBlockAsync({
+      sessionId,
+      query: recallQuery,
+      limit: this.config.memory.retrievalTopK,
+    });
+    if (recall.trim()) {
+      this.registerContextInjection(sessionId, {
+        source: "brewva.memory-recall",
+        id: "memory-recall",
+        priority: "high",
+        content: recall,
+      });
+    }
   }
 
   planSupplementalContextInjection(

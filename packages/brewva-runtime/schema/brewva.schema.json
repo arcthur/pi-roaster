@@ -116,6 +116,28 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "cognitive": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": ["off", "shadow", "active"]
+                },
+                "maxInferenceCallsPerRefresh": {
+                  "type": "number"
+                },
+                "maxRankCandidatesPerSearch": {
+                  "type": "number"
+                },
+                "maxReflectionsPerVerification": {
+                  "type": "number"
+                },
+                "maxTokensPerTurn": {
+                  "type": "number"
+                }
+              }
+            },
             "crystalMinUnits": {
               "type": "number"
             },
@@ -127,6 +149,30 @@
             },
             "enabled": {
               "type": "boolean"
+            },
+            "global": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minConfidence": {
+                  "type": "number"
+                },
+                "minSessionRecurrence": {
+                  "type": "number"
+                },
+                "decayIntervalDays": {
+                  "type": "number"
+                },
+                "decayFactor": {
+                  "type": "number"
+                },
+                "pruneBelowConfidence": {
+                  "type": "number"
+                }
+              }
             },
             "evolvesMode": {
               "type": "string",
@@ -151,8 +197,7 @@
                 "recency": {
                   "type": "number"
                 }
-              },
-              "required": ["lexical", "recency", "confidence"]
+              }
             },
             "workingFile": {
               "type": "string"

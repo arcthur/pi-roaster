@@ -56,6 +56,21 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       confidence: 0.2,
     },
     evolvesMode: "off",
+    cognitive: {
+      mode: "shadow",
+      maxInferenceCallsPerRefresh: 6,
+      maxRankCandidatesPerSearch: 8,
+      maxReflectionsPerVerification: 1,
+      maxTokensPerTurn: 0,
+    },
+    global: {
+      enabled: false,
+      minConfidence: 0.8,
+      minSessionRecurrence: 2,
+      decayIntervalDays: 7,
+      decayFactor: 0.95,
+      pruneBelowConfidence: 0.3,
+    },
   },
   security: {
     sanitizeContext: true,

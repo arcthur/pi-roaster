@@ -29,7 +29,8 @@ export function inferEventCategory(type: string): BrewvaEventCategory {
   if (type.startsWith("turn_") || type.startsWith("channel_turn_")) return "turn";
   if (type.includes("tool") || type.startsWith("patch_") || type === "rollback") return "tool";
   if (type.startsWith("context_")) return "context";
-  if (type.startsWith("cost_") || type.startsWith("budget_")) return "cost";
+  if (type.startsWith("cost_") || type.startsWith("budget_") || type === "cognitive_usage_recorded")
+    return "cost";
   if (type.startsWith("verification_")) return "verification";
   if (type.includes("snapshot") || type.includes("resumed") || type.includes("interrupted"))
     return "state";

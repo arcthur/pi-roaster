@@ -1,4 +1,10 @@
 import { resolve } from "node:path";
+import type {
+  CognitivePort,
+  CognitiveTokenBudgetStatus,
+  CognitiveUsage,
+} from "./cognitive/port.js";
+import { cognitiveBudgetPayload, cognitiveUsagePayload } from "./cognitive/usage.js";
 import { loadBrewvaConfigWithDiagnostics, type BrewvaConfigDiagnostic } from "./config/loader.js";
 import { resolveWorkspaceRootDir } from "./config/paths.js";
 import { ContextBudgetManager } from "./context/budget.js";
@@ -82,6 +88,7 @@ export interface BrewvaRuntimeOptions {
   cwd?: string;
   configPath?: string;
   config?: BrewvaConfig;
+  cognitivePort?: CognitivePort;
 }
 
 export interface VerifyCompletionOptions {
@@ -166,7 +173,9 @@ export class BrewvaRuntime {
     this.fileChanges = new FileChangeTracker(this.cwd, {
       artifactsBaseDir: this.workspaceRoot,
     });
-    this.costTracker = new SessionCostTracker(this.config.infrastructure.costTracking);
+    this.costTracker = new SessionCostTracker(this.config.infrastructure.costTracking, {
+      cognitiveTokensBudget: this.config.memory.cognitive.maxTokensPerTurn,
+    });
     this.memory = new MemoryEngine({
       enabled: this.config.memory.enabled,
       rootDir: resolve(this.workspaceRoot, this.config.memory.dir),
@@ -177,6 +186,19 @@ export class BrewvaRuntime {
       retrievalTopK: this.config.memory.retrievalTopK,
       retrievalWeights: this.config.memory.retrievalWeights,
       evolvesMode: this.config.memory.evolvesMode,
+      cognitiveMode: this.config.memory.cognitive.mode,
+      cognitiveMaxInferenceCallsPerRefresh:
+        this.config.memory.cognitive.maxInferenceCallsPerRefresh,
+      cognitiveMaxRankCandidatesPerSearch: this.config.memory.cognitive.maxRankCandidatesPerSearch,
+      cognitivePort: options.cognitivePort,
+      getCognitiveBudgetStatus: (sessionId) => this.getCognitiveBudgetStatus(sessionId),
+      recordCognitiveUsage: (input) => this.recordCognitiveUsage(input),
+      globalEnabled: this.config.memory.global.enabled,
+      globalMinConfidence: this.config.memory.global.minConfidence,
+      globalMinSessionRecurrence: this.config.memory.global.minSessionRecurrence,
+      globalDecayIntervalDays: this.config.memory.global.decayIntervalDays,
+      globalDecayFactor: this.config.memory.global.decayFactor,
+      globalPruneBelowConfidence: this.config.memory.global.pruneBelowConfidence,
       recordEvent: (eventInput) => this.recordEvent(eventInput),
     });
     this.skillLifecycleService = new SkillLifecycleService({
@@ -234,8 +256,16 @@ export class BrewvaRuntime {
       cwd: this.cwd,
       config: this.config,
       verification: this.verification,
+      cognitiveMode: this.config.memory.cognitive.mode,
+      cognitiveMaxReflectionsPerVerification:
+        this.config.memory.cognitive.maxReflectionsPerVerification,
+      cognitivePort: options.cognitivePort,
+      getCognitiveBudgetStatus: (sessionId) => this.getCognitiveBudgetStatus(sessionId),
+      recordCognitiveUsage: (input) => this.recordCognitiveUsage(input),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
+      getActiveSkillName: (sessionId) => this.skillLifecycleService.getActiveSkill(sessionId)?.name,
+      recordEvent: (input) => this.recordEvent(input),
       upsertTruthFact: (sessionId, input) => this.truthService.upsertTruthFact(sessionId, input),
       resolveTruthFact: (sessionId, truthFactId) =>
         this.truthService.resolveTruthFact(sessionId, truthFactId),
@@ -425,6 +455,26 @@ export class BrewvaRuntime {
     truncated: boolean;
   } {
     return this.contextService.buildContextInjection(sessionId, prompt, usage, injectionScopeId);
+  }
+
+  async buildContextInjectionAsync(
+    sessionId: string,
+    prompt: string,
+    usage?: ContextBudgetUsage,
+    injectionScopeId?: string,
+  ): Promise<{
+    text: string;
+    accepted: boolean;
+    originalTokens: number;
+    finalTokens: number;
+    truncated: boolean;
+  }> {
+    return this.contextService.buildContextInjectionAsync(
+      sessionId,
+      prompt,
+      usage,
+      injectionScopeId,
+    );
   }
 
   planSupplementalContextInjection(
@@ -679,6 +729,13 @@ export class BrewvaRuntime {
     return this.memoryAccessService.searchMemory(sessionId, input);
   }
 
+  async searchMemoryAsync(
+    sessionId: string,
+    input: { query: string; limit?: number },
+  ): Promise<MemorySearchResult> {
+    return this.memoryAccessService.searchMemoryAsync(sessionId, input);
+  }
+
   dismissMemoryInsight(
     sessionId: string,
     insightId: string,
@@ -821,6 +878,33 @@ export class BrewvaRuntime {
       return text;
     }
     return sanitizeContextText(text);
+  }
+
+  private getCognitiveBudgetStatus(sessionId: string): CognitiveTokenBudgetStatus {
+    return this.costTracker.getCognitiveBudgetStatus(sessionId, this.getCurrentTurn(sessionId));
+  }
+
+  private recordCognitiveUsage(input: {
+    sessionId: string;
+    stage: string;
+    usage: CognitiveUsage;
+  }): CognitiveTokenBudgetStatus {
+    const turn = this.getCurrentTurn(input.sessionId);
+    const budget = this.costTracker.recordCognitiveUsage(input.sessionId, {
+      turn,
+      usage: input.usage,
+    });
+    this.recordEvent({
+      sessionId: input.sessionId,
+      type: "cognitive_usage_recorded",
+      turn,
+      payload: {
+        stage: input.stage,
+        usage: cognitiveUsagePayload(input.usage),
+        budget: cognitiveBudgetPayload(budget),
+      },
+    });
+    return budget;
   }
 
   private getCurrentTurn(sessionId: string): number {

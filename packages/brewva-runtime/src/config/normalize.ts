@@ -4,6 +4,7 @@ const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "summarize", "tail"])
 const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
 const VALID_ALLOWED_TOOLS_MODES = new Set(["off", "warn", "enforce"]);
 const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "shadow"]);
+const VALID_MEMORY_COGNITIVE_MODES = new Set(["off", "shadow", "active"]);
 const VALID_VERIFICATION_LEVELS = new Set<VerificationLevel>(["quick", "standard", "strict"]);
 
 type AnyRecord = Record<string, unknown>;
@@ -130,6 +131,8 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
   const ledgerInput = isRecord(input.ledger) ? input.ledger : {};
   const tapeInput = isRecord(input.tape) ? input.tape : {};
   const memoryInput = isRecord(input.memory) ? input.memory : {};
+  const memoryCognitiveInput = isRecord(memoryInput.cognitive) ? memoryInput.cognitive : {};
+  const memoryGlobalInput = isRecord(memoryInput.global) ? memoryInput.global : {};
   const securityInput = isRecord(input.security) ? input.security : {};
   const scheduleInput = isRecord(input.schedule) ? input.schedule : {};
   const parallelInput = isRecord(input.parallel) ? input.parallel : {};
@@ -250,6 +253,56 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
       evolvesMode: VALID_MEMORY_EVOLVES_MODES.has(memoryInput.evolvesMode as string)
         ? (memoryInput.evolvesMode as BrewvaConfig["memory"]["evolvesMode"])
         : defaults.memory.evolvesMode,
+      cognitive: {
+        mode: VALID_MEMORY_COGNITIVE_MODES.has(memoryCognitiveInput.mode as string)
+          ? (memoryCognitiveInput.mode as BrewvaConfig["memory"]["cognitive"]["mode"])
+          : defaults.memory.cognitive.mode,
+        maxInferenceCallsPerRefresh: normalizeNonNegativeInteger(
+          memoryCognitiveInput.maxInferenceCallsPerRefresh,
+          defaults.memory.cognitive.maxInferenceCallsPerRefresh,
+        ),
+        maxRankCandidatesPerSearch: normalizeNonNegativeInteger(
+          memoryCognitiveInput.maxRankCandidatesPerSearch,
+          defaults.memory.cognitive.maxRankCandidatesPerSearch,
+        ),
+        maxReflectionsPerVerification: normalizeNonNegativeInteger(
+          memoryCognitiveInput.maxReflectionsPerVerification,
+          defaults.memory.cognitive.maxReflectionsPerVerification,
+        ),
+        maxTokensPerTurn: normalizeNonNegativeInteger(
+          memoryCognitiveInput.maxTokensPerTurn,
+          defaults.memory.cognitive.maxTokensPerTurn,
+        ),
+      },
+      global: {
+        enabled: normalizeBoolean(memoryGlobalInput.enabled, defaults.memory.global.enabled),
+        minConfidence: normalizeUnitInterval(
+          memoryGlobalInput.minConfidence,
+          defaults.memory.global.minConfidence,
+        ),
+        minSessionRecurrence: Math.max(
+          2,
+          normalizePositiveInteger(
+            memoryGlobalInput.minSessionRecurrence,
+            defaults.memory.global.minSessionRecurrence,
+          ),
+        ),
+        decayIntervalDays: Math.max(
+          1,
+          normalizePositiveInteger(
+            memoryGlobalInput.decayIntervalDays,
+            defaults.memory.global.decayIntervalDays,
+          ),
+        ),
+        decayFactor: normalizeUnitInterval(
+          memoryGlobalInput.decayFactor,
+          defaults.memory.global.decayFactor,
+        ),
+        pruneBelowConfidence: normalizeUnitInterval(
+          memoryGlobalInput.pruneBelowConfidence,
+          defaults.memory.global.pruneBelowConfidence,
+        ),
+      },
     },
     security: {
       sanitizeContext: normalizeBoolean(

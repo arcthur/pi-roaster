@@ -10,14 +10,23 @@ Brewva takes the opposite approach: **make the agent the owner**.
 
 ### 1. Agent Autonomy — The Agent Manages Itself
 
-The runtime exposes two orthogonal pressure pipelines and hands the controls directly to the agent:
+The runtime exposes three orthogonal control loops and keeps authority with the agent:
 
-| Pipeline           | Resource                                                     | Pressure Signal    | Agent Action                                      |
-| ------------------ | ------------------------------------------------------------ | ------------------ | ------------------------------------------------- |
-| **State Tape**     | Append-only operational state (task/truth/verification/cost) | `tape_pressure`    | `tape_handoff` — mark a semantic phase boundary   |
-| **Message Buffer** | LLM context window (user/assistant/tool messages)            | `context_pressure` | `session_compact` — compress conversation history |
+| Pipeline                | Resource                                                       | Pressure Signal                          | Agent/Runtime Action                                                 |
+| ----------------------- | -------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
+| **State Tape**          | Append-only operational state (task/truth/verification/cost)   | `tape_pressure`                          | `tape_handoff` — mark semantic phase boundaries                      |
+| **Message Buffer**      | LLM context window (user/assistant/tool messages)              | `context_pressure`                       | `session_compact` — compress conversation history                    |
+| **Cognitive Inference** | Runtime cognition budget for semantic relation/ranking/lessons | cognitive budget status (calls + tokens) | Use `CognitivePort` or deterministically fall back when budget-tight |
 
 In the extension-enabled profile, the runtime injects a **Context Contract** with explicit if-then rules for pressure handling, but never silently compacts on the agent's behalf. Memory injection is explicit and traceable (`[WorkingMemory]` / `[MemoryRecall]`), backed by persisted artifacts and events rather than opaque snapshots.
+
+For runtime cognition, Brewva uses a dual-path design (`CognitivePort` + deterministic fallback):
+
+- `memory.cognitive.mode="off"`: no cognitive calls; deterministic behavior only.
+- `memory.cognitive.mode="shadow"`: cognitive calls are executed and audited, but do not mutate runtime decisions.
+- `memory.cognitive.mode="active"`: cognitive outputs may be applied (within budget), with deterministic fallback on exhaustion/error.
+
+This preserves controllability without sacrificing deterministic recovery.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -69,9 +78,13 @@ Memory is implemented as an event-driven projection layer on top of the tape:
 
 - **Trace source**: `.orchestrator/events/<session>.jsonl` is immutable; memory never mutates tape rows.
 - **Replayable projections**: `memory_*` events persist projection snapshots so memory can be rebuilt from tape when projection files are missing.
-- **Derived projections**: `Unit`, `Crystal`, `Insight`, and `EVOLVES` edges are stored in `.orchestrator/memory/*.jsonl`.
+- **Layered memory tiers**: session-local memory is augmented by a global tier (`.orchestrator/memory/global`) with deterministic promotion, decay, pruning, and pass-resolution.
+- **Derived projections**: `Unit`, `Crystal`, `Insight`, and `EVOLVES` edges are stored in `.orchestrator/memory/*.jsonl`; cross-session pattern aggregation is compiled into global crystals.
 - **Context surfaces**: in the extension-enabled profile, each `before_agent_start` can inject `[WorkingMemory]` (`brewva.working-memory`) and `[MemoryRecall]` (`brewva.memory-recall`) with budget-aware truncation/drop behavior.
+- **Feedback loop from outcomes**: verification outcomes and cognitive reflections (`verification_outcome_recorded`, `cognitive_outcome_reflection`) are extracted into learning units and fed back into subsequent recall.
 - **Reviewable evolution**: proposed EVOLVES relations stay shadow-only until explicit review (`memory_review_evolves_edge`), after which side effects (such as unit superseding) are auditable via memory events.
+
+Every cognitive inference is evented (`cognitive_*`) and remains replayable/auditable under the same tape-first invariants.
 
 ## Architecture
 

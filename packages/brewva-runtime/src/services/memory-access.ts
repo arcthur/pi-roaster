@@ -20,6 +20,13 @@ export class MemoryAccessService {
     return this.memory.search(sessionId, input);
   }
 
+  async searchMemoryAsync(
+    sessionId: string,
+    input: { query: string; limit?: number },
+  ): Promise<MemorySearchResult> {
+    return this.memory.searchAsync(sessionId, input);
+  }
+
   dismissMemoryInsight(
     sessionId: string,
     insightId: string,

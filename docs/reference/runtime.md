@@ -33,6 +33,7 @@ Primary class: `packages/brewva-runtime/src/runtime.ts`.
 - `getContextPressureLevel`
 - `getContextCompactionGateStatus`
 - `buildContextInjection`
+- `buildContextInjectionAsync`
 - `planSupplementalContextInjection`
 - `commitSupplementalContextInjection`
 - `shouldRequestCompaction`
@@ -65,6 +66,7 @@ Primary class: `packages/brewva-runtime/src/runtime.ts`.
 - `getTruthState`
 - `getWorkingMemory`
 - `searchMemory`
+- `searchMemoryAsync`
 - `dismissMemoryInsight`
 - `reviewMemoryEvolvesEdge`
 - `addTaskItem`
@@ -87,6 +89,7 @@ Primary class: `packages/brewva-runtime/src/runtime.ts`.
 - `recordAssistantUsage`
 - `getCostSummary`
 - `evaluateCompletion`
+- `verifyCompletion`
 - `acquireParallelSlot`
 - `releaseParallelSlot`
 - `recordWorkerResult`
@@ -99,6 +102,40 @@ Primary class: `packages/brewva-runtime/src/runtime.ts`.
 ## Type Contract
 
 All public runtime data contracts are defined in `packages/brewva-runtime/src/types.ts`.
+
+## Memory Search Contract
+
+- `searchMemory()` returns a versioned payload with:
+  - `schema: "brewva.memory.search.v1"`
+  - `version: 1`
+  - `rankingModel` weights (`lexicalWeight`, `recencyWeight`, `confidenceWeight`)
+- Each hit includes query-time ranking signals:
+  - `sourceTier`: `"session"` | `"global"`
+  - `ranking.schema: "brewva.memory.ranking.v1"`
+  - `ranking.lexical`, `ranking.recency`, `ranking.confidence`
+  - weighted contributions (`weightedLexical`, `weightedRecency`, `weightedConfidence`)
+  - `rank` and `weakSemantic`
+- Learning/global knowledge hits expose protocol-agnostic facets:
+  - `knowledgeFacets.pattern`, `knowledgeFacets.patterns`
+  - `knowledgeFacets.rootCause`, `knowledgeFacets.rootCauses`
+  - `knowledgeFacets.recommendation`, `knowledgeFacets.recommendations`
+  - `knowledgeFacets.lessonKey`, `knowledgeFacets.lessonKeys`
+  - `knowledgeFacets.outcomes`, `knowledgeFacets.sourceSessionIds`, `knowledgeFacets.sourceSessionCount`, `knowledgeFacets.unitCount`
+- Global learning-unit hits may include:
+  - `lessonProtocol.schema: "brewva.memory.global-lesson.v1"`
+  - normalized structured lesson fields (`lessonKey`, `pattern`, `patterns`, `rootCause`, `rootCauses`, `recommendation`, `recommendations`, `outcomes`, `sourceSessionIds`)
+- Global crystal hits expose a structured protocol payload:
+  - `crystalProtocol.schema: "brewva.memory.global-crystal.v1"`
+  - `crystalProtocol.version`
+  - normalized fields (`pattern`, `patterns`, `rootCause`, `rootCauses`, `recommendation`, `recommendations`, `lessonKeys`, `outcomes`, `sourceSessionIds`, `unitCount`)
+- Cognitive ranking notes:
+  - `searchMemory()` is synchronous. If `cognitive.rankRelevance` resolves asynchronously, ranking is recorded for audit but not applied to the returned hit order.
+  - In that case runtime emits `cognitive_relevance_ranking_skipped` with `reason=async_result_not_applicable_to_sync_search`.
+  - `searchMemoryAsync()` awaits async `cognitive.rankRelevance` results and applies re-ranking in `memory.cognitive.mode="active"`.
+  - `buildContextInjection()` uses synchronous memory recall and therefore cannot apply async `cognitive.rankRelevance` reordering.
+  - `buildContextInjectionAsync()` awaits async recall and can apply async `cognitive.rankRelevance` reordering.
+- Recall block rendering notes:
+  - `buildRecallBlock()` / `buildRecallBlockAsync()` append a `facets:` line when a hit carries `knowledgeFacets` signal (`pattern/root_cause/recommendation/outcomes`).
 
 ## Scheduling Notes
 

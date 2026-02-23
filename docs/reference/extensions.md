@@ -7,6 +7,11 @@ Extension factory entrypoint: `packages/brewva-extensions/src/index.ts`.
 - `createBrewvaExtension`
 - `brewvaExtension`
 
+Factory options include:
+
+- `registerTools?: boolean` (defaults to `true`)
+- `preferAsyncContextInjection?: boolean` (defaults to `true`; set `false` to force sync `buildContextInjection` even when `buildContextInjectionAsync` exists)
+
 ## Registered Handlers
 
 - `registerEventStream`
@@ -32,6 +37,7 @@ Extension factory entrypoint: `packages/brewva-extensions/src/index.ts`.
 - `registerContextTransform` appends a system-level `[Brewva Context Contract]` in `before_agent_start`.
 - The contract separates state tape actions (`tape_handoff` / `tape_info` / `tape_search`) from message-buffer compaction (`session_compact`).
 - Runtime gate remains fail-closed on critical context pressure when recent compaction is missing.
+- Context injection prefers async runtime path by default; rollout can force sync path via `preferAsyncContextInjection: false`.
 - In the extension-enabled profile, `session_compact` lifecycle bookkeeping is handled in `registerContextTransform`.
 
 ## Runtime Core Bridge Notes (`--no-extensions`)

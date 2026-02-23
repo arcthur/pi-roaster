@@ -74,7 +74,19 @@ Defaults are defined in `packages/brewva-runtime/src/config/defaults.ts`.
 - `memory.retrievalWeights.lexical`: `0.55`
 - `memory.retrievalWeights.recency`: `0.25`
 - `memory.retrievalWeights.confidence`: `0.20` (weights are normalized to sum=1 during config loading)
+  - `memory.retrievalWeights` supports partial overlays (for example only setting `lexical`); unspecified weights fall back to defaults before normalization.
 - `memory.evolvesMode`: `off`
+- `memory.cognitive.mode`: `shadow`
+- `memory.cognitive.maxInferenceCallsPerRefresh`: `6`
+- `memory.cognitive.maxRankCandidatesPerSearch`: `8`
+- `memory.cognitive.maxReflectionsPerVerification`: `1`
+- `memory.cognitive.maxTokensPerTurn`: `0` (`0` means unlimited cognitive token budget per turn)
+- `memory.global.enabled`: `false`
+- `memory.global.minConfidence`: `0.8`
+- `memory.global.minSessionRecurrence`: `2`
+- `memory.global.decayIntervalDays`: `7`
+- `memory.global.decayFactor`: `0.95`
+- `memory.global.pruneBelowConfidence`: `0.3`
 
 ### Parallel
 

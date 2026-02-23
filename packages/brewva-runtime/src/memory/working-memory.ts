@@ -33,6 +33,19 @@ function compactStatement(text: string, maxChars = 220): string {
   return `${compact.slice(0, Math.max(1, maxChars - 3))}...`;
 }
 
+function readUnitMetadataString(unit: MemoryUnit, key: string): string | null {
+  const value = unit.metadata?.[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function isLessonSignal(memorySignal: string | null): boolean {
+  if (!memorySignal) return false;
+  if (memorySignal === "lesson") return true;
+  return memorySignal.startsWith("verification_outcome");
+}
+
 function sectionLinesOrEmpty(lines: string[]): string[] {
   return lines.length > 0 ? lines : ["- (none)"];
 }
@@ -49,6 +62,8 @@ function buildSections(input: {
   const nowLines: string[] = [];
   for (const unit of rankedActive) {
     if (unit.type !== "fact" && unit.type !== "learning" && unit.type !== "pattern") continue;
+    const memorySignal = readUnitMetadataString(unit, "memorySignal");
+    if (isLessonSignal(memorySignal)) continue;
     nowLines.push(`- ${compactStatement(unit.statement)}`);
     if (nowLines.length >= 4) break;
   }
@@ -78,6 +93,21 @@ function buildSections(input: {
     .slice(0, 6)
     .map((unit) => `- ${compactStatement(unit.statement)}`);
 
+  const lessons = rankedAll
+    .filter((unit) => {
+      if (unit.status !== "active") return false;
+      if (unit.type !== "learning") return false;
+      const memorySignal = readUnitMetadataString(unit, "memorySignal");
+      const source = readUnitMetadataString(unit, "source");
+      return (
+        isLessonSignal(memorySignal) ||
+        source === "verification_outcome_recorded" ||
+        source === "cognitive_outcome_reflection"
+      );
+    })
+    .slice(0, 6)
+    .map((unit) => `- ${compactStatement(unit.statement)}`);
+
   const openThreads = rankedActive
     .filter((unit) => unit.type === "risk" || unit.type === "hypothesis")
     .slice(0, 4)
@@ -104,6 +134,10 @@ function buildSections(input: {
     {
       title: "Risks",
       lines: sectionLinesOrEmpty(dedupeLines(risks)),
+    },
+    {
+      title: "Lessons Learned",
+      lines: sectionLinesOrEmpty(dedupeLines(lessons)),
     },
     {
       title: "Open Threads",

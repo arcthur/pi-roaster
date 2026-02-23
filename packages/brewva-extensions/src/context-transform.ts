@@ -8,6 +8,10 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 const CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
 const CONTEXT_CONTRACT_MARKER = "[Brewva Context Contract]";
 
+export interface RegisterContextTransformOptions {
+  preferAsyncContextInjection?: boolean;
+}
+
 interface CompactionGateState {
   turnIndex: number;
   compactionRequired: boolean;
@@ -125,6 +129,57 @@ function resolveInjectionScopeId(input: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+async function resolveContextInjection(
+  runtime: BrewvaRuntime,
+  input: {
+    sessionId: string;
+    prompt: string;
+    usage: ReturnType<typeof coerceContextBudgetUsage>;
+    injectionScopeId?: string;
+  },
+  options: RegisterContextTransformOptions,
+): Promise<{
+  text: string;
+  accepted: boolean;
+  originalTokens: number;
+  finalTokens: number;
+  truncated: boolean;
+}> {
+  if (options.preferAsyncContextInjection !== false) {
+    const asyncBuilder = (
+      runtime as BrewvaRuntime & {
+        buildContextInjectionAsync?: (
+          sessionId: string,
+          prompt: string,
+          usage?: ReturnType<typeof coerceContextBudgetUsage>,
+          injectionScopeId?: string,
+        ) => Promise<{
+          text: string;
+          accepted: boolean;
+          originalTokens: number;
+          finalTokens: number;
+          truncated: boolean;
+        }>;
+      }
+    ).buildContextInjectionAsync;
+    if (typeof asyncBuilder === "function") {
+      return asyncBuilder.call(
+        runtime,
+        input.sessionId,
+        input.prompt,
+        input.usage,
+        input.injectionScopeId,
+      );
+    }
+  }
+  return runtime.buildContextInjection(
+    input.sessionId,
+    input.prompt,
+    input.usage,
+    input.injectionScopeId,
+  );
+}
+
 function buildCompactionGateMessage(input: { pressure: ContextPressureStatus }): string {
   const usagePercent = formatPercent(input.pressure.usageRatio);
   const hardLimitPercent = formatPercent(input.pressure.hardLimitRatio);
@@ -208,7 +263,11 @@ function applyContextContract(systemPrompt: unknown, runtime: BrewvaRuntime): st
   return `${base}\n\n${contract}`;
 }
 
-export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
+export function registerContextTransform(
+  pi: ExtensionAPI,
+  runtime: BrewvaRuntime,
+  options: RegisterContextTransformOptions = {},
+): void {
   const gateStateBySession = new Map<string, CompactionGateState>();
 
   pi.on("turn_start", (event, ctx) => {
@@ -284,7 +343,7 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
     return undefined;
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
     hydrateLastCompactionTurnFromTape(runtime, sessionId, state);
@@ -326,11 +385,15 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
       });
     }
 
-    const injection = runtime.buildContextInjection(
-      sessionId,
-      event.prompt,
-      usage,
-      injectionScopeId,
+    const injection = await resolveContextInjection(
+      runtime,
+      {
+        sessionId,
+        prompt: event.prompt,
+        usage,
+        injectionScopeId,
+      },
+      options,
     );
     const blocks: string[] = [
       buildTapeStatusBlock({

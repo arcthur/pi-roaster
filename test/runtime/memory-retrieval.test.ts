@@ -35,17 +35,23 @@ function crystal(
   id: string,
   topic: string,
   summary: string,
-  input?: { confidence?: number; updatedAt?: number },
+  input?: {
+    sessionId?: string;
+    confidence?: number;
+    updatedAt?: number;
+    metadata?: MemoryCrystal["metadata"];
+  },
 ): MemoryCrystal {
   const timestamp = input?.updatedAt ?? Date.now();
   return {
     id,
-    sessionId: "mem-retrieval-session",
+    sessionId: input?.sessionId ?? "mem-retrieval-session",
     topic,
     summary,
     unitIds: ["u1"],
     confidence: input?.confidence ?? 0.9,
     sourceRefs: [],
+    metadata: input?.metadata,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -80,8 +86,13 @@ describe("memory retrieval", () => {
       ],
     });
 
+    expect(result.schema).toBe("brewva.memory.search.v1");
+    expect(result.version).toBe(1);
+    expect(result.rankingModel.schema).toBe("brewva.memory.ranking.v1");
     expect(result.hits.length).toBeGreaterThan(0);
     expect(result.hits[0]?.topic.toLowerCase().includes("database")).toBe(true);
+    expect(result.hits[0]?.ranking.schema).toBe("brewva.memory.ranking.v1");
+    expect(result.hits[0]?.ranking.rank).toBe(1);
   });
 
   test("drops candidates without lexical overlap", () => {
@@ -227,5 +238,377 @@ describe("memory retrieval", () => {
       },
     });
     expect(recallWeighted.hits[0]?.id).toBe("u2");
+  });
+
+  test("can include selected cross-session units (global tier)", () => {
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      includeSessionIds: ["__global__"],
+      query: "bun test command",
+      limit: 5,
+      units: [
+        unit({
+          id: "u-global",
+          sessionId: "__global__",
+          topic: "test runner",
+          statement: "use bun test instead of jest in this codebase",
+        }),
+      ],
+      crystals: [],
+    });
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.id).toBe("u-global");
+    expect(result.hits[0]?.sourceTier).toBe("global");
+  });
+
+  test("exposes query-time ranking signals for each hit", () => {
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      query: "database migration",
+      limit: 5,
+      units: [
+        unit({
+          id: "u1",
+          topic: "database migration",
+          statement: "migrate sqlite to postgres with rollout",
+          confidence: 0.92,
+        }),
+      ],
+      crystals: [],
+    });
+
+    expect(result.hits).toHaveLength(1);
+    const ranking = result.hits[0]?.ranking;
+    expect(ranking?.schema).toBe("brewva.memory.ranking.v1");
+    expect(ranking?.rank).toBe(1);
+    expect(typeof ranking?.lexical).toBe("number");
+    expect(typeof ranking?.weightedLexical).toBe("number");
+    expect(typeof ranking?.weightedRecency).toBe("number");
+    expect(typeof ranking?.weightedConfidence).toBe("number");
+  });
+
+  test("returns structured global crystal protocol on crystal hits", () => {
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      includeSessionIds: ["__global__"],
+      query: "verification standard pattern",
+      limit: 5,
+      units: [],
+      crystals: [
+        crystal(
+          "c-global",
+          "global pattern: verification:standard:none",
+          "[GlobalCrystal]\n- pattern: verification:standard:none",
+          {
+            sessionId: "__global__",
+            metadata: {
+              globalCrystal: {
+                schema: "brewva.memory.global-crystal.v1",
+                version: 1,
+                pattern: "verification:standard:none",
+                patterns: ["verification:standard:none"],
+                rootCause: "failed checks: tests",
+                rootCauses: ["failed checks: tests"],
+                recommendation: "run type-check before tests",
+                recommendations: ["run type-check before tests"],
+                lessonKeys: ["verification:standard:none:type-check+tests"],
+                outcomes: { pass: 1, fail: 4 },
+                sourceSessionIds: ["s1", "s2"],
+                sourceSessionCount: 2,
+                unitCount: 4,
+                updatedAt: Date.now(),
+              },
+            },
+          },
+        ),
+      ],
+    });
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.kind).toBe("crystal");
+    expect(result.hits[0]?.sourceTier).toBe("global");
+    expect(result.hits[0]?.crystalProtocol?.schema).toBe("brewva.memory.global-crystal.v1");
+    expect(result.hits[0]?.crystalProtocol?.version).toBe(1);
+    expect(result.hits[0]?.crystalProtocol?.pattern).toBe("verification:standard:none");
+    expect(result.hits[0]?.crystalProtocol?.patterns).toEqual(["verification:standard:none"]);
+    expect(result.hits[0]?.crystalProtocol?.rootCause).toBe("failed checks: tests");
+    expect(result.hits[0]?.crystalProtocol?.rootCauses).toEqual(["failed checks: tests"]);
+    expect(result.hits[0]?.crystalProtocol?.recommendation).toBe("run type-check before tests");
+    expect(result.hits[0]?.crystalProtocol?.outcomes).toEqual({ pass: 1, fail: 4 });
+    expect(result.hits[0]?.knowledgeFacets?.pattern).toBe("verification:standard:none");
+    expect(result.hits[0]?.knowledgeFacets?.rootCause).toBe("failed checks: tests");
+    expect(result.hits[0]?.knowledgeFacets?.recommendation).toBe("run type-check before tests");
+    expect(result.hits[0]?.knowledgeFacets?.lessonKey).toBe(
+      "verification:standard:none:type-check+tests",
+    );
+    expect(result.hits[0]?.knowledgeFacets?.outcomes).toEqual({ pass: 1, fail: 4 });
+  });
+
+  test("keeps legacy global crystal hits readable when outcomes are missing", () => {
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      includeSessionIds: ["__global__"],
+      query: "verification standard pattern",
+      limit: 5,
+      units: [],
+      crystals: [
+        crystal(
+          "c-global-legacy",
+          "global pattern: verification:standard:none",
+          "[GlobalCrystal]\n- pattern: verification:standard:none",
+          {
+            sessionId: "__global__",
+            metadata: {
+              globalCrystal: {
+                schema: "brewva.memory.global-crystal.v1",
+                version: 1,
+                pattern: "verification:standard:none",
+                rootCauses: ["failed checks: tests"],
+                recommendations: ["run type-check before tests"],
+                lessonKeys: ["verification:standard:none:type-check+tests"],
+                sourceSessionIds: ["s1", "s2"],
+                sourceSessionCount: 2,
+                unitCount: 4,
+                updatedAt: Date.now(),
+              },
+            },
+          },
+        ),
+      ],
+    });
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.crystalProtocol?.schema).toBe("brewva.memory.global-crystal.v1");
+    expect(result.hits[0]?.knowledgeFacets?.outcomes).toEqual({ pass: 0, fail: 0 });
+  });
+
+  test("returns structured global lesson protocol on global learning unit hits", () => {
+    const now = Date.now();
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      includeSessionIds: ["__global__"],
+      query: "verification lessons pattern",
+      limit: 5,
+      units: [
+        unit({
+          id: "u-global-lesson",
+          sessionId: "__global__",
+          topic: "verification lessons",
+          statement: "verification fail pattern repeated across sessions",
+          type: "learning",
+          metadata: {
+            globalLesson: {
+              schema: "brewva.memory.global-lesson.v1",
+              version: 1,
+              lessonKey: "verification:standard:none:type-check+tests",
+              pattern: "verification:standard:none",
+              patterns: ["verification:standard:none"],
+              rootCause: "failed checks: tests",
+              rootCauses: ["failed checks: tests", "missing evidence: test_or_build"],
+              recommendation: "run type-check before tests",
+              recommendations: ["run type-check before tests", "capture missing evidence first"],
+              outcomes: { pass: 0, fail: 3 },
+              sourceSessionIds: ["s1", "s2", "s3"],
+              sourceSessionCount: 3,
+              updatedAt: now,
+            },
+          },
+          updatedAt: now,
+        }),
+      ],
+      crystals: [],
+    });
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.kind).toBe("unit");
+    expect(result.hits[0]?.sourceTier).toBe("global");
+    expect(result.hits[0]?.lessonProtocol?.schema).toBe("brewva.memory.global-lesson.v1");
+    expect(result.hits[0]?.lessonProtocol?.lessonKey).toBe(
+      "verification:standard:none:type-check+tests",
+    );
+    expect(result.hits[0]?.lessonProtocol?.rootCauses).toEqual([
+      "failed checks: tests",
+      "missing evidence: test_or_build",
+    ]);
+    expect(result.hits[0]?.knowledgeFacets?.pattern).toBe("verification:standard:none");
+    expect(result.hits[0]?.knowledgeFacets?.rootCause).toBe("failed checks: tests");
+    expect(result.hits[0]?.knowledgeFacets?.recommendation).toBe("run type-check before tests");
+    expect(result.hits[0]?.knowledgeFacets?.lessonKey).toBe(
+      "verification:standard:none:type-check+tests",
+    );
+    expect(result.hits[0]?.knowledgeFacets?.outcomes).toEqual({ pass: 0, fail: 3 });
+    expect(result.hits[0]?.knowledgeFacets?.unitCount).toBeNull();
+  });
+
+  test("projects knowledge facets for session learning units without global protocol", () => {
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      query: "verification lessons strategy",
+      limit: 5,
+      units: [
+        unit({
+          id: "u-session-lesson",
+          topic: "verification lessons",
+          statement: "verification failed and strategy must be adjusted",
+          type: "learning",
+          metadata: {
+            lessonKey: "verification:standard:none:type-check+tests",
+            pattern: "verification:standard:none",
+            rootCause: "failed checks: tests",
+            recommendation: "run type-check before tests",
+            lessonOutcome: "fail",
+          },
+        }),
+      ],
+      crystals: [],
+    });
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.sourceTier).toBe("session");
+    expect(result.hits[0]?.lessonProtocol).toBeUndefined();
+    expect(result.hits[0]?.knowledgeFacets?.pattern).toBe("verification:standard:none");
+    expect(result.hits[0]?.knowledgeFacets?.rootCause).toBe("failed checks: tests");
+    expect(result.hits[0]?.knowledgeFacets?.recommendation).toBe("run type-check before tests");
+    expect(result.hits[0]?.knowledgeFacets?.lessonKey).toBe(
+      "verification:standard:none:type-check+tests",
+    );
+    expect(result.hits[0]?.knowledgeFacets?.outcomes).toEqual({ pass: 0, fail: 1 });
+  });
+
+  test("keeps legacy global lesson hits readable when outcomes are missing", () => {
+    const now = Date.now();
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      includeSessionIds: ["__global__"],
+      query: "verification lessons pattern",
+      limit: 5,
+      units: [
+        unit({
+          id: "u-global-lesson-legacy",
+          sessionId: "__global__",
+          topic: "verification lessons",
+          statement: "legacy global lesson payload",
+          type: "learning",
+          metadata: {
+            globalLesson: {
+              schema: "brewva.memory.global-lesson.v1",
+              version: 1,
+              lessonKey: "verification:standard:none:type-check+tests",
+              pattern: "verification:standard:none",
+              rootCauses: ["failed checks: tests"],
+              recommendations: ["run type-check before tests"],
+              sourceSessionIds: ["s1", "s2"],
+              sourceSessionCount: 2,
+              updatedAt: now,
+            },
+          },
+          updatedAt: now,
+        }),
+      ],
+      crystals: [],
+    });
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.lessonProtocol?.schema).toBe("brewva.memory.global-lesson.v1");
+    expect(result.hits[0]?.lessonProtocol?.outcomes).toEqual({ pass: 0, fail: 0 });
+    expect(result.hits[0]?.knowledgeFacets?.outcomes).toEqual({ pass: 0, fail: 0 });
+  });
+
+  test("projects protocol-agnostic knowledge facets for both lesson and crystal hits", () => {
+    const now = Date.now();
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      includeSessionIds: ["__global__"],
+      query: "verification standard none tests",
+      limit: 10,
+      units: [
+        unit({
+          id: "u-global-lesson-facets",
+          sessionId: "__global__",
+          topic: "verification lessons",
+          statement: "verification fail pattern",
+          type: "learning",
+          metadata: {
+            globalLesson: {
+              schema: "brewva.memory.global-lesson.v1",
+              version: 1,
+              lessonKey: "verification:standard:none:type-check+tests",
+              pattern: "verification:standard:none",
+              patterns: ["verification:standard:none"],
+              rootCause: "failed checks: tests",
+              rootCauses: ["failed checks: tests"],
+              recommendation: "run type-check before tests",
+              recommendations: ["run type-check before tests"],
+              outcomes: { pass: 0, fail: 2 },
+              sourceSessionIds: ["s1", "s2"],
+              sourceSessionCount: 2,
+              updatedAt: now,
+            },
+          },
+          updatedAt: now,
+        }),
+      ],
+      crystals: [
+        crystal(
+          "c-global-facets",
+          "global pattern: verification:standard:none",
+          "[GlobalCrystal]\n- pattern: verification:standard:none",
+          {
+            sessionId: "__global__",
+            metadata: {
+              globalCrystal: {
+                schema: "brewva.memory.global-crystal.v1",
+                version: 1,
+                pattern: "verification:standard:none",
+                patterns: ["verification:standard:none"],
+                rootCause: "failed checks: tests",
+                rootCauses: ["failed checks: tests"],
+                recommendation: "run type-check before tests",
+                recommendations: ["run type-check before tests"],
+                lessonKeys: ["verification:standard:none:type-check+tests"],
+                outcomes: { pass: 1, fail: 5 },
+                sourceSessionIds: ["s1", "s2", "s3"],
+                sourceSessionCount: 3,
+                unitCount: 4,
+                updatedAt: now,
+              },
+            },
+          },
+        ),
+      ],
+    });
+
+    expect(result.hits).toHaveLength(2);
+    for (const hit of result.hits) {
+      expect(hit.knowledgeFacets).toBeDefined();
+      expect(hit.knowledgeFacets?.pattern).toBe("verification:standard:none");
+      expect(hit.knowledgeFacets?.rootCause).toBe("failed checks: tests");
+      expect(hit.knowledgeFacets?.recommendation).toBe("run type-check before tests");
+      expect(hit.knowledgeFacets?.lessonKey).toBe("verification:standard:none:type-check+tests");
+    }
+  });
+
+  test("skips resolved failed lessons after pass reconciliation", () => {
+    const result = searchMemory({
+      sessionId: "mem-retrieval-session",
+      query: "verification failed tests",
+      limit: 5,
+      units: [
+        unit({
+          id: "u-fail-resolved",
+          topic: "verification lessons",
+          statement: "verification fail; failed_checks=tests",
+          type: "learning",
+          status: "resolved",
+          metadata: {
+            lessonOutcome: "fail",
+          },
+        }),
+      ],
+      crystals: [],
+    });
+
+    expect(result.hits).toHaveLength(0);
   });
 });

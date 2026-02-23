@@ -66,6 +66,12 @@ function parseJsonLines<T>(path: string): T[] {
   return out;
 }
 
+function isTombstoneRow(value: unknown): value is { id: string; _tombstone: true } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as { id?: unknown; _tombstone?: unknown };
+  return row._tombstone === true && typeof row.id === "string";
+}
+
 function defaultState(): MemoryStoreState {
   return {
     schemaVersion: MEMORY_STATE_SCHEMA_VERSION,
@@ -209,6 +215,10 @@ export class MemoryStore {
         if (directive.sourceType === "task_kind") {
           return unit.metadata?.taskKind === directive.sourceId;
         }
+        if (directive.sourceType === "lesson_key") {
+          if (unit.metadata?.lessonKey !== directive.sourceId) return false;
+          return unit.metadata?.lessonOutcome !== "pass";
+        }
         return false;
       })();
       if (!matched) continue;
@@ -268,6 +278,53 @@ export class MemoryStore {
     const units = [...this.unitsById.values()];
     const filtered = sessionId ? units.filter((unit) => unit.sessionId === sessionId) : units;
     return filtered.toSorted((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  updateUnitConfidence(input: {
+    sessionId: string;
+    unitId: string;
+    confidence: number;
+    updatedAt?: number;
+    metadata?: MemoryUnit["metadata"];
+  }): { ok: true; updated: boolean; unit: MemoryUnit } | { ok: false; error: "not_found" } {
+    this.ensureUnitsLoaded();
+    const unit = this.unitsById.get(input.unitId);
+    if (!unit || unit.sessionId !== input.sessionId) {
+      return { ok: false, error: "not_found" };
+    }
+    const nextConfidence = normalizeConfidence(input.confidence);
+    const nextMetadata =
+      input.metadata && unit.metadata
+        ? { ...unit.metadata, ...input.metadata }
+        : (input.metadata ?? unit.metadata);
+    const updatedAt = this.nextUnitWriteAt(
+      Math.max(unit.updatedAt + 1, input.updatedAt ?? Date.now()),
+    );
+    const unchanged = nextConfidence === unit.confidence && nextMetadata === unit.metadata;
+    if (unchanged) {
+      return { ok: true, updated: false, unit };
+    }
+    const updated: MemoryUnit = {
+      ...unit,
+      confidence: nextConfidence,
+      metadata: nextMetadata,
+      updatedAt,
+      lastSeenAt: updatedAt,
+    };
+    this.unitsById.set(updated.id, updated);
+    this.appendJsonLine(this.unitsPath, updated);
+    return { ok: true, updated: true, unit: updated };
+  }
+
+  removeUnit(unitId: string): boolean {
+    this.ensureUnitsLoaded();
+    const unit = this.unitsById.get(unitId);
+    if (!unit) return false;
+    this.unitsById.delete(unitId);
+    this.unitIdBySessionFingerprint.delete(`${unit.sessionId}:${unit.fingerprint}`);
+    // Append tombstone — compaction will clean it up at threshold
+    this.appendJsonLine(this.unitsPath, { id: unitId, _tombstone: true });
+    return true;
   }
 
   importUnitSnapshot(unit: MemoryUnit): { applied: boolean; unit?: MemoryUnit } {
@@ -358,6 +415,17 @@ export class MemoryStore {
       ? crystals.filter((crystal) => crystal.sessionId === sessionId)
       : crystals;
     return filtered.toSorted((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  removeCrystal(crystalId: string): boolean {
+    this.ensureCrystalsLoaded();
+    const crystal = this.crystalsById.get(crystalId);
+    if (!crystal) return false;
+    this.crystalsById.delete(crystalId);
+    this.crystalIdBySessionTopic.delete(`${crystal.sessionId}:${normalizeText(crystal.topic)}`);
+    // Append tombstone — compaction will clean it up at threshold
+    this.appendJsonLine(this.crystalsPath, { id: crystalId, _tombstone: true });
+    return true;
   }
 
   importCrystalSnapshot(crystal: MemoryCrystal): { applied: boolean; crystal?: MemoryCrystal } {
@@ -495,6 +563,27 @@ export class MemoryStore {
     this.evolvesById.set(updated.id, updated);
     this.appendJsonLine(this.evolvesPath, updated);
     return { ok: true, updated: true, edge: updated };
+  }
+
+  updateEvolvesEdgeRelation(input: {
+    edgeId: string;
+    relation: MemoryEvolvesEdge["relation"];
+    confidence?: number;
+    rationale?: string;
+  }): boolean {
+    this.ensureEvolvesLoaded();
+    const edge = this.evolvesById.get(input.edgeId);
+    if (!edge) return false;
+    const updated: MemoryEvolvesEdge = {
+      ...edge,
+      relation: input.relation,
+      confidence: input.confidence ?? edge.confidence,
+      rationale: input.rationale ?? edge.rationale,
+      updatedAt: nextUpdatedAt(edge.updatedAt),
+    };
+    this.evolvesById.set(updated.id, updated);
+    this.appendJsonLine(this.evolvesPath, updated);
+    return true;
   }
 
   getState(): MemoryStoreState {
@@ -668,7 +757,12 @@ export class MemoryStore {
     this.unitsById.clear();
     this.unitIdBySessionFingerprint.clear();
     for (const row of rows) {
-      if (!row || typeof row.id !== "string" || typeof row.sessionId !== "string") continue;
+      if (!row || typeof row.id !== "string") continue;
+      if (isTombstoneRow(row)) {
+        this.unitsById.delete(row.id);
+        continue;
+      }
+      if (typeof row.sessionId !== "string") continue;
       if (typeof row.updatedAt === "number" && Number.isFinite(row.updatedAt)) {
         maxUnitAt = Math.max(maxUnitAt, row.updatedAt);
       }
@@ -691,7 +785,12 @@ export class MemoryStore {
     this.crystalsById.clear();
     this.crystalIdBySessionTopic.clear();
     for (const row of rows) {
-      if (!row || typeof row.id !== "string" || typeof row.sessionId !== "string") continue;
+      if (!row || typeof row.id !== "string") continue;
+      if (isTombstoneRow(row)) {
+        this.crystalsById.delete(row.id);
+        continue;
+      }
+      if (typeof row.sessionId !== "string") continue;
       const existing = this.crystalsById.get(row.id);
       if (!existing || row.updatedAt >= existing.updatedAt) {
         this.crystalsById.set(row.id, row);

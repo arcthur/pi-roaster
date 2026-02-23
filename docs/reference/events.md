@@ -413,6 +413,40 @@ Example payload:
 }
 ```
 
+### `verification_outcome_recorded`
+
+Emitted by `verifyCompletion()` after verification result is folded into runtime state.
+
+Payload fields:
+
+- `schema`: `brewva.verification.outcome.v1`
+- `level`: verification level (`quick | standard | strict`)
+- `outcome`: `pass | fail`
+- `lessonKey`: normalized lesson key used for memory/global reconciliation
+- `pattern`: normalized strategy pattern key
+- `rootCause`: summarized root cause
+- `recommendation`: summarized recommendation
+- `taskGoal`: task goal snapshot (or `null`)
+- `strategy`: compact strategy summary
+- `failedChecks`: failed check names
+- `missingEvidence`: missing evidence ids
+- `evidence`: compact failed-evidence text
+- `evidenceIds`: linked ledger evidence ids
+
+Example payload:
+
+```json
+{
+  "schema": "brewva.verification.outcome.v1",
+  "level": "standard",
+  "outcome": "fail",
+  "lessonKey": "verification:standard:debugging:type-check+tests",
+  "pattern": "verification:standard:debugging",
+  "rootCause": "failed checks: tests",
+  "recommendation": "stabilize checks (tests) and rerun standard verification"
+}
+```
+
 ## Memory Projection Events
 
 ### `skill_completed`
@@ -619,6 +653,117 @@ Example payload:
   "targetUnitId": "memu_old"
 }
 ```
+
+### `memory_global_sync`
+
+Emitted when global-memory lifecycle applies promotion/decay/reconciliation and writes a new global snapshot.
+
+Payload fields:
+
+- `stage`: currently `refresh`
+- lifecycle counters:
+  - `scannedCandidates`
+  - `promoted`
+  - `refreshed`
+  - `decayed`
+  - `pruned`
+  - `resolvedByPass`
+  - `crystalsCompiled`
+  - `crystalsRemoved`
+- `promotedUnitIds`: promoted/refreshed global unit ids
+- `global`: full global snapshot payload (`brewva.memory.global.v1`)
+  - global lesson units expose `metadata.globalLesson` (`brewva.memory.global-lesson.v1`)
+  - global crystals expose `metadata.globalCrystal` (`brewva.memory.global-crystal.v1`) with normalized structured fields (`pattern/patterns`, `rootCause/rootCauses`, `recommendation/recommendations`, `outcomes`)
+
+### `memory_global_recall`
+
+Emitted when search recall includes hits from global tier.
+
+Payload fields:
+
+- `schema`: search result schema (`brewva.memory.search.v1`)
+- `rankingSchema`: ranking schema (`brewva.memory.ranking.v1`)
+- `query`
+- global inventory counters:
+  - `totalGlobalUnits`
+  - `totalGlobalCrystals`
+- hit counters:
+  - `matchedGlobalHits`
+  - `matchedGlobalUnitHits`
+  - `matchedGlobalCrystalHits`
+- `topHitIds`
+- `topHitSignals` (rank/score and weighted ranking contributions)
+
+## Cognitive Events
+
+### `cognitive_usage_recorded`
+
+Emitted when cognitive-token usage is recorded into `SessionCostTracker`.
+
+Payload fields:
+
+- `stage`: usage stage (for example `memory_evolves_relation`, `memory_recall_ranking`, `verification_outcome`)
+- `usage`: normalized cognitive usage (`model`, token fields, `costUsd`) or `null`
+- `budget`: cognitive token budget snapshot (`maxTokensPerTurn`, `consumedTokens`, `remainingTokens`, `exhausted`) or `null`
+
+### `cognitive_relation_inference`
+
+Emitted when cognitive relation inference succeeds for an evolves edge.
+
+Payload fields:
+
+- `stage`: `memory_evolves_relation`
+- `mode`: `shadow | active`
+- `edgeId`, `topic`, `sourceUnitId`, `targetUnitId`
+- `deterministicRelation`, `inferredRelation`
+- `confidence`, `rationale`
+- `usage`, `budget`
+
+Companion events:
+
+- `cognitive_relation_inference_skipped` (`reason` includes `budget_exhausted` / `token_budget_exhausted`)
+- `cognitive_relation_inference_failed` (`error`)
+
+### `cognitive_relevance_ranking`
+
+Emitted when cognitive ranking evaluates memory recall candidates.
+
+Payload fields:
+
+- `stage`: `memory_recall_ranking`
+- `mode`: `shadow | active`
+- `query`, `candidateCount`
+- `asyncResult`: whether cognitive result arrived asynchronously
+- `deterministicTopIds`, `inferredTopIds`
+- `changedPositions`
+- `appliedRanking`: whether ranking was applied to returned hit order
+- `skippedReason`: nullable skip reason (for example async result not applicable to sync search)
+- `scores`: per-candidate cognitive score
+- `usage`, `budget`
+
+Companion events:
+
+- `cognitive_relevance_ranking_skipped` (`reason` includes `token_budget_exhausted` / `async_result_not_applicable_to_sync_search`)
+- `cognitive_relevance_ranking_failed` (`error`)
+
+### `cognitive_outcome_reflection`
+
+Emitted when cognitive reflection extracts a lesson from verification failure.
+
+Payload fields:
+
+- `stage`: `verification_outcome`
+- `mode`: `shadow | active`
+- `lessonKey`
+- structured lesson fields: `pattern`, `rootCause`, `recommendation`
+- `taskGoal`, `strategy`, `outcome`
+- `lesson`, `adjustedStrategy`
+- `usage`, `budget`
+
+Companion events:
+
+- `cognitive_outcome_reflection_skipped` (`reason` includes `budget_exhausted` / `token_budget_exhausted`)
+- `cognitive_outcome_reflection_failed` (`reason` or `error`)
 
 ## Context Gate Events
 
