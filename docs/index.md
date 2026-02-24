@@ -48,6 +48,7 @@ This repository uses a layered documentation system:
 - Session lifecycle: `docs/reference/session-lifecycle.md`
 - Artifacts and paths: `docs/reference/artifacts-and-paths.md`
 - Glossary: `docs/reference/glossary.md`
+- Known limitations: `docs/reference/limitations.md`
 
 ## Troubleshooting and Research
 

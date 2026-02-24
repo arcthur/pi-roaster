@@ -140,11 +140,11 @@ is documented in:
 
 Skills are loaded in three tiers with increasing precedence — higher tiers can tighten but never relax lower-tier contracts:
 
-| Tier    | Location          | Examples                                                                     |
-| ------- | ----------------- | ---------------------------------------------------------------------------- |
-| Base    | `skills/base/`    | `cartography`, `debugging`, `planning`, `verification`, `patching`, `review` |
-| Pack    | `skills/packs/`   | `typescript`, `react`, `bun`, `skill-creator`, `browser`, `frontend-ui-ux`   |
-| Project | `skills/project/` | `brewva-project`                                                             |
+| Tier    | Location          | Current Skills                                                                                                |
+| ------- | ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| Base    | `skills/base/`    | `cartography`, `compose`, `debugging`, `exploration`, `git`, `patching`, `planning`, `review`, `verification` |
+| Pack    | `skills/packs/`   | `browser`, `frontend-ui-ux`, `gh-issues`, `github`, `skill-creator`                                           |
+| Project | `skills/project/` | `brewva-project`                                                                                              |
 
 Discovery walks multiple roots (module ancestors, executable sidecar, global config, project config, explicit `skills.roots`) with symlink containment and depth bounds.
 
@@ -177,7 +177,10 @@ bun run start -- --replay --session <session-id>
 # Undo last patch set
 bun run start -- --undo
 
-# Start local control-plane daemon
+# Start local control-plane daemon (repo-local entrypoint)
+bun run start -- gateway start --detach
+
+# If brewva is installed globally, this also works
 brewva gateway start --detach
 ```
 

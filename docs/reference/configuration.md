@@ -158,6 +158,13 @@ With `infrastructure.contextBudget.enabled=true`, runtime enforces:
 
 `enabled=false` disables runtime token-budget enforcement for context injection.
 
+Normalization details from `normalizeBrewvaConfig(...)`:
+
+- `compactionThresholdPercent` is clamped to `<= hardLimitPercent`.
+- Percent-like ratios are clamped into `[0, 1]` (`alertThresholdRatio`, memory/global confidence).
+- `memory.retrievalWeights` are normalized to sum to `1` when total weight is positive; otherwise defaults are used.
+- Most numeric fields are floor-normalized to positive/non-negative integers (invalid values fall back to defaults).
+
 ## Turn WAL Model
 
 With `infrastructure.turnWal.enabled=true`, runtime and daemon surfaces can persist inbound/execution turns
@@ -226,3 +233,9 @@ On load, config JSON is schema-validated:
 - runtime then normalizes/clamps values using `normalizeBrewvaConfig(...)`
 
 This means malformed or removed fields are never silently applied as active runtime policy.
+
+## Current Limitations
+
+- Startup UI config currently exposes `ui.quietStartup` only; there is no `ui.collapseChangelog` field.
+- Parallel session total-start cap is internal (`PARALLEL_MAX_TOTAL_PER_SESSION=10`) and not configurable via `BrewvaConfig`.
+- Context compaction recency window (used by compaction gate) is internal and not exposed as public config.

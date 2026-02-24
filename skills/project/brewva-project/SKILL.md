@@ -1,14 +1,43 @@
 ---
 name: brewva-project
 description: Project orchestration skill for Brewva source analysis, runtime evidence diagnosis, and issue/PR delivery.
-version: 1.2.0
+version: 1.3.0
 stability: stable
 tier: project
 tags: [project, migration, runtime, diagnostics, verification, delivery]
 anti_tags: []
 tools:
   required: [read, grep]
-  optional: [exec, ledger_query, lsp_diagnostics, skill_load, skill_complete]
+  optional:
+    - exec
+    - process
+    - look_at
+    - lsp_goto_definition
+    - lsp_find_references
+    - lsp_symbols
+    - lsp_diagnostics
+    - lsp_prepare_rename
+    - lsp_rename
+    - ast_grep_search
+    - ast_grep_replace
+    - cost_view
+    - ledger_query
+    - schedule_intent
+    - tape_handoff
+    - tape_info
+    - tape_search
+    - session_compact
+    - rollback_last_patch
+    - skill_load
+    - skill_complete
+    - task_set_spec
+    - task_add_item
+    - task_update_item
+    - task_record_blocker
+    - task_resolve_blocker
+    - task_view_state
+    - memory_dismiss_insight
+    - memory_review_evolves_edge
   denied: []
 budget:
   max_tool_calls: 110
@@ -103,6 +132,25 @@ This skill must orchestrate specialized skills instead of re-implementing their 
 - commit architecture and history operations: `skills/base/git/SKILL.md`
 - issue/PR artifact generation and GitHub execution: `skills/packs/github/SKILL.md`
 - issue triage to PR pipeline: `skills/packs/gh-issues/SKILL.md`
+
+## Brewva Tools Alignment (mandatory)
+
+This skill keeps `read` + `grep` as required baseline and explicitly aligns optional tools with
+the current `@brewva/brewva-tools` runtime tool surface.
+
+Operational routing:
+
+- Source lane (`runtime/tools/extensions/cli` boundary tracing): `lsp_*`, `ast_grep_*`, `look_at`
+- Process lane (runtime artifact reconstruction): `ledger_query`, `tape_info`, `tape_search`, `cost_view`, `process`
+- Delivery lane (bounded execution and rollback): `task_*`, `skill_load`, `skill_complete`, `rollback_last_patch`
+- Scheduling/continuity lane: `schedule_intent`
+- Pressure/recovery lane: `session_compact`, `tape_handoff`
+
+Limitation:
+
+- This skill intentionally does **not** include generic mutation-only tools such as `write`/`edit`.
+  Code mutation should flow through delegated skills (`patching`, `debugging`) so change boundaries,
+  rollback strategy, and verification gates stay explicit.
 
 ## Execution Workflow
 

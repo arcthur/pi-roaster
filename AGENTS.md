@@ -74,6 +74,7 @@ brewva/
   - `runtime.truth.*`
   - `runtime.memory.*`
   - `runtime.schedule.*`
+  - `runtime.turnWal.*`
   - `runtime.events.*`
   - `runtime.verification.*`
   - `runtime.cost.*`
@@ -92,6 +93,8 @@ brewva/
   - `brewva.task-state`
   - `brewva.tool-failures`
   - `brewva.memory`
+- Turn durability/recovery is WAL-based through `runtime.turnWal.*` and
+  `infrastructure.turnWal.*` configuration.
 - Internal tuning knobs removed from public config should stay internal unless they
   represent a clear user-facing decision boundary.
 
@@ -124,6 +127,7 @@ brewva/
 | Security mode mapping        | `packages/brewva-runtime/src/security/mode.ts`           | `security.mode` -> effective enforcement policy |
 | Runtime defaults             | `packages/brewva-runtime/src/config/defaults.ts`         | canonical default config profile                |
 | Runtime config normalization | `packages/brewva-runtime/src/config/normalize.ts`        | type/enum/range normalization                   |
+| Turn WAL durability/recovery | `packages/brewva-runtime/src/channels/turn-wal*.ts`      | append/recover/compact turn WAL rows            |
 | Tool registry                | `packages/brewva-tools/src/index.ts`                     | assembled tool surface                          |
 | Extension composition        | `packages/brewva-extensions/src/index.ts`                | runtime hook wiring and bridge helpers          |
 | CLI command surface          | `packages/brewva-cli/src/index.ts`                       | mode routing, args, entrypoint behavior         |
@@ -229,3 +233,4 @@ Before finalizing:
 - `docs/reference/configuration.md`
 - `docs/reference/events.md`
 - `docs/reference/extensions.md`
+- `docs/reference/limitations.md`

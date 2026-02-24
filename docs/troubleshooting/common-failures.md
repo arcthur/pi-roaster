@@ -10,7 +10,7 @@
 
 - Cause: denied tool by active contract, allowlist enforcement, token/tool-call budget enforcement, or cost budget violation.
 - Check: `packages/brewva-runtime/src/runtime.ts`
-- Action: switch active skill, adjust `security.allowedToolsMode` / `security.skillMaxTokensMode` / `security.skillMaxToolCallsMode`, or resolve budget policy constraints.
+- Action: switch active skill, adjust `security.mode` (`permissive`/`standard`/`strict`) to change effective enforcement strategy, or resolve budget policy constraints.
 
 ## `--replay` Returns No Session
 
@@ -36,4 +36,5 @@
   - Inspect session events and locate `tool_parallel_read` payloads.
   - If `mode=sequential` with `reason=parallel_disabled`, enable runtime `parallel.enabled`.
   - If `failedFiles` is consistently high, verify file permissions and path stability.
-  - If `durationMs` and `batches` are high for large scans, tune `parallel.maxConcurrent` and `parallel.maxTotal`.
+  - If `durationMs` and `batches` are high for large scans, tune `parallel.maxConcurrent`.
+  - Note: per-session total parallel starts are currently capped by an internal runtime constant (`PARALLEL_MAX_TOTAL_PER_SESSION=10`), not by public config.

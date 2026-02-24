@@ -258,3 +258,14 @@ Runtime query APIs:
 - `runtime.events.subscribe(listener)`
 
 Structured replay shape: `brewva.event.v1` (`BrewvaStructuredEvent`).
+
+`BrewvaEventQuery` currently supports only:
+
+- `type?: string`
+- `last?: number`
+
+## Current Limitations
+
+- Event level filtering (`audit`/`ops`/`debug`) is applied at write time; filtered-out events are not persisted and cannot be recovered by later queries.
+- Query API does not currently support time-range, offset cursor, or category filtering.
+- `subscribe(listener)` is in-process only and does not replay historical events automatically.

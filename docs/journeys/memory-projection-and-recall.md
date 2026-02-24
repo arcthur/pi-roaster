@@ -3,17 +3,17 @@
 ## Objective
 
 Maintain a durable, high-signal memory layer that grows from the event tape and
-projects into two context blocks on each agent start:
+projects memory context on each agent start:
 
-- `[WorkingMemory]`: a compact “what matters now” snapshot (`working.md`)
-- `[MemoryRecall]`: a task-aware top-k recall block (units + crystals)
+- `brewva.memory`: merged injection source composed from:
+  - `[WorkingMemory]`: compact “what matters now” snapshot (`working.md`)
+  - `[MemoryRecall]`: task-aware top-k recall block (units + crystals)
 
 Scope note:
 
 - This journey describes the extension-enabled runtime profile.
-- In `--no-extensions`, ingest/projection still runs, but `brewva.working-memory`
-  / `brewva.memory-recall` auto-injection and memory bridge hooks are intentionally
-  not active.
+- In `--no-extensions`, ingest/projection still runs, but memory auto-injection
+  (`brewva.memory`) and memory bridge hooks are intentionally not active.
 - `--no-extensions` still injects a lightweight runtime-core autonomy/status block
   (`[CoreTapeStatus]`), which is separate from memory projection injection.
 
@@ -45,7 +45,7 @@ flowchart TD
 
 ### 1) Ingest: events → units
 
-**Trigger:** every successful `runtime.recordEvent()` write.
+**Trigger:** every successful `runtime.events.record()` write.
 
 **Behavior:**
 
@@ -63,7 +63,7 @@ Code pointers:
 
 ### 2) Refresh: units/crystals/insights → working.md
 
-**Trigger:** `refreshIfNeeded()` called during `buildContextInjection()`, and also
+**Trigger:** `refreshIfNeeded()` called during `runtime.context.buildInjection()`, and also
 on extension hooks (e.g. `agent_end`).
 
 **Refresh conditions:**
@@ -89,14 +89,14 @@ Code pointers:
 
 ### 3) Inject: working + recall blocks into the agent context
 
-**Trigger:** `before_agent_start` in extensions calls `runtime.buildContextInjection()`.
+**Trigger:** `before_agent_start` in extensions calls `runtime.context.buildInjection()`.
 
 **Behavior:**
 
-- `working.md` is injected as `brewva.working-memory` with `critical` priority.
-- A task-aware recall query is derived from `{task.goal + user prompt}` and
-  injected as `brewva.memory-recall` with `high` priority (top-k hits only).
-- Both sources respect global context budget policies (truncation/drop decisions).
+- Runtime composes one merged source (`brewva.memory`) from:
+  - `working.md` snapshot content
+  - task-aware recall hits derived from `{task.goal + user prompt}`
+- The merged source respects global context budget policies (truncation/drop decisions).
 
 Code pointers:
 
@@ -182,11 +182,11 @@ See `docs/reference/artifacts-and-paths.md` for the canonical list.
 Checklist:
 
 1. `memory.enabled` is `true` and config is loaded as expected.
-2. Extensions are enabled and `before_agent_start` runs `runtime.buildContextInjection()`.
+2. Extensions are enabled and `before_agent_start` runs `runtime.context.buildInjection()`.
 3. `.orchestrator/memory/working.md` exists and is non-empty.
 4. Check tape for `context_injection_dropped` (budget hard-limit / budget exhausted).
 5. If running with `--no-extensions`, this checklist does not apply for
-   `brewva.working-memory`/`brewva.memory-recall` because those extension hooks are disabled.
+   `brewva.memory` because those extension hooks are disabled.
 
 ### Working memory looks stale after major changes
 

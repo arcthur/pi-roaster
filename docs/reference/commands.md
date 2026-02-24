@@ -19,6 +19,7 @@ Implementation source: `packages/brewva-cli/src/index.ts`.
 The primary CLI also exposes control-plane subcommands via `brewva gateway ...`.
 
 - `start`
+- `run` (alias of `start`)
 - `status`
 - `stop`
 - `heartbeat-reload`
@@ -28,6 +29,101 @@ The primary CLI also exposes control-plane subcommands via `brewva gateway ...`.
 This subcommand set covers local daemon lifecycle management, health probing, token rotation, and log access. It is distinct from `--channel`.
 Protocol and method reference: `docs/reference/gateway-control-plane-protocol.md`.  
 Operational guide: `docs/guide/gateway-control-plane-daemon.md`.
+Gateway CLI implementation source: `packages/brewva-gateway/src/cli.ts`.
+
+Loopback-only host policy applies to gateway start/probe/control (`--host` must resolve to `localhost`, `127.0.0.1`, or `::1`).
+
+### Gateway Subcommand Flags
+
+`brewva gateway start` / `run`:
+
+- `--detach`
+- `--foreground`
+- `--wait-ms`
+- `--cwd`
+- `--config`
+- `--model`
+- `--host`
+- `--port`
+- `--state-dir`
+- `--pid-file`
+- `--log-file`
+- `--token-file`
+- `--heartbeat`
+- `--no-extensions`
+- `--json`
+- `--tick-interval-ms`
+- `--session-idle-ms`
+- `--max-workers`
+- `--max-open-queue`
+- `--max-payload-bytes`
+
+`brewva gateway status`:
+
+- `--json`
+- `--deep`
+- `--host`
+- `--port`
+- `--state-dir`
+- `--pid-file`
+- `--token-file`
+- `--timeout-ms`
+
+`brewva gateway stop`:
+
+- `--json`
+- `--force`
+- `--reason`
+- `--host`
+- `--port`
+- `--state-dir`
+- `--pid-file`
+- `--token-file`
+- `--timeout-ms`
+
+`brewva gateway heartbeat-reload`:
+
+- `--json`
+- `--host`
+- `--port`
+- `--state-dir`
+- `--pid-file`
+- `--token-file`
+- `--timeout-ms`
+
+`brewva gateway rotate-token`:
+
+- `--json`
+- `--host`
+- `--port`
+- `--state-dir`
+- `--pid-file`
+- `--token-file`
+- `--timeout-ms`
+
+`brewva gateway logs`:
+
+- `--json`
+- `--state-dir`
+- `--log-file`
+- `--tail`
+
+### Gateway Flag Validation Notes
+
+- `--port`: integer in `[1, 65535]`.
+- `--wait-ms` (start): integer `>= 200`.
+- `--tick-interval-ms` (start): integer `>= 1000`.
+- `--session-idle-ms` (start): integer `>= 1000`.
+- `--max-payload-bytes` (start): integer `>= 16384`.
+- `--max-workers` (start): integer `>= 1`.
+- `--max-open-queue` (start): integer `>= 0`.
+- `--timeout-ms` (status/stop/heartbeat-reload/rotate-token): integer `>= 100`.
+- `--tail` (logs): integer `>= 1`.
+
+### Gateway Exit Code Notes
+
+- `brewva gateway status`: `0` reachable, `1` not running/invalid input, `2` process alive but probe failed.
+- `brewva gateway stop`: `0` stopped (or already not running), `2` process still alive after timeout/fallback.
 
 `--daemon` executes due intents in child sessions (lineage-aware wakeups) and
 handles graceful shutdown by aborting active child runs on signals.

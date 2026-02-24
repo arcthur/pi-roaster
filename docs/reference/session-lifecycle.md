@@ -5,7 +5,7 @@
 1. Parse CLI args and resolve mode/input (`packages/brewva-cli/src/index.ts`)
 2. Create session + runtime (`packages/brewva-cli/src/session.ts`)
    - runtime config is loaded/normalized first
-   - startup UI settings (`ui.quietStartup`, `ui.collapseChangelog`) are applied from `runtime.config.ui` into session settings overrides
+   - startup UI setting (`ui.quietStartup`) is applied from `runtime.config.ui` into session settings overrides
 3. Register lifecycle handlers (profile-dependent)
    - extensions-enabled: full extension stack from `packages/brewva-extensions/src/index.ts`
    - `--no-extensions`: runtime core bridge + session event bridge (`packages/brewva-extensions/src/runtime-core-bridge.ts`, `packages/brewva-cli/src/session-event-bridge.ts`)

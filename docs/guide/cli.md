@@ -29,7 +29,7 @@ For operational details, see `docs/guide/gateway-control-plane-daemon.md`.
 ## Startup Behavior
 
 - Interactive mode defaults to quiet startup, reducing banner/changelog/version-check noise during initialization.
-- Startup UI behavior is controlled by `BrewvaConfig.ui` (`ui.quietStartup`, `ui.collapseChangelog`) and applied by `@brewva/brewva-cli`.
+- Startup UI behavior is controlled by `BrewvaConfig.ui` (`ui.quietStartup`) and applied by `@brewva/brewva-cli`.
 
 ## Mode and Input Resolution
 

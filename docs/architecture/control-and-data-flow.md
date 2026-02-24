@@ -22,13 +22,13 @@ sequenceDiagram
   SES->>EXT: register extension handlers + tools
   U->>CLI: submit prompt / run turn
   CLI->>EXT: before_agent_start
-  EXT->>RT: observeContextUsage() + buildContextInjection()
+  EXT->>RT: runtime.context.observeUsage() + runtime.context.buildInjection()
   RT->>STORES: refresh memory projections + publish working.md (if needed)
   CLI->>EXT: tool_call
-  EXT->>RT: checkToolAccess() + trackToolCallStart()
+  EXT->>RT: runtime.tools.checkAccess() + runtime.tools.trackCallStart()
   CLI->>TOOLS: execute tool
   TOOLS-->>EXT: tool_result (raw hook)
-  EXT->>RT: recordToolResult() + trackToolCallEnd()
+  EXT->>RT: runtime.tools.recordResult() + runtime.tools.trackCallEnd()
   RT->>STORES: append ledger + semantic events (e.g. tool_result_recorded, memory_*)
   CLI->>EXT: agent_end
   EXT->>RT: memory refresh hook (agent_end)
@@ -45,9 +45,9 @@ flowchart TD
   A["createBrewvaSession(enableExtensions=false)"] --> B["register built-in + custom tools"]
   B --> C["register createRuntimeCoreBridgeExtension()"]
   C --> C2["before_agent_start => observeContextUsage + inject core autonomy contract + [CoreTapeStatus]"]
-  C --> D["tool_call => runtime.startToolCall(): policy + compaction gate + call tracking"]
+  C --> D["tool_call => runtime.tools.start(): policy + compaction gate + call tracking"]
   D --> E["tool execute"]
-  E --> F["tool_result => runtime.finishToolCall(): ledger write + patch tracking"]
+  E --> F["tool_result => runtime.tools.finish(): ledger write + patch tracking"]
   F --> G["registerRuntimeCoreEventBridge(): lifecycle + usage telemetry"]
 ```
 
@@ -59,11 +59,12 @@ chain enforcement stay active through the runtime core bridge hooks.
 
 Memory behavior in this profile is split:
 
-- Projection ingest still runs on `recordEvent()` (memory JSONL state can advance).
+- Projection ingest still runs on `runtime.events.record()` (memory JSONL state can advance).
 - Runtime core bridge still injects a minimal `before_agent_start` status block
   (`[CoreTapeStatus]` + autonomy contract), independent of memory projection.
-- Auto-injection (`brewva.working-memory` / `brewva.memory-recall`) and `agent_end`
-  memory refresh hooks are extension-only and therefore disabled.
+- Memory bridge hooks are extension-only and therefore disabled (`agent_end`
+  refresh + `session_shutdown` cache clear). Runtime core bridge injects only
+  autonomy/status context (`[CoreTapeStatus]`) and does not inject memory projections.
 - On first `onTurnStart()` after restart, runtime hydration can rebuild missing
   memory projections from tape (`memory_*` snapshot payloads + semantic fallback).
 
@@ -90,10 +91,10 @@ flowchart TD
   U --> E["evolves.jsonl (shadow proposals)"]
   C --> W["working.md publish"]
   I --> W
-  W --> INJ["before_agent_start inject: brewva.working-memory"]
+  W --> INJ["before_agent_start inject: brewva.memory (working snapshot)"]
   U --> R["memory retrieval search"]
   C --> R
-  R --> INJ2["before_agent_start inject: brewva.memory-recall"]
+  R --> INJ2["before_agent_start inject: brewva.memory (recall section)"]
 ```
 
 Notes:

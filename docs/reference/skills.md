@@ -30,6 +30,14 @@ Skill parsing, merge, and selection logic:
 
 - `brewva-project`
 
+## `brewva-project` Contract Notes
+
+- Baseline tools stay read-first: `read`, `grep`.
+- Optional tool contract is aligned with `@brewva/brewva-tools` runtime surface
+  (LSP, AST, process, ledger/tape/cost, schedule, task ledger, skill lifecycle tools).
+- Deliberate limitation: generic mutation-only tools (`write`, `edit`) are not part of this
+  project skill contract; code mutation is delegated to specialized skills such as `patching`.
+
 ## Storage Convention
 
 - `skills/base/<skill>/SKILL.md`

@@ -42,12 +42,16 @@ brewva gateway rotate-token --json
 
 ## Lifecycle and Operational Commands
 
-- `start`: start daemon (foreground by default, use `--detach` for background).
+- `start` (`run` alias): start daemon (foreground by default, use `--detach` for background).
 - `status`: health probe and deep status (`--deep`, `--json` supported).
 - `stop`: graceful stop; use `--force` as fallback.
 - `heartbeat-reload`: hot-reload `HEARTBEAT.md` policy.
 - `rotate-token`: rotate token and immediately revoke authenticated connections using the previous token.
 - `logs`: read daemon logs (`--tail` and `--json` supported).
+
+For full flag-level contract (per subcommand), see:
+
+- `docs/reference/commands.md` ("Gateway Subcommand Flags")
 
 ## State Directory and Artifacts
 

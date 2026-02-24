@@ -59,7 +59,7 @@ flowchart TD
   - Tape replay (`checkpoint + delta`), context budget, parallel budget, cost tracking.
   - Memory projection engine (units/crystals/insights/evolves), working-memory publication, recall retrieval.
   - Rollback tracking via file snapshots.
-  - Canonical runtime configuration contract (`BrewvaConfig`), including startup UI policy (`ui.quietStartup`, `ui.collapseChangelog`).
+  - Canonical runtime configuration contract (`BrewvaConfig`), including startup UI policy (`ui.quietStartup`).
 - **Distribution/build packaging (`distribution/*`, `script/*`)**
   - Platform launcher packages and binary build/verification scripts.
 
@@ -70,7 +70,8 @@ flowchart TD
   - Runtime behavior is mediated through extension hooks (`before_agent_start`,
     `tool_call`, `tool_result`, `agent_end`, etc.).
   - During `before_agent_start`, runtime may refresh memory projections and inject
-    `brewva.working-memory` / `brewva.memory-recall` under context-budget policy.
+    merged memory context (`brewva.memory`, composed from working-memory + recall blocks)
+    under context-budget policy.
   - On `agent_end`, memory bridge triggers an additional memory refresh pass to
     keep `working.md` aligned with the latest tape-derived projections.
   - Event tape keeps raw and semantic layers separated: raw lifecycle signals
@@ -82,10 +83,10 @@ flowchart TD
     (`quality-gate`, `ledger-writer`, compact lifecycle bridge) without full extension stack.
   - Runtime core bridge also handles `before_agent_start` with a minimal
     autonomy contract + `[CoreTapeStatus]` pressure/action block.
-  - Runtime core path (`startToolCall`/`finishToolCall`) enforces tool policy,
+  - Runtime core path (`runtime.tools.start` / `runtime.tools.finish`) enforces tool policy,
     critical context-compaction gate, tool-call accounting, patch tracking, and
     tool-result ledger persistence.
-  - Memory ingest on `recordEvent()` remains active (units/crystals/insights/evolves
+  - Memory ingest on `runtime.events.record()` remains active (units/crystals/insights/evolves
     can still be projected), but extension presentation hooks are disabled.
   - CLI installs `registerRuntimeCoreEventBridge()` for lifecycle and
     assistant-usage telemetry.
@@ -99,7 +100,7 @@ flowchart TD
 1. Runtime loads and normalizes config (`loadBrewvaConfig` + `normalizeBrewvaConfig`).
 2. CLI session bootstrap reads `runtime.config.ui`.
 3. CLI applies `runtime.config.ui` into upstream `SettingsManager` overrides.
-4. Interactive mode startup rendering uses those settings (`quietStartup`, `collapseChangelog`).
+4. Interactive mode startup rendering uses `quietStartup`.
 
 Key implementation points:
 
@@ -121,8 +122,8 @@ Memory is implemented as a derived projection layer over the event tape:
 3. Crystal compiler and insight generation update `crystals.jsonl` / `insights.jsonl`.
 4. In shadow mode, evolves candidates are written to `evolves.jsonl`; manual
    review may supersede units and emit additional memory events.
-5. Working snapshot is published to `.orchestrator/memory/working.md` and then
-   injected as `brewva.working-memory`; retrieval may emit `brewva.memory-recall`.
+5. Working snapshot is published to `.orchestrator/memory/working.md`; runtime then
+   builds a merged `brewva.memory` injection block (working snapshot + recall hits).
 
 This path is deterministic, auditable, and restart-safe: projection artifacts are
 persisted on disk and can also be rebuilt from tape-backed `memory_*` snapshot

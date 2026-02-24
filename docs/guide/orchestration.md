@@ -18,7 +18,7 @@ Orchestration is driven by runtime state management plus extension lifecycle han
 
 1. CLI registers tools directly (`buildBrewvaTools`)
 2. CLI installs `createRuntimeCoreBridgeExtension` (quality gate + ledger writer + compact lifecycle bridge + core context contract/status injection)
-3. Runtime core bridge enforces `startToolCall`/`finishToolCall` semantics:
+3. Runtime core bridge enforces `runtime.tools.start` / `runtime.tools.finish` semantics:
    tool policy + critical compaction gate + tool-call accounting + patch tracking + ledger write
 4. CLI installs `registerRuntimeCoreEventBridge` for lifecycle and assistant-usage telemetry
 5. Extension-only presentation hooks remain disabled (`context-transform` memory injection,

@@ -168,7 +168,7 @@ The default injection path is organized around four semantic sources:
 
 `runtime.events.record(...)` is filtered by `infrastructure.events.level`:
 
-- `audit`: replay/audit critical stream (`task_event`, `truth_event`, `checkpoint`, schedule lifecycle, verification outcomes, tool-result evidence)
+- `audit`: replay/audit critical stream (`anchor`, `checkpoint`, `task_event`, `truth_event`, schedule lifecycle, verification outcomes, tool-result evidence)
 - `ops` (default): audit + operational transitions and warnings
 - `debug`: full stream, including high-noise diagnostics (`viewport_*`, `cognitive_*`, parallel scan detail)
 
@@ -186,6 +186,13 @@ Switching level changes observability granularity, not business decisions.
 - Status transitions are event-sourced (`pending` -> `inflight` -> terminal status).
 - `recover()` performs startup scan/classification and emits summary telemetry.
 - Component-owned replay (channel/gateway/scheduler) should still use source-aware handlers to re-enqueue work.
+
+## Current Limitations
+
+- `runtime.skills.complete(sessionId, output, options?)` accepts `options` at type level, but current runtime persistence/ledger flow only consumes `output`.
+- `runtime.events.query(...)` / `queryStructured(...)` only support lightweight filtering (`type`, `last`), not time-range/offset cursors.
+- `runtime.events.subscribe(listener)` is process-local and ephemeral; subscribers do not survive process restart.
+- Context compaction recency window (`runtime.context.getCompactionWindowTurns()`) is currently an internal constant (2 turns), not a public config knob.
 
 ## Type Contracts
 
