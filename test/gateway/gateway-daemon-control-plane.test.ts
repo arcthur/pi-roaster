@@ -155,6 +155,81 @@ function createSupervisorWorker(input: {
 }
 
 describe("gateway daemon control-plane methods", () => {
+  test("sessions.open forwards agentId to backend", async () => {
+    const harness = createDaemonHarness([]);
+    try {
+      const supervisor = Reflect.get(harness.daemon, "supervisor") as {
+        openSession: (input: {
+          sessionId: string;
+          cwd?: string;
+          configPath?: string;
+          model?: string;
+          agentId?: string;
+          enableExtensions?: boolean;
+        }) => Promise<{
+          sessionId: string;
+          created: boolean;
+          workerPid: number;
+          agentSessionId?: string;
+        }>;
+      };
+      let captured:
+        | {
+            sessionId: string;
+            cwd?: string;
+            configPath?: string;
+            model?: string;
+            agentId?: string;
+            enableExtensions?: boolean;
+          }
+        | undefined;
+      supervisor.openSession = async (input) => {
+        captured = input;
+        return {
+          sessionId: input.sessionId,
+          created: true,
+          workerPid: 4321,
+          agentSessionId: "agent-open",
+        };
+      };
+
+      const handleMethod = getHandleMethod(harness.daemon);
+      const payload = (await handleMethod("sessions.open", {
+        sessionId: "session-open",
+        cwd: harness.root,
+        configPath: ".brewva/brewva.json",
+        model: "openai/gpt-5",
+        agentId: "code-reviewer",
+        enableExtensions: false,
+      })) as {
+        sessionId: string;
+        created: boolean;
+        workerPid: number;
+        agentSessionId?: string;
+        requestedSessionId: string;
+      };
+
+      expect(captured).toBeDefined();
+      expect(captured!).toEqual({
+        sessionId: "session-open",
+        cwd: harness.root,
+        configPath: ".brewva/brewva.json",
+        model: "openai/gpt-5",
+        agentId: "code-reviewer",
+        enableExtensions: false,
+      });
+      expect(payload).toEqual({
+        sessionId: "session-open",
+        created: true,
+        workerPid: 4321,
+        agentSessionId: "agent-open",
+        requestedSessionId: "session-open",
+      });
+    } finally {
+      harness.dispose();
+    }
+  });
+
   test("sessions.close forwards remote_close reason and supports false return", async () => {
     const harness = createDaemonHarness([]);
     try {
@@ -197,6 +272,7 @@ describe("gateway daemon control-plane methods", () => {
           cwd?: string;
           configPath?: string;
           model?: string;
+          agentId?: string;
           enableExtensions?: boolean;
         }) => Promise<unknown>;
       };

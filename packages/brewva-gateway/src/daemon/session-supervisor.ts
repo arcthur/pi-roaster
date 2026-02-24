@@ -65,6 +65,7 @@ interface WorkerHandle {
   cwd?: string;
   configPath?: string;
   model?: string;
+  agentId?: string;
   enableExtensions?: boolean;
   requestedAgentSessionId?: string;
   pending: Map<string, PendingRequest>;
@@ -300,6 +301,7 @@ export class SessionSupervisor implements SessionBackend {
         cwd: input.cwd,
         configPath: input.configPath,
         model: input.model,
+        agentId: input.agentId,
         enableExtensions: input.enableExtensions,
         pending: new Map<string, PendingRequest>(),
         pendingTurns: new Map<string, PendingTurn>(),
@@ -334,6 +336,7 @@ export class SessionSupervisor implements SessionBackend {
           cwd: input.cwd ?? this.options.defaultCwd,
           configPath: input.configPath ?? this.options.defaultConfigPath,
           model: input.model ?? this.options.defaultModel,
+          agentId: input.agentId,
           enableExtensions: input.enableExtensions ?? this.options.defaultEnableExtensions,
           parentPid: process.pid,
         },

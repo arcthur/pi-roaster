@@ -240,6 +240,7 @@ With `--verbose`, daemon prints a rolling 60-second scheduler window summary
 - `--cwd`
 - `--config`
 - `--model`
+- `--agent`
 - `--task`
 - `--task-file`
 - `--no-extensions`
@@ -325,6 +326,8 @@ Channel mode examples:
 ## Input Resolution Rules
 
 - `--task` and `--task-file` are mutually exclusive; providing both returns an error.
+- `--agent` selects `.brewva/agents/<agent-id>/identity.md` for session identity injection.
+- Agent id precedence is: `--agent` -> `BREWVA_AGENT_ID` -> `default`.
 - If both a TaskSpec and prompt text are provided, prompt text overrides `TaskSpec.goal`.
 - If stdin/stdout is not a TTY and no explicit mode is set, CLI falls back to text print mode.
 - Explicit `--interactive` requires a TTY terminal.

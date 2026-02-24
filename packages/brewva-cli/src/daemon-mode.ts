@@ -14,6 +14,7 @@ export interface RunDaemonOptions {
   cwd?: string;
   configPath?: string;
   model?: string;
+  agentId?: string;
   enableExtensions: boolean;
   verbose: boolean;
   onRuntimeReady?: (runtime: BrewvaRuntime) => void;
@@ -111,6 +112,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
   const runtime = new BrewvaRuntime({
     cwd: parsed.cwd,
     configPath: parsed.configPath,
+    agentId: parsed.agentId,
   });
   parsed.onRuntimeReady?.(runtime);
 

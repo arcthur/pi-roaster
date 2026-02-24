@@ -11,6 +11,19 @@ function createWorkspace(name: string): string {
 }
 
 describe("brewva session ui settings wiring", () => {
+  test("passes agentId from CLI session options into runtime identity scope", async () => {
+    const workspace = createWorkspace("agent-id");
+    const result = await createBrewvaSession({
+      cwd: workspace,
+      agentId: "Code Reviewer",
+    });
+    try {
+      expect(result.runtime.agentId).toBe("code-reviewer");
+    } finally {
+      result.session.dispose();
+    }
+  });
+
   test("applies ui startup settings from brewva config into session settings", async () => {
     const workspace = createWorkspace("explicit");
     writeFileSync(

@@ -11,6 +11,7 @@ export type ParentToWorkerMessage =
         cwd?: string;
         configPath?: string;
         model?: string;
+        agentId?: string;
         enableExtensions?: boolean;
         parentPid: number;
       };

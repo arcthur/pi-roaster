@@ -29,6 +29,7 @@ export interface TryGatewayPrintInput {
   cwd?: string;
   configPath?: string;
   model?: string;
+  agentId?: string;
   enableExtensions: boolean;
   prompt: string;
   verbose: boolean;
@@ -207,6 +208,7 @@ export async function tryGatewayPrint(input: TryGatewayPrintInput): Promise<Gate
       cwd: sessionCwd,
       configPath: input.configPath,
       model: input.model,
+      agentId: input.agentId,
       enableExtensions: input.enableExtensions,
     });
     sessionOpened = true;

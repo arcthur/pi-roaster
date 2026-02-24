@@ -88,6 +88,22 @@ describe("gateway protocol validator", () => {
     expect(result.params.turnId).toBe("turn-3");
   });
 
+  test("accepts sessions.open with optional agentId", () => {
+    const result = validateParamsForMethod("sessions.open", {
+      sessionId: "session-5",
+      cwd: "/tmp/workspace",
+      configPath: ".brewva/brewva.json",
+      model: "openai/gpt-5",
+      agentId: "code-reviewer",
+      enableExtensions: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.params.agentId).toBe("code-reviewer");
+  });
+
   test("rejects sessions.unsubscribe params with extra property", () => {
     const result = validateParamsForMethod("sessions.unsubscribe", {
       sessionId: "session-4",

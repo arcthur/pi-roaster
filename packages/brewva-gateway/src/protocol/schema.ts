@@ -183,6 +183,7 @@ export const SessionsOpenParamsSchema = Type.Object(
     cwd: Type.Optional(NonEmptyString),
     configPath: Type.Optional(NonEmptyString),
     model: Type.Optional(NonEmptyString),
+    agentId: Type.Optional(NonEmptyString),
     enableExtensions: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },

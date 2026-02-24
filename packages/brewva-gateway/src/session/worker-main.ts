@@ -108,6 +108,7 @@ async function handleInit(
       cwd: message.payload.cwd,
       configPath: message.payload.configPath,
       model: message.payload.model,
+      agentId: message.payload.agentId,
       enableExtensions: message.payload.enableExtensions,
     });
     const agentSessionId = sessionResult.session.sessionManager.getSessionId();

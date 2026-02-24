@@ -17,6 +17,7 @@ export interface RunChannelModeOptions {
   cwd?: string;
   configPath?: string;
   model?: string;
+  agentId?: string;
   enableExtensions: boolean;
   verbose: boolean;
   channel: string;
@@ -385,6 +386,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
   const runtime = new BrewvaRuntime({
     cwd: options.cwd,
     configPath: options.configPath,
+    agentId: options.agentId,
   });
   options.onRuntimeReady?.(runtime);
   const turnWalStore = new TurnWALStore({
