@@ -88,7 +88,8 @@ brewva/
   - `security.sanitizeContext: boolean`
 - Event stream is level-based:
   - `infrastructure.events.level: audit | ops | debug` (default `ops`)
-- Default context injection semantics are four sources:
+- Default context injection semantics are five sources:
+  - `brewva.identity`
   - `brewva.truth`
   - `brewva.task-state`
   - `brewva.tool-failures`

@@ -54,6 +54,7 @@ Key implications:
 
 Default semantic injection sources are:
 
+- `brewva.identity`
 - `brewva.truth`
 - `brewva.task-state`
 - `brewva.tool-failures`

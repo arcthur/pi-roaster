@@ -67,6 +67,7 @@ export async function createBrewvaSession(
       cwd,
       configPath: options.configPath,
       config: undefined,
+      agentId: options.agentId,
     });
 
   if (options.activePacks && options.activePacks.length > 0) {
@@ -117,6 +118,7 @@ export async function createBrewvaSession(
     type: "session_bootstrap",
     payload: {
       cwd,
+      agentId: runtime.agentId,
       extensionsEnabled,
     },
   });

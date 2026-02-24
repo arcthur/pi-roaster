@@ -92,6 +92,7 @@ export function buildContextSourceTokenLimits(
   );
 
   return {
+    "brewva.identity": fromRatio(0.2, 140, 320),
     "brewva.truth": fromRatio(0.18, 96, 420),
     "brewva.task-state": fromRatio(0.15, 96, 360),
     "brewva.tool-failures": toolFailureLimit,

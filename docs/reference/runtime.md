@@ -155,14 +155,29 @@ Common async calls:
 
 ## Default Context Injection Semantics
 
-The default injection path is organized around four semantic sources:
+The default injection path is organized around five semantic sources:
 
+- `brewva.identity`
 - `brewva.truth`
 - `brewva.task-state`
 - `brewva.tool-failures`
 - `brewva.memory`
 
 `brewva.memory` is the merged memory source (working memory + recall block).
+
+Identity source behavior:
+
+- Source file path: `.brewva/agents/<agent-id>/identity.md` (workspace-relative).
+- Agent id resolution order: `BrewvaRuntimeOptions.agentId` -> `BREWVA_AGENT_ID` -> `default`.
+- Agent ids are normalized to lowercase slug format (`[a-z0-9._-]`, separators collapsed to `-`).
+- Missing or empty identity file means no `brewva.identity` injection.
+- Runtime never auto-generates or rewrites identity files.
+- `brewva.identity` is registered as `critical` + `oncePerSession`.
+
+Execution profile note:
+
+- Extension-enabled profile (`createBrewvaExtension`) uses full semantic injections.
+- Runtime-core profile (`--no-extensions`) injects only `[CoreTapeStatus]` + core autonomy contract.
 
 ## Event Emission Levels
 

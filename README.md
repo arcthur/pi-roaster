@@ -18,7 +18,7 @@ The runtime exposes three orthogonal control loops and keeps authority with the 
 | **Message Buffer**      | LLM context window (user/assistant/tool messages)              | `context_pressure`                       | `session_compact` — compress conversation history                    |
 | **Cognitive Inference** | Runtime cognition budget for semantic relation/ranking/lessons | cognitive budget status (calls + tokens) | Use `CognitivePort` or deterministically fall back when budget-tight |
 
-In the extension-enabled profile, the runtime injects a **Context Contract** with explicit if-then rules for pressure handling, but never silently compacts on the agent's behalf. Memory/context injection is explicit and traceable through semantic sources (`brewva.truth`, `brewva.task-state`, `brewva.tool-failures`, `brewva.memory`), backed by persisted artifacts and events rather than opaque snapshots.
+In the extension-enabled profile, the runtime injects a **Context Contract** with explicit if-then rules for pressure handling, but never silently compacts on the agent's behalf. Memory/context injection is explicit and traceable through semantic sources (`brewva.identity`, `brewva.truth`, `brewva.task-state`, `brewva.tool-failures`, `brewva.memory`), backed by persisted artifacts and events rather than opaque snapshots.
 
 For runtime cognition, Brewva uses a dual-path design (`CognitivePort` + deterministic fallback):
 
@@ -80,7 +80,7 @@ Memory is implemented as an event-driven projection layer on top of the tape:
 - **Replayable projections**: `memory_*` events persist projection snapshots so memory can be rebuilt from tape when projection files are missing.
 - **Layered memory tiers**: session-local memory is augmented by a global tier (`.orchestrator/memory/global`) with deterministic promotion, decay, pruning, and pass-resolution.
 - **Derived projections**: `Unit`, `Crystal`, `Insight`, and `EVOLVES` edges are stored in `.orchestrator/memory/*.jsonl`; cross-session pattern aggregation is compiled into global crystals.
-- **Context surfaces**: in the extension-enabled profile, each `before_agent_start` can inject semantic context sources (`brewva.truth`, `brewva.task-state`, `brewva.tool-failures`, `brewva.memory`) with budget-aware truncation/drop behavior.
+- **Context surfaces**: in the extension-enabled profile, each `before_agent_start` can inject semantic context sources (`brewva.identity`, `brewva.truth`, `brewva.task-state`, `brewva.tool-failures`, `brewva.memory`) with budget-aware truncation/drop behavior.
 - **Feedback loop from outcomes**: verification outcomes and cognitive reflections (`verification_outcome_recorded`, `cognitive_outcome_reflection`) are extracted into learning units and fed back into subsequent recall.
 - **Reviewable evolution**: proposed EVOLVES relations stay shadow-only until explicit review (`memory_review_evolves_edge`), after which side effects (such as unit superseding) are auditable via memory events.
 

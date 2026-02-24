@@ -74,6 +74,7 @@ export interface CreateBrewvaSessionOptions {
   cwd?: string;
   configPath?: string;
   model?: string;
+  agentId?: string;
   activePacks?: string[];
   enableExtensions?: boolean;
 }

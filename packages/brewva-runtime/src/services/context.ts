@@ -1,4 +1,5 @@
 import { ContextBudgetManager } from "../context/budget.js";
+import { readIdentityProfile } from "../context/identity.js";
 import { buildContextInjection as buildContextInjectionOrchestrated } from "../context/injection-orchestrator.js";
 import { ContextInjectionCollector, type ContextInjectionPriority } from "../context/injection.js";
 import type { ToolFailureEntry } from "../context/tool-failures.js";
@@ -36,6 +37,8 @@ const TOOL_FAILURE_INFRASTRUCTURE_TOOLS = new Set([
 
 export interface ContextServiceOptions {
   cwd: string;
+  workspaceRoot: string;
+  agentId: string;
   config: BrewvaConfig;
   contextBudget: ContextBudgetManager;
   contextInjection: ContextInjectionCollector;
@@ -80,6 +83,8 @@ export interface ContextServiceOptions {
 
 export class ContextService {
   private readonly cwd: string;
+  private readonly workspaceRoot: string;
+  private readonly agentId: string;
   private readonly config: BrewvaConfig;
   private readonly contextBudget: ContextBudgetManager;
   private readonly contextInjection: ContextInjectionCollector;
@@ -105,6 +110,8 @@ export class ContextService {
 
   constructor(options: ContextServiceOptions) {
     this.cwd = options.cwd;
+    this.workspaceRoot = options.workspaceRoot;
+    this.agentId = options.agentId;
     this.config = options.config;
     this.contextBudget = options.contextBudget;
     this.contextInjection = options.contextInjection;
@@ -362,8 +369,40 @@ export class ContextService {
     finalTokens: number;
     truncated: boolean;
   }> {
+    this.registerIdentityContextInjection(sessionId);
     await this.registerMemoryContextInjection(sessionId, prompt);
     return this.finalizeContextInjection(sessionId, prompt, usage, injectionScopeId);
+  }
+
+  private registerIdentityContextInjection(sessionId: string): void {
+    let profile: ReturnType<typeof readIdentityProfile>;
+    try {
+      profile = readIdentityProfile({
+        workspaceRoot: this.workspaceRoot,
+        agentId: this.agentId,
+      });
+    } catch (error) {
+      this.recordEvent({
+        sessionId,
+        type: "identity_parse_warning",
+        payload: {
+          agentId: this.agentId,
+          reason: error instanceof Error ? error.message : "unknown_error",
+        },
+      });
+      return;
+    }
+    if (!profile) return;
+
+    const content = profile.content.trim();
+    if (!content) return;
+    this.registerContextInjection(sessionId, {
+      source: "brewva.identity",
+      id: `identity-${profile.agentId}`,
+      priority: "critical",
+      content,
+      oncePerSession: true,
+    });
   }
 
   private finalizeContextInjection(

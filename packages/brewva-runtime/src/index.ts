@@ -21,6 +21,7 @@ export * from "./security/tool-policy.js";
 export * from "./context/budget.js";
 export * from "./context/injection.js";
 export * from "./context/injection-orchestrator.js";
+export * from "./context/identity.js";
 export * from "./context/tool-failures.js";
 export * from "./context/usage.js";
 export * from "./cognitive/port.js";

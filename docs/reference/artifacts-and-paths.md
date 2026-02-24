@@ -21,6 +21,9 @@ Runtime artifact paths are resolved from the workspace root (`nearest .brewva/br
 - Rollback patch history: `.orchestrator/snapshots/<session>/patchsets.json`
 - Generated skill index: `.brewva/skills_index.json`
   - includes selected skill roots (`roots`) and the merged selector index (`skills`)
+- Agent identity profile (per-agent): `.brewva/agents/<agent-id>/identity.md`
+  - `<agent-id>` comes from runtime option `agentId` (or `BREWVA_AGENT_ID`, fallback `default`)
+  - id normalization: lowercase slug (`[a-z0-9._-]`, invalid separators mapped to `-`)
 
 ## Global Roots
 

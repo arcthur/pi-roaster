@@ -11,6 +11,7 @@ import { cognitiveBudgetPayload, cognitiveUsagePayload } from "./cognitive/usage
 import { loadBrewvaConfigWithDiagnostics, type BrewvaConfigDiagnostic } from "./config/loader.js";
 import { resolveWorkspaceRootDir } from "./config/paths.js";
 import { ContextBudgetManager } from "./context/budget.js";
+import { normalizeAgentId } from "./context/identity.js";
 import { ContextInjectionCollector } from "./context/injection.js";
 import { SessionCostTracker } from "./cost/tracker.js";
 import { BrewvaEventStore } from "./events/store.js";
@@ -95,6 +96,7 @@ export interface BrewvaRuntimeOptions {
   configPath?: string;
   config?: BrewvaConfig;
   cognitivePort?: CognitivePort;
+  agentId?: string;
 }
 
 export interface VerifyCompletionOptions {
@@ -144,6 +146,7 @@ type RuntimeServiceDependencies = {
 export class BrewvaRuntime {
   readonly cwd: string;
   readonly workspaceRoot: string;
+  readonly agentId: string;
   readonly config: BrewvaConfig;
   readonly configDiagnostics: BrewvaConfigDiagnostic[];
   readonly skills: {
@@ -462,6 +465,7 @@ export class BrewvaRuntime {
   constructor(options: BrewvaRuntimeOptions = {}) {
     this.cwd = resolve(options.cwd ?? process.cwd());
     this.workspaceRoot = resolveWorkspaceRootDir(this.cwd);
+    this.agentId = normalizeAgentId(options.agentId ?? process.env["BREWVA_AGENT_ID"]);
     const configState = this.resolveRuntimeConfig(options);
     this.config = configState.config;
     this.configDiagnostics = configState.diagnostics;
@@ -687,6 +691,8 @@ export class BrewvaRuntime {
     });
     const contextService = new ContextService({
       cwd: this.cwd,
+      workspaceRoot: this.workspaceRoot,
+      agentId: this.agentId,
       config: this.config,
       contextBudget: this.contextBudget,
       contextInjection: this.contextInjection,
