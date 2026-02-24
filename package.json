@@ -25,8 +25,9 @@
     "test:e2e": "bun test test/e2e --timeout 600000",
     "test:e2e:live": "bun run test:e2e:live:all",
     "test:e2e:live:all": "bun run test:e2e:live:core && bun run test:e2e:live:interactive",
-    "test:e2e:live:core": "BREWVA_E2E_LIVE=1 bun test test/e2e/replay-and-persistence.live.test.ts test/e2e/tool-call-proof.live.test.ts test/e2e/task-spec.live.test.ts test/e2e/signal-handling.live.test.ts test/e2e/undo.live.test.ts test/e2e/print-and-json-modes.live.test.ts test/e2e/cost-tracking.live.test.ts --timeout 600000",
+    "test:e2e:live:core": "BREWVA_E2E_LIVE=1 bun test test/e2e/replay-and-persistence.live.test.ts test/e2e/tool-call-proof.live.test.ts test/e2e/task-spec.live.test.ts test/e2e/signal-handling.live.test.ts test/e2e/undo.live.test.ts test/e2e/print-and-json-modes.live.test.ts test/e2e/cost-tracking.live.test.ts test/e2e/microsandbox-isolation.live.test.ts --timeout 600000",
     "test:e2e:live:interactive": "BREWVA_E2E_LIVE=1 bun test test/e2e/interactive-multi-turn.live.test.ts --timeout 600000",
+    "test:e2e:live:msb": "BREWVA_E2E_LIVE=1 BREWVA_E2E_MSB=1 bun test test/e2e/microsandbox-isolation.live.test.ts --timeout 600000",
     "typecheck": "tsc -b",
     "typecheck:test": "tsc -b test/tsconfig.json"
   },

@@ -26,7 +26,7 @@ import type {
 } from "@brewva/brewva-runtime";
 
 export interface BrewvaToolRuntime {
-  readonly config?: Pick<BrewvaConfig, "parallel" | "infrastructure" | "schedule">;
+  readonly config?: Pick<BrewvaConfig, "parallel" | "infrastructure" | "schedule" | "security">;
   skills: {
     activate(
       sessionId: string,

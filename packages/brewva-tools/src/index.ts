@@ -24,7 +24,7 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
     ...createLspTools({ runtime: options.runtime }),
     ...createAstGrepTools({ runtime: options.runtime }),
     createLookAtTool(),
-    createExecTool(),
+    createExecTool({ runtime: options.runtime }),
     createProcessTool(),
     createCostViewTool({ runtime: options.runtime }),
     createLedgerQueryTool({ runtime: options.runtime }),

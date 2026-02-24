@@ -33,6 +33,10 @@ const AUDIT_EVENT_TYPES = new Set<string>([
   "schedule_child_session_started",
   "schedule_child_session_finished",
   "schedule_child_session_failed",
+  "exec_routed",
+  "exec_fallback_host",
+  "exec_blocked_isolation",
+  "exec_sandbox_error",
 ]);
 
 const DEBUG_EVENT_TYPES = new Set<string>([

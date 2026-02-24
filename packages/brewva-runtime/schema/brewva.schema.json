@@ -257,6 +257,52 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "execution": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "backend": {
+                  "type": "string",
+                  "enum": ["host", "sandbox", "auto"]
+                },
+                "commandDenyList": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "enforceIsolation": {
+                  "type": "boolean"
+                },
+                "fallbackToHost": {
+                  "type": "boolean"
+                },
+                "sandbox": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "apiKey": {
+                      "type": "string"
+                    },
+                    "cpus": {
+                      "type": "number"
+                    },
+                    "defaultImage": {
+                      "type": "string"
+                    },
+                    "memory": {
+                      "type": "number"
+                    },
+                    "serverUrl": {
+                      "type": "string"
+                    },
+                    "timeout": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
             "mode": {
               "type": "string",
               "enum": ["permissive", "standard", "strict"]

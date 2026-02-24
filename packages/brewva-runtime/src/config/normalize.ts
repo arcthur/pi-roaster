@@ -3,6 +3,7 @@ import type { BrewvaConfig, VerificationLevel } from "../types.js";
 const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "summarize", "tail"]);
 const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
 const VALID_SECURITY_MODES = new Set(["permissive", "standard", "strict"]);
+const VALID_EXECUTION_BACKENDS = new Set(["host", "sandbox", "auto"]);
 const VALID_EVENT_LEVELS = new Set(["audit", "ops", "debug"]);
 const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "shadow"]);
 const VALID_MEMORY_COGNITIVE_MODES = new Set(["off", "shadow", "active"]);
@@ -45,12 +46,25 @@ function normalizeNonEmptyString(value: unknown, fallback: string): string {
   return trimmed.length > 0 ? value : fallback;
 }
 
+function normalizeOptionalNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   if (!Array.isArray(value)) return [...fallback];
   return value
     .filter((entry): entry is string => typeof entry === "string")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+function normalizeLowercaseStringArray(value: unknown, fallback: string[]): string[] {
+  const normalized = normalizeStringArray(value, fallback)
+    .map((entry) => entry.toLowerCase())
+    .filter((entry) => entry.length > 0);
+  return [...new Set(normalized)];
 }
 
 function normalizeVerificationLevel(
@@ -122,6 +136,10 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
   const memoryCognitiveInput = isRecord(memoryInput.cognitive) ? memoryInput.cognitive : {};
   const memoryGlobalInput = isRecord(memoryInput.global) ? memoryInput.global : {};
   const securityInput = isRecord(input.security) ? input.security : {};
+  const securityExecutionInput = isRecord(securityInput.execution) ? securityInput.execution : {};
+  const securityExecutionSandboxInput = isRecord(securityExecutionInput.sandbox)
+    ? securityExecutionInput.sandbox
+    : {};
   const scheduleInput = isRecord(input.schedule) ? input.schedule : {};
   const parallelInput = isRecord(input.parallel) ? input.parallel : {};
   const infrastructureInput = isRecord(input.infrastructure) ? input.infrastructure : {};
@@ -155,6 +173,30 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
     ),
     normalizedHardLimitPercent,
   );
+  const normalizedSecurityMode = VALID_SECURITY_MODES.has(securityInput.mode as string)
+    ? (securityInput.mode as BrewvaConfig["security"]["mode"])
+    : defaults.security.mode;
+  const normalizedExecutionEnforceIsolation = normalizeBoolean(
+    securityExecutionInput.enforceIsolation,
+    defaults.security.execution.enforceIsolation,
+  );
+  const configuredExecutionBackend = VALID_EXECUTION_BACKENDS.has(
+    securityExecutionInput.backend as string,
+  )
+    ? (securityExecutionInput.backend as BrewvaConfig["security"]["execution"]["backend"])
+    : defaults.security.execution.backend;
+  const normalizedExecutionBackend = normalizedExecutionEnforceIsolation
+    ? "sandbox"
+    : normalizedSecurityMode === "strict"
+      ? "sandbox"
+      : configuredExecutionBackend;
+  const normalizedExecutionFallback =
+    normalizedExecutionEnforceIsolation || normalizedSecurityMode === "strict"
+      ? false
+      : normalizeBoolean(
+          securityExecutionInput.fallbackToHost,
+          defaults.security.execution.fallbackToHost,
+        );
 
   return {
     ui: {
@@ -251,13 +293,43 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
       },
     },
     security: {
-      mode: VALID_SECURITY_MODES.has(securityInput.mode as string)
-        ? (securityInput.mode as BrewvaConfig["security"]["mode"])
-        : defaults.security.mode,
+      mode: normalizedSecurityMode,
       sanitizeContext: normalizeBoolean(
         securityInput.sanitizeContext,
         defaults.security.sanitizeContext,
       ),
+      execution: {
+        backend: normalizedExecutionBackend,
+        enforceIsolation: normalizedExecutionEnforceIsolation,
+        fallbackToHost: normalizedExecutionFallback,
+        commandDenyList: normalizeLowercaseStringArray(
+          securityExecutionInput.commandDenyList,
+          defaults.security.execution.commandDenyList,
+        ),
+        sandbox: {
+          serverUrl:
+            normalizeOptionalNonEmptyString(securityExecutionSandboxInput.serverUrl) ??
+            defaults.security.execution.sandbox.serverUrl,
+          apiKey:
+            normalizeOptionalNonEmptyString(securityExecutionSandboxInput.apiKey) ??
+            defaults.security.execution.sandbox.apiKey,
+          defaultImage:
+            normalizeOptionalNonEmptyString(securityExecutionSandboxInput.defaultImage) ??
+            defaults.security.execution.sandbox.defaultImage,
+          memory: normalizePositiveInteger(
+            securityExecutionSandboxInput.memory,
+            defaults.security.execution.sandbox.memory,
+          ),
+          cpus: normalizePositiveInteger(
+            securityExecutionSandboxInput.cpus,
+            defaults.security.execution.sandbox.cpus,
+          ),
+          timeout: normalizePositiveInteger(
+            securityExecutionSandboxInput.timeout,
+            defaults.security.execution.sandbox.timeout,
+          ),
+        },
+      },
     },
     schedule: {
       enabled: normalizeBoolean(scheduleInput.enabled, defaults.schedule.enabled),

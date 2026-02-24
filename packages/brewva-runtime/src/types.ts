@@ -390,6 +390,20 @@ export interface BrewvaConfig {
   security: {
     mode: "permissive" | "standard" | "strict";
     sanitizeContext: boolean;
+    execution: {
+      backend: "host" | "sandbox" | "auto";
+      enforceIsolation: boolean;
+      fallbackToHost: boolean;
+      commandDenyList: string[];
+      sandbox: {
+        serverUrl: string;
+        apiKey?: string;
+        defaultImage: string;
+        memory: number;
+        cpus: number;
+        timeout: number;
+      };
+    };
   };
   schedule: {
     enabled: boolean;
@@ -466,7 +480,11 @@ export interface BrewvaConfigFile {
   ledger?: Partial<BrewvaConfig["ledger"]>;
   tape?: Partial<BrewvaConfig["tape"]>;
   memory?: DeepPartial<BrewvaConfig["memory"]>;
-  security?: Partial<BrewvaConfig["security"]>;
+  security?: Partial<Omit<BrewvaConfig["security"], "execution">> & {
+    execution?: Partial<Omit<BrewvaConfig["security"]["execution"], "sandbox">> & {
+      sandbox?: Partial<BrewvaConfig["security"]["execution"]["sandbox"]>;
+    };
+  };
   schedule?: Partial<BrewvaConfig["schedule"]>;
   parallel?: Partial<BrewvaConfig["parallel"]>;
   infrastructure?: Partial<

@@ -60,6 +60,19 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
   security: {
     mode: "standard",
     sanitizeContext: true,
+    execution: {
+      backend: "auto",
+      enforceIsolation: false,
+      fallbackToHost: true,
+      commandDenyList: [],
+      sandbox: {
+        serverUrl: "http://127.0.0.1:5555",
+        defaultImage: "microsandbox/node",
+        memory: 512,
+        cpus: 1,
+        timeout: 180,
+      },
+    },
   },
   schedule: {
     enabled: true,

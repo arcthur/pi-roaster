@@ -42,6 +42,10 @@ Audit level keeps replay/audit-critical events only:
 - `schedule_child_session_started`
 - `schedule_child_session_finished`
 - `schedule_child_session_failed`
+- `exec_routed`
+- `exec_fallback_host`
+- `exec_blocked_isolation`
+- `exec_sandbox_error`
 
 ### `ops`
 
@@ -92,6 +96,10 @@ This list is intentionally non-exhaustive. Unknown event types/fields should be 
 - `tool_result_recorded`
 - `tool_parallel_read`
 - `ledger_compacted`
+- `exec_routed`
+- `exec_fallback_host`
+- `exec_blocked_isolation`
+- `exec_sandbox_error`
 
 `tool_result` itself is treated as an SDK hook boundary. Persisted semantic result records are emitted as `tool_result_recorded`.
 
@@ -219,6 +227,66 @@ Global-memory lifecycle summary with counters and `globalSnapshotRef` pointer to
 ### `tool_parallel_read`
 
 Telemetry for runtime-aware multi-file read scans (mode, batch behavior, scanned/loaded/failed counts, limits).
+
+### `exec_routed`
+
+Records execution backend routing decisions before command execution. Common payload fields include:
+
+- `mode`
+- `configuredBackend`
+- `resolvedBackend`
+- `fallbackToHost`
+- `enforceIsolation`
+- `denyListBestEffort`
+- `commandHash`
+- `commandRedacted`
+- `requestedCwd`
+- `effectiveSandboxCwd`
+- `requestedEnvKeys`
+- `requestedTimeoutSec`
+- `sandboxDefaultTimeoutSec`
+
+### `exec_fallback_host`
+
+Records sandbox-to-host downgrade decisions when fallback is allowed. Common payload fields include:
+
+- `mode`
+- `configuredBackend`
+- `enforceIsolation`
+- `denyListBestEffort`
+- `reason`
+- `commandHash`
+- `commandRedacted`
+- `error` (when fallback is triggered by sandbox execution errors)
+
+### `exec_blocked_isolation`
+
+Records fail-closed outcomes when command execution is blocked by isolation policy. Common payload fields include:
+
+- `mode`
+- `configuredBackend`
+- `enforceIsolation`
+- `denyListBestEffort`
+- `reason`
+- `commandHash`
+- `commandRedacted`
+- `detectedCommands` and `deniedCommand` (deny-list blocks)
+- `denyListPolicy` (best-effort deny-list boundary note)
+
+### `exec_sandbox_error`
+
+Records sandbox execution errors before a fallback or fail-closed decision. Common payload fields include:
+
+- `mode`
+- `configuredBackend`
+- `enforceIsolation`
+- `denyListBestEffort`
+- `commandHash`
+- `commandRedacted`
+- `error`
+
+Exec audit events intentionally avoid storing raw command text. Use `commandHash` for correlation and
+`commandRedacted` for operator diagnostics.
 
 ### `turn_wal_status_changed`
 

@@ -184,6 +184,79 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.memory.global.minConfidence).toBe(1);
   });
 
+  test("normalizes security execution settings and enforces strict fail-closed fallback", () => {
+    const workspace = createWorkspace("security-execution-normalize");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          security: {
+            mode: "strict",
+            execution: {
+              backend: "host",
+              fallbackToHost: true,
+              commandDenyList: ["  IPTABLES  ", "", 3],
+              sandbox: {
+                serverUrl: "",
+                apiKey: "  ",
+                defaultImage: "",
+                memory: -1,
+                cpus: 0,
+                timeout: -1,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    const defaults = DEFAULT_BREWVA_CONFIG.security.execution;
+
+    expect(loaded.security.mode).toBe("strict");
+    expect(loaded.security.execution.backend).toBe("sandbox");
+    expect(loaded.security.execution.enforceIsolation).toBe(defaults.enforceIsolation);
+    expect(loaded.security.execution.fallbackToHost).toBe(false);
+    expect(loaded.security.execution.commandDenyList).toEqual(["iptables"]);
+    expect(loaded.security.execution.sandbox.serverUrl).toBe(defaults.sandbox.serverUrl);
+    expect(loaded.security.execution.sandbox.apiKey).toBe(defaults.sandbox.apiKey);
+    expect(loaded.security.execution.sandbox.defaultImage).toBe(defaults.sandbox.defaultImage);
+    expect(loaded.security.execution.sandbox.memory).toBe(defaults.sandbox.memory);
+    expect(loaded.security.execution.sandbox.cpus).toBe(defaults.sandbox.cpus);
+    expect(loaded.security.execution.sandbox.timeout).toBe(defaults.sandbox.timeout);
+  });
+
+  test("enforceIsolation forces sandbox backend and disables host fallback", () => {
+    const workspace = createWorkspace("security-execution-enforce-isolation");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          security: {
+            mode: "permissive",
+            execution: {
+              backend: "host",
+              enforceIsolation: true,
+              fallbackToHost: true,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect(loaded.security.mode).toBe("permissive");
+    expect(loaded.security.execution.enforceIsolation).toBe(true);
+    expect(loaded.security.execution.backend).toBe("sandbox");
+    expect(loaded.security.execution.fallbackToHost).toBe(false);
+  });
+
   test("returns isolated config instances when no config file exists", () => {
     const workspace = createWorkspace("isolation");
 

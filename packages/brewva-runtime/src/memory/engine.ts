@@ -343,7 +343,52 @@ export class MemoryEngine {
       const stillNeedsDailyRefresh = crossedDailyHour && rechecked.lastPublishedDayKey !== today;
       const stillNeedsEventRefresh = rechecked.dirtyTopics.length > 0;
       if (!stillNeedsDailyRefresh && !stillNeedsEventRefresh) {
-        return store.getWorkingSnapshot(input.sessionId);
+        const cached = store.getWorkingSnapshot(input.sessionId);
+        if (cached) return cached;
+
+        const existing = store.getWorkingText();
+        if (existing) {
+          return {
+            sessionId: input.sessionId,
+            generatedAt: rechecked.lastPublishedAt ?? Date.now(),
+            sourceUnitIds: [],
+            crystalIds: [],
+            insightIds: [],
+            sections: [],
+            content: existing,
+          };
+        }
+
+        // Bootstrap a deterministic baseline snapshot when memory is enabled but
+        // no prior working snapshot exists yet.
+        const units = store.listUnits(input.sessionId);
+        const crystals = store.listCrystals(input.sessionId);
+        const insights = this.collectInsights(input.sessionId, units);
+        const snapshot = buildWorkingMemorySnapshot({
+          sessionId: input.sessionId,
+          units,
+          crystals,
+          insights,
+          maxChars: this.maxWorkingChars,
+        });
+        store.publishWorking(snapshot, this.maxWorkingChars);
+        store.markPublished({
+          at: snapshot.generatedAt,
+          dayKey: today,
+        });
+        this.recordEvent?.({
+          sessionId: input.sessionId,
+          type: "memory_working_published",
+          payload: {
+            generatedAt: snapshot.generatedAt,
+            units: snapshot.sourceUnitIds.length,
+            crystals: snapshot.crystalIds.length,
+            insights: snapshot.insightIds.length,
+            chars: snapshot.content.length,
+            working: snapshot as unknown as Record<string, unknown>,
+          },
+        });
+        return snapshot;
       }
 
       const units = store.listUnits(input.sessionId);

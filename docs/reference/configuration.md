@@ -77,6 +77,15 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 
 - `security.mode`: `standard`
 - `security.sanitizeContext`: `true`
+- `security.execution.backend`: `auto`
+- `security.execution.enforceIsolation`: `false`
+- `security.execution.fallbackToHost`: `true`
+- `security.execution.commandDenyList`: `[]`
+- `security.execution.sandbox.serverUrl`: `http://127.0.0.1:5555`
+- `security.execution.sandbox.defaultImage`: `microsandbox/node`
+- `security.execution.sandbox.memory`: `512`
+- `security.execution.sandbox.cpus`: `1`
+- `security.execution.sandbox.timeout`: `180`
 
 ### `schedule`
 
@@ -139,6 +148,49 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
   - Enforce denied tools and all policy checks (`enforce`)
 
 `security.sanitizeContext` independently controls user-text sanitization before skill selection and context injection.
+
+`security.execution` controls command isolation for `exec`:
+
+- `backend=auto` routes by mode (`permissive -> host`, `standard/strict -> sandbox`).
+- `fallbackToHost` allows host downgrade only when the resolved backend is `sandbox` and neither `strict` nor `enforceIsolation=true` is active.
+- `enforceIsolation=true` forces `backend=sandbox` and `fallbackToHost=false` regardless of mode/backend input.
+- `strict` always disables host fallback even when `fallbackToHost=true` is configured.
+- `exec.timeout` overrides `security.execution.sandbox.timeout` per command.
+- `exec.workdir` and `exec.env` are forwarded into sandbox commands via a shell wrapper (`cd` + `export`).
+
+### `security.execution` Resolution Order
+
+At runtime, execution isolation is resolved in this order:
+
+1. `BREWVA_ENFORCE_EXEC_ISOLATION` environment flag (`1`, `true`, `yes`, `on`)
+2. `security.execution.enforceIsolation`
+3. `security.mode === strict`
+4. configured `security.execution.backend` and `security.execution.fallbackToHost`
+
+This yields the following invariants:
+
+- If `BREWVA_ENFORCE_EXEC_ISOLATION` is enabled, host fallback is disabled.
+- If `enforceIsolation=true`, host fallback is disabled.
+- If `security.mode=strict`, host fallback is disabled.
+- `backend=host` is honored only when none of the above force sandbox.
+
+### `security.execution` Routing Matrix
+
+| mode       | backend | enforceIsolation | fallbackToHost | resolved backend | host fallback |
+| ---------- | ------- | ---------------- | -------------- | ---------------- | ------------- |
+| permissive | auto    | false            | true           | host             | n/a           |
+| permissive | sandbox | false            | true           | sandbox          | true          |
+| standard   | auto    | false            | true           | sandbox          | true          |
+| standard   | sandbox | false            | false          | sandbox          | false         |
+| strict     | any     | false            | any            | sandbox          | false         |
+| any        | any     | true             | any            | sandbox          | false         |
+
+Notes:
+
+- `host fallback` applies only when the resolved backend is `sandbox`.
+- Sandbox background process mode is unsupported; with fallback disabled this is fail-closed.
+- If `exec.workdir` is omitted, sandbox execution defaults to `/` and does not inherit host runtime cwd.
+- `commandDenyList` is a best-effort UX guard and is evaluated before backend execution; the hard boundary is sandbox isolation.
 
 ## Event Level Model
 
