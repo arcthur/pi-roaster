@@ -5,6 +5,7 @@ export interface OpenSessionInput {
   cwd?: string;
   configPath?: string;
   model?: string;
+  agentId?: string;
   enableExtensions?: boolean;
 }
 

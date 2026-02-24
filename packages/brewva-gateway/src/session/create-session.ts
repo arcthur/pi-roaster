@@ -125,6 +125,7 @@ export async function createGatewaySession(
       cwd,
       configPath: options.configPath,
       config: undefined,
+      agentId: options.agentId,
     });
 
   if (options.activePacks && options.activePacks.length > 0) {
@@ -175,6 +176,7 @@ export async function createGatewaySession(
     type: "session_bootstrap",
     payload: {
       cwd,
+      agentId: runtime.agentId,
       extensionsEnabled,
     },
   });

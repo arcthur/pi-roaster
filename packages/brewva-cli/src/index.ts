@@ -5,7 +5,12 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseArgs as parseNodeArgs } from "node:util";
 import { runGatewayCli } from "@brewva/brewva-gateway";
-import { BrewvaRuntime, parseTaskSpec, type TaskSpec } from "@brewva/brewva-runtime";
+import {
+  BrewvaRuntime,
+  normalizeAgentId,
+  parseTaskSpec,
+  type TaskSpec,
+} from "@brewva/brewva-runtime";
 import { InteractiveMode, runPrintMode } from "@mariozechner/pi-coding-agent";
 import { formatISO } from "date-fns";
 import { runChannelMode } from "./channel-mode.js";
@@ -116,6 +121,7 @@ Options:
   --cwd <path>          Working directory
   --config <path>       Brewva config path (default: .brewva/brewva.json)
   --model <provider/id> Model override
+  --agent <id>          Agent identity id (.brewva/agents/<id>/identity.md)
   --task <json>         TaskSpec JSON (schema: brewva.task.v1)
   --task-file <path>    TaskSpec JSON file
   --no-extensions       Disable extension hooks (runtime core safety chain remains active)
@@ -147,6 +153,7 @@ Examples:
   brewva "Fix failing tests in runtime"
   brewva --print "Refactor this function"
   brewva --backend gateway --print "Summarize this file"
+  brewva --agent code-reviewer --print "Review recent diff"
   brewva --mode json "Summarize recent changes"
   brewva --task-file ./task.json
   brewva --undo --session <session-id>
@@ -196,6 +203,7 @@ interface CliArgs {
   cwd?: string;
   configPath?: string;
   model?: string;
+  agentId?: string;
   taskJson?: string;
   taskFile?: string;
   channel?: string;
@@ -224,6 +232,7 @@ const CLI_PARSE_OPTIONS = {
   cwd: { type: "string" },
   config: { type: "string" },
   model: { type: "string" },
+  agent: { type: "string" },
   task: { type: "string" },
   "task-file": { type: "string" },
   "no-extensions": { type: "boolean" },
@@ -400,6 +409,10 @@ function parseCliArgs(argv: string[]): CliParseResult {
     cwd: typeof parsed.values.cwd === "string" ? parsed.values.cwd : undefined,
     configPath: typeof parsed.values.config === "string" ? parsed.values.config : undefined,
     model: typeof parsed.values.model === "string" ? parsed.values.model : undefined,
+    agentId:
+      typeof parsed.values.agent === "string" && parsed.values.agent.trim().length > 0
+        ? normalizeAgentId(parsed.values.agent)
+        : undefined,
     taskJson: typeof parsed.values.task === "string" ? parsed.values.task : undefined,
     taskFile:
       typeof parsed.values["task-file"] === "string" ? parsed.values["task-file"] : undefined,
@@ -767,6 +780,7 @@ async function run(): Promise<void> {
       cwd: parsed.cwd,
       configPath: parsed.configPath,
       model: parsed.model,
+      agentId: parsed.agentId,
       enableExtensions: parsed.enableExtensions,
       verbose: parsed.verbose,
       channel: parsed.channel,
@@ -809,6 +823,7 @@ async function run(): Promise<void> {
       cwd: parsed.cwd,
       configPath: parsed.configPath,
       model: parsed.model,
+      agentId: parsed.agentId,
       enableExtensions: parsed.enableExtensions,
       verbose: parsed.verbose,
       onRuntimeReady: (runtime) => {
@@ -926,6 +941,7 @@ async function run(): Promise<void> {
       cwd: parsed.cwd,
       configPath: parsed.configPath,
       model: parsed.model,
+      agentId: parsed.agentId,
       enableExtensions: parsed.enableExtensions,
       prompt: initialMessage ?? "",
       verbose: parsed.verbose,
@@ -964,6 +980,7 @@ async function run(): Promise<void> {
     cwd: parsed.cwd,
     configPath: parsed.configPath,
     model: parsed.model,
+    agentId: parsed.agentId,
     enableExtensions: parsed.enableExtensions,
   });
   printConfigDiagnostics(runtime.configDiagnostics, parsed.verbose);

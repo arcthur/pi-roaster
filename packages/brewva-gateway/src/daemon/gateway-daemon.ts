@@ -902,6 +902,7 @@ export class GatewayDaemon {
           cwd?: string;
           configPath?: string;
           model?: string;
+          agentId?: string;
           enableExtensions?: boolean;
         };
         const requestedSessionId = input.sessionId?.trim() || randomUUID();
@@ -915,6 +916,7 @@ export class GatewayDaemon {
             cwd: input.cwd ? resolve(input.cwd) : undefined,
             configPath: input.configPath,
             model: input.model,
+            agentId: input.agentId,
             enableExtensions: input.enableExtensions,
           });
         } catch (error) {

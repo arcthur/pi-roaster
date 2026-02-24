@@ -56,7 +56,7 @@ Parameter summary (current semantics):
 - `connect`: `{ protocol, client, auth: { token }, challengeNonce }`
 - `health`: `{}`
 - `status.deep`: `{}`
-- `sessions.open`: `{ sessionId?, cwd?, configPath?, model?, enableExtensions? }`
+- `sessions.open`: `{ sessionId?, cwd?, configPath?, model?, agentId?, enableExtensions? }`
 - `sessions.subscribe`: `{ sessionId }`
 - `sessions.unsubscribe`: `{ sessionId }`
 - `sessions.send`: `{ sessionId, prompt, turnId? }`

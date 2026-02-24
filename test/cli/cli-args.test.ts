@@ -20,6 +20,7 @@ describe("brewva cli args", () => {
     expect(output.includes("Brewva - AI-native coding agent CLI")).toBe(true);
     expect(output.includes("Usage:\n  brewva [options] [prompt]")).toBe(true);
     expect(output.includes("brewva onboard ...")).toBe(true);
+    expect(output.includes("--agent <id>")).toBe(true);
   });
 
   test("prints CLI version", () => {
@@ -49,6 +50,13 @@ describe("brewva cli args", () => {
     expect(parsed!.replay).toBe(false);
     expect(parsed!.prompt).toBe("fix failing tests");
     expect(parsed!.modeExplicit).toBe(false);
+  });
+
+  test("parses --agent and normalizes to canonical id", () => {
+    const parsed = parseArgs(["--agent", "  Code Reviewer  ", "--print", "hello"]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.agentId).toBe("code-reviewer");
+    expect(parsed!.mode).toBe("print-text");
   });
 
   test("supports explicit backend values", () => {
