@@ -20,7 +20,7 @@
     "@brewva/brewva-gateway": "workspace:*",
     "@brewva/brewva-runtime": "workspace:*",
     "@brewva/brewva-tools": "workspace:*",
-    "@mariozechner/pi-coding-agent": "^0.53.0",
+    "@mariozechner/pi-coding-agent": "^0.55.0",
     "date-fns": "^4.1.0"
   },
   "engines": {

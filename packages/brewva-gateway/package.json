@@ -16,7 +16,7 @@
     "@brewva/brewva-extensions": "workspace:*",
     "@brewva/brewva-runtime": "workspace:*",
     "@brewva/brewva-tools": "workspace:*",
-    "@mariozechner/pi-coding-agent": "^0.53.0",
+    "@mariozechner/pi-coding-agent": "^0.55.0",
     "@sinclair/typebox": "^0.34.48",
     "ajv": "^8.17.1",
     "ws": "^8.18.3"
