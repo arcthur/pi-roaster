@@ -57,7 +57,7 @@ function createAdapter(options?: { sendError?: Error }): {
 }
 
 describe("channel turn bridge extension helper", () => {
-  test("records ingested and emitted channel turn events", async () => {
+  test("given inbound and outbound turns, when bridge runs, then ingested and emitted events are recorded", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
       events: {
@@ -92,7 +92,7 @@ describe("channel turn bridge extension helper", () => {
     expect(eventTypes).toContain("channel_turn_emitted");
   });
 
-  test("records bridge error event when adapter send fails", async () => {
+  test("given adapter send failure, when bridge sends turn, then bridge error event is recorded", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
       events: {
@@ -115,7 +115,7 @@ describe("channel turn bridge extension helper", () => {
     expect(events.some((entry) => entry.type === "channel_turn_bridge_error")).toBe(true);
   });
 
-  test("uses resolved ingested session id when resolver is provided", async () => {
+  test("given ingested session resolver, when inbound turn is handled, then recorded session id is normalized", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
       events: {

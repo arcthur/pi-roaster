@@ -4,8 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { BrewvaConfig } from "@brewva/brewva-runtime";
-import { buildBrewvaTools, createAstGrepTools, createLspTools } from "@brewva/brewva-tools";
-import { resolveParallelReadConfig } from "../../packages/brewva-tools/src/utils/parallel-read.js";
+import {
+  buildBrewvaTools,
+  createAstGrepTools,
+  createLspTools,
+  resolveParallelReadConfig,
+} from "@brewva/brewva-tools";
 
 function extractTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
   const textPart = result.content.find(
@@ -73,7 +77,7 @@ function expectTelemetryCountersConsistent(payload: Record<string, unknown>): vo
 }
 
 describe("tool parallel read runtime integration", () => {
-  test("buildBrewvaTools wires runtime-aware lsp scans for telemetry", async () => {
+  test("given buildBrewvaTools runtime context, when lsp workspace scan runs, then parallel-read telemetry is emitted", async () => {
     const workspace = workspaceWithSampleFiles("brewva-tools-build-runtime-");
     const runtime = createRuntime(workspace);
     const sessionId = "parallel-read-build-runtime";

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import {
   SUPPORTED_CHANNELS,
   canonicalizeInboundTurnSession,
   collectPromptTurnOutputs,
   resolveSupportedChannel,
-} from "../../packages/brewva-cli/src/channel-mode.js";
-import type { TurnEnvelope } from "../../packages/brewva-runtime/src/channels/turn.js";
+} from "@brewva/brewva-cli";
+import type { TurnEnvelope } from "@brewva/brewva-runtime/channels";
+import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 
 type SessionLike = {
   subscribe: (listener: (event: AgentSessionEvent) => void) => () => void;
@@ -39,14 +39,14 @@ function createSessionMock(eventsToEmit: AgentSessionEvent[]): SessionLike {
 }
 
 describe("channel mode prompt output collector", () => {
-  test("resolves supported channel aliases and rejects unsupported ids", () => {
+  test("given channel aliases and unknown id, when resolving supported channel, then alias is normalized and unsupported id is rejected", () => {
     expect(SUPPORTED_CHANNELS).toEqual(["telegram"]);
     expect(resolveSupportedChannel("telegram")).toBe("telegram");
     expect(resolveSupportedChannel("TG")).toBe("telegram");
     expect(resolveSupportedChannel("discord")).toBeNull();
   });
 
-  test("canonicalizeInboundTurnSession keeps turn when session id already matches", () => {
+  test("given inbound turn session already canonical, when canonicalizing, then original turn object is returned", () => {
     const turn: TurnEnvelope = {
       schema: "brewva.turn.v1",
       kind: "user",
@@ -61,7 +61,7 @@ describe("channel mode prompt output collector", () => {
     expect(canonical).toBe(turn);
   });
 
-  test("canonicalizeInboundTurnSession remaps channel session id into metadata", () => {
+  test("given inbound turn session differs from canonical session, when canonicalizing, then sessionId is remapped and original id is stored in metadata", () => {
     const turn: TurnEnvelope = {
       schema: "brewva.turn.v1",
       kind: "user",
@@ -81,7 +81,7 @@ describe("channel mode prompt output collector", () => {
     });
   });
 
-  test("collects tool outputs and latest assistant message text", async () => {
+  test("given mixed tool and assistant events, when collecting prompt outputs, then latest assistant text and tool outputs are aggregated", async () => {
     const session = createSessionMock([
       {
         type: "tool_execution_end",
@@ -128,7 +128,7 @@ describe("channel mode prompt output collector", () => {
     expect(outputs.toolOutputs[1]?.text).toContain("missing file");
   });
 
-  test("deduplicates repeated tool_execution_end events with same toolCallId", async () => {
+  test("given repeated tool_execution_end with same toolCallId, when collecting outputs, then duplicate tool output is removed", async () => {
     const repeatedEvent = {
       type: "tool_execution_end",
       toolCallId: "tc-1",
@@ -147,7 +147,7 @@ describe("channel mode prompt output collector", () => {
     expect(outputs.toolOutputs[0]?.toolCallId).toBe("tc-1");
   });
 
-  test("ignores non-assistant message_end events", async () => {
+  test("given non-assistant message_end events, when collecting outputs, then assistant text remains empty", async () => {
     const session = createSessionMock([
       {
         type: "message_end",

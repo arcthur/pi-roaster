@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type {
   AdapterStartContext,
   ChannelAdapter,
-} from "../../packages/brewva-runtime/src/channels/adapter.js";
-import { ChannelTurnBridge } from "../../packages/brewva-runtime/src/channels/turn-bridge.js";
-import type { TurnEnvelope } from "../../packages/brewva-runtime/src/channels/turn.js";
+  TurnEnvelope,
+} from "@brewva/brewva-runtime/channels";
+import { ChannelTurnBridge } from "@brewva/brewva-runtime/channels";
 
 const BASE_TURN: TurnEnvelope = {
   schema: "brewva.turn.v1",
@@ -57,7 +57,7 @@ function createAdapter(): {
 }
 
 describe("channel turn bridge", () => {
-  test("forwards inbound turns from adapter callback", async () => {
+  test("given adapter inbound callback, when bridge receives turn, then turn is forwarded and ingestion hook is invoked", async () => {
     const inbound: TurnEnvelope[] = [];
     const ingested: TurnEnvelope[] = [];
     const { adapter, emitInbound } = createAdapter();
@@ -77,7 +77,7 @@ describe("channel turn bridge", () => {
     await bridge.stop();
   });
 
-  test("applies capability negotiation before outbound send", async () => {
+  test("given channel lacks thread replies, when bridge sends outbound turn, then thread context is normalized before delivery", async () => {
     const { adapter, sentTurns } = createAdapter();
     const emitted: Array<{ requestedTurn: TurnEnvelope; deliveredTurn: TurnEnvelope }> = [];
     const bridge = new ChannelTurnBridge(adapter, {

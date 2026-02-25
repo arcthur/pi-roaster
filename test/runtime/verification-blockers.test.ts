@@ -1,103 +1,38 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { BrewvaConfig } from "@brewva/brewva-runtime";
 import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime } from "@brewva/brewva-runtime";
+import { createTestConfig } from "../fixtures/config.js";
+import { createTestWorkspace, writeTestConfig } from "../helpers/workspace.js";
 
 function createWorkspace(name: string): string {
-  const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
-  mkdirSync(join(workspace, ".brewva"), { recursive: true });
-  return workspace;
+  return createTestWorkspace(name);
 }
 
-function writeConfig(workspace: string, config: BrewvaConfig): void {
-  writeFileSync(join(workspace, ".brewva/brewva.json"), JSON.stringify(config, null, 2), "utf8");
-}
-
-function createConfig(overrides: Partial<BrewvaConfig>): BrewvaConfig {
-  return {
-    ...DEFAULT_BREWVA_CONFIG,
-    ...overrides,
-    skills: {
-      ...DEFAULT_BREWVA_CONFIG.skills,
-      ...overrides.skills,
-      selector: {
-        ...DEFAULT_BREWVA_CONFIG.skills.selector,
-        ...overrides.skills?.selector,
-      },
-    },
-    verification: {
-      ...DEFAULT_BREWVA_CONFIG.verification,
-      ...overrides.verification,
-      checks: {
-        ...DEFAULT_BREWVA_CONFIG.verification.checks,
-        ...overrides.verification?.checks,
-      },
-      commands: {
-        ...DEFAULT_BREWVA_CONFIG.verification.commands,
-        ...overrides.verification?.commands,
-      },
-    },
-    ledger: {
-      ...DEFAULT_BREWVA_CONFIG.ledger,
-      ...overrides.ledger,
-    },
-    security: {
-      ...DEFAULT_BREWVA_CONFIG.security,
-      ...overrides.security,
-    },
-    parallel: {
-      ...DEFAULT_BREWVA_CONFIG.parallel,
-      ...overrides.parallel,
-    },
-    infrastructure: {
-      ...DEFAULT_BREWVA_CONFIG.infrastructure,
-      ...overrides.infrastructure,
-      events: {
-        ...DEFAULT_BREWVA_CONFIG.infrastructure.events,
-        ...overrides.infrastructure?.events,
-        level: overrides.infrastructure?.events?.level ?? "debug",
-      },
-      contextBudget: {
-        ...DEFAULT_BREWVA_CONFIG.infrastructure.contextBudget,
-        ...overrides.infrastructure?.contextBudget,
-      },
-      toolFailureInjection: {
-        ...DEFAULT_BREWVA_CONFIG.infrastructure.toolFailureInjection,
-        ...overrides.infrastructure?.toolFailureInjection,
-      },
-      interruptRecovery: {
-        ...DEFAULT_BREWVA_CONFIG.infrastructure.interruptRecovery,
-        ...overrides.infrastructure?.interruptRecovery,
-      },
-      costTracking: {
-        ...DEFAULT_BREWVA_CONFIG.infrastructure.costTracking,
-        ...overrides.infrastructure?.costTracking,
-      },
-    },
-  };
+function writeConfig(workspace: string, config: import("@brewva/brewva-runtime").BrewvaConfig): void {
+  writeTestConfig(workspace, config);
 }
 
 describe("Verification blockers", () => {
-  test("syncs failing checks into Task Ledger blockers and resolves on pass", async () => {
+  test("given failing checks then pass, when verification runs, then blocker is created and resolved", async () => {
     const workspace = createWorkspace("verification-blockers");
     writeConfig(
       workspace,
-      createConfig({
-        verification: {
-          defaultLevel: "standard",
-          checks: {
-            quick: ["type-check"],
-            standard: ["type-check", "tests"],
-            strict: ["type-check", "tests"],
-          },
-          commands: {
-            "type-check": "true",
-            tests: "false",
+      createTestConfig(
+        {
+          verification: {
+            defaultLevel: "standard",
+            checks: {
+              quick: ["type-check"],
+              standard: ["type-check", "tests"],
+              strict: ["type-check", "tests"],
+            },
+            commands: {
+              "type-check": "true",
+              tests: "false",
+            },
           },
         },
-      }),
+        { eventsLevel: "debug" },
+      ),
     );
 
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".brewva/brewva.json" });
@@ -157,31 +92,34 @@ describe("Verification blockers", () => {
     expect(truthFact2?.status).toBe("resolved");
   });
 
-  test("records cognitive outcome reflection when shadow mode is enabled", async () => {
+  test("given shadow cognitive mode, when verification fails, then cognitive reflection is recorded", async () => {
     const workspace = createWorkspace("verification-reflection");
     writeConfig(
       workspace,
-      createConfig({
-        verification: {
-          defaultLevel: "standard",
-          checks: {
-            quick: ["type-check"],
-            standard: ["type-check", "tests"],
-            strict: ["type-check", "tests"],
+      createTestConfig(
+        {
+          verification: {
+            defaultLevel: "standard",
+            checks: {
+              quick: ["type-check"],
+              standard: ["type-check", "tests"],
+              strict: ["type-check", "tests"],
+            },
+            commands: {
+              "type-check": "true",
+              tests: "false",
+            },
           },
-          commands: {
-            "type-check": "true",
-            tests: "false",
+          memory: {
+            ...DEFAULT_BREWVA_CONFIG.memory,
+            cognitive: {
+              ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
+              mode: "shadow",
+            },
           },
         },
-        memory: {
-          ...DEFAULT_BREWVA_CONFIG.memory,
-          cognitive: {
-            ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
-            mode: "shadow",
-          },
-        },
-      }),
+        { eventsLevel: "debug" },
+      ),
     );
 
     const runtime = new BrewvaRuntime({
@@ -220,31 +158,34 @@ describe("Verification blockers", () => {
     expect(memoryHits.hits.length).toBeGreaterThan(0);
   });
 
-  test("skips cognitive reflection when cognitive mode is off", async () => {
+  test("given cognitive mode off, when verification fails, then reflection is skipped", async () => {
     const workspace = createWorkspace("verification-reflection-limit");
     writeConfig(
       workspace,
-      createConfig({
-        verification: {
-          defaultLevel: "standard",
-          checks: {
-            quick: ["type-check"],
-            standard: ["type-check", "tests"],
-            strict: ["type-check", "tests"],
+      createTestConfig(
+        {
+          verification: {
+            defaultLevel: "standard",
+            checks: {
+              quick: ["type-check"],
+              standard: ["type-check", "tests"],
+              strict: ["type-check", "tests"],
+            },
+            commands: {
+              "type-check": "true",
+              tests: "false",
+            },
           },
-          commands: {
-            "type-check": "true",
-            tests: "false",
+          memory: {
+            ...DEFAULT_BREWVA_CONFIG.memory,
+            cognitive: {
+              ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
+              mode: "off",
+            },
           },
         },
-        memory: {
-          ...DEFAULT_BREWVA_CONFIG.memory,
-          cognitive: {
-            ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
-            mode: "off",
-          },
-        },
-      }),
+        { eventsLevel: "debug" },
+      ),
     );
 
     const runtime = new BrewvaRuntime({
@@ -273,32 +214,35 @@ describe("Verification blockers", () => {
     expect(skipped.length).toBe(0);
   });
 
-  test("skips cognitive reflection when cognitive token budget is exhausted", async () => {
+  test("given exhausted cognitive token budget, when verification fails, then reflection is skipped", async () => {
     const workspace = createWorkspace("verification-reflection-token-budget");
     writeConfig(
       workspace,
-      createConfig({
-        verification: {
-          defaultLevel: "standard",
-          checks: {
-            quick: ["type-check"],
-            standard: ["type-check", "tests"],
-            strict: ["type-check", "tests"],
+      createTestConfig(
+        {
+          verification: {
+            defaultLevel: "standard",
+            checks: {
+              quick: ["type-check"],
+              standard: ["type-check", "tests"],
+              strict: ["type-check", "tests"],
+            },
+            commands: {
+              "type-check": "true",
+              tests: "false",
+            },
           },
-          commands: {
-            "type-check": "true",
-            tests: "false",
+          memory: {
+            ...DEFAULT_BREWVA_CONFIG.memory,
+            cognitive: {
+              ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
+              mode: "shadow",
+              maxTokensPerTurn: 10,
+            },
           },
         },
-        memory: {
-          ...DEFAULT_BREWVA_CONFIG.memory,
-          cognitive: {
-            ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
-            mode: "shadow",
-            maxTokensPerTurn: 10,
-          },
-        },
-      }),
+        { eventsLevel: "debug" },
+      ),
     );
 
     const runtime = new BrewvaRuntime({
@@ -338,23 +282,26 @@ describe("Verification blockers", () => {
     expect(skipped.some((event) => event.payload?.reason === "token_budget_exhausted")).toBe(true);
   });
 
-  test("records verification outcome even when no prior write evidence exists", async () => {
+  test("given no prior write evidence, when verification runs, then outcome is still recorded", async () => {
     const workspace = createWorkspace("verification-outcome-without-write");
     writeConfig(
       workspace,
-      createConfig({
-        verification: {
-          defaultLevel: "quick",
-          checks: {
-            quick: ["type-check"],
-            standard: ["type-check"],
-            strict: ["type-check"],
-          },
-          commands: {
-            "type-check": "true",
+      createTestConfig(
+        {
+          verification: {
+            defaultLevel: "quick",
+            checks: {
+              quick: ["type-check"],
+              standard: ["type-check"],
+              strict: ["type-check"],
+            },
+            commands: {
+              "type-check": "true",
+            },
           },
         },
-      }),
+        { eventsLevel: "debug" },
+      ),
     );
 
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: ".brewva/brewva.json" });

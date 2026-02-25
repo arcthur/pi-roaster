@@ -167,6 +167,30 @@ export interface SessionSupervisorOptions {
   onWorkerEvent?: (event: Extract<WorkerToParentMessage, { kind: "event" }>) => void;
 }
 
+export interface SessionSupervisorTestPendingRequest {
+  requestId: string;
+  resolve?: (payload: Record<string, unknown> | undefined) => void;
+  reject?: (error: Error) => void;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+export interface SessionSupervisorTestWorkerInput {
+  sessionId: string;
+  pid: number;
+  startedAt?: number;
+  lastHeartbeatAt?: number;
+  lastActivityAt?: number;
+  cwd?: string;
+  agentSessionId?: string;
+  pendingRequests?: SessionSupervisorTestPendingRequest[];
+}
+
+export interface SessionSupervisorTestHooks {
+  seedWorker(input: SessionSupervisorTestWorkerInput): void;
+  persistRegistry(): void;
+  dispatchWorkerMessage(sessionId: string, message: WorkerToParentMessage): void;
+}
+
 export class SessionSupervisor implements SessionBackend {
   private readonly workers = new Map<string, WorkerHandle>();
   private readonly stateDir: string;
@@ -184,6 +208,17 @@ export class SessionSupervisor implements SessionBackend {
   private idleSweepTimer: ReturnType<typeof setInterval> | null = null;
   private turnWalCompactTimer: ReturnType<typeof setInterval> | null = null;
   private idleSweepInFlight = false;
+  readonly testHooks: SessionSupervisorTestHooks = {
+    seedWorker: (input) => {
+      this.seedWorkerForTest(input);
+    },
+    persistRegistry: () => {
+      this.persistRegistry();
+    },
+    dispatchWorkerMessage: (sessionId, message) => {
+      this.dispatchWorkerMessageForTest(sessionId, message);
+    },
+  };
 
   constructor(private readonly options: SessionSupervisorOptions) {
     this.stateDir = resolve(options.stateDir);
@@ -209,6 +244,49 @@ export class SessionSupervisor implements SessionBackend {
       options.maxPendingSessionOpens ?? DEFAULT_MAX_PENDING_SESSION_OPENS,
     );
     mkdirSync(this.stateDir, { recursive: true });
+  }
+
+  private seedWorkerForTest(input: SessionSupervisorTestWorkerInput): void {
+    const now = Date.now();
+    const pending = new Map<string, PendingRequest>();
+    for (const request of input.pendingRequests ?? []) {
+      pending.set(request.requestId, {
+        resolve: request.resolve ?? (() => undefined),
+        reject: request.reject ?? (() => undefined),
+        timer: request.timer ?? setTimeout(() => undefined, WORKER_RPC_TIMEOUT_MS),
+      });
+    }
+
+    for (const request of pending.values()) {
+      request.timer.unref?.();
+    }
+
+    const child = {
+      pid: input.pid,
+      send: () => true,
+      on: () => undefined,
+    } as unknown as ChildProcess;
+
+    this.workers.set(input.sessionId, {
+      sessionId: input.sessionId,
+      child,
+      startedAt: input.startedAt ?? now,
+      lastActivityAt: input.lastActivityAt ?? now,
+      cwd: input.cwd,
+      requestedAgentSessionId: input.agentSessionId,
+      pending,
+      pendingTurns: new Map<string, PendingTurn>(),
+      activeTurnWalIds: new Map<string, string>(),
+      lastHeartbeatAt: input.lastHeartbeatAt ?? now,
+    });
+  }
+
+  private dispatchWorkerMessageForTest(sessionId: string, message: WorkerToParentMessage): void {
+    const handle = this.workers.get(sessionId);
+    if (!handle) {
+      throw new SessionBackendStateError("session_not_found", `session not found: ${sessionId}`);
+    }
+    this.onWorkerMessage(handle, message);
   }
 
   async start(): Promise<void> {

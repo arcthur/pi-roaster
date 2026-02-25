@@ -7,15 +7,15 @@ import {
 } from "@brewva/brewva-cli";
 
 describe("gateway fallback boundary", () => {
-  test("auto backend allows fallback on pre-ack failures", () => {
+  test("given auto backend and pre-ack failure, when evaluating fallback, then fallback is allowed", () => {
     expect(shouldFallbackAfterGatewayFailure("auto", "pre-ack")).toBe(true);
   });
 
-  test("auto backend blocks fallback on post-ack failures", () => {
+  test("given auto backend and post-ack failure, when evaluating fallback, then fallback is denied", () => {
     expect(shouldFallbackAfterGatewayFailure("auto", "post-ack")).toBe(false);
   });
 
-  test("classifies send-requested failures as post-ack safety boundary", () => {
+  test("given send requested before failure, when resolving failure stage, then stage is post-ack", () => {
     expect(
       resolveGatewayFailureStage({
         sendRequested: true,
@@ -24,7 +24,7 @@ describe("gateway fallback boundary", () => {
     ).toBe("post-ack");
   });
 
-  test("classifies pure pre-send failures as pre-ack", () => {
+  test("given no send requested before failure, when resolving failure stage, then stage is pre-ack", () => {
     expect(
       resolveGatewayFailureStage({
         sendRequested: false,
@@ -33,11 +33,11 @@ describe("gateway fallback boundary", () => {
     ).toBe("pre-ack");
   });
 
-  test("resolves backend cwd from explicit value", () => {
+  test("given explicit backend cwd, when resolving backend cwd, then path is normalized to absolute", () => {
     expect(resolveBackendWorkingCwd("./test")).toBe(resolve("./test"));
   });
 
-  test("resolves backend cwd from process cwd when unset", () => {
+  test("given backend cwd unset, when resolving backend cwd, then process cwd is used", () => {
     expect(resolveBackendWorkingCwd()).toBe(process.cwd());
   });
 });

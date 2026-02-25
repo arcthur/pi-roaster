@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { validateParamsForMethod, validateRequestFrame } from "@brewva/brewva-gateway";
 
 describe("gateway protocol validator", () => {
-  test("accepts connect params with strict required auth and challenge", () => {
+  test("given connect params with auth token and challenge nonce, when validating params, then validation succeeds", () => {
     const result = validateParamsForMethod("connect", {
       protocol: 1,
       client: {
@@ -17,7 +17,7 @@ describe("gateway protocol validator", () => {
     expect(result.ok).toBe(true);
   });
 
-  test("rejects connect params without auth token or challenge nonce", () => {
+  test("given connect params without auth token and challenge nonce, when validating params, then validation fails", () => {
     const result = validateParamsForMethod("connect", {
       protocol: 1,
       client: {
@@ -32,7 +32,7 @@ describe("gateway protocol validator", () => {
     expect(result.error.includes("required property")).toBe(true);
   });
 
-  test("accepts sessions.close params", () => {
+  test("given valid sessions.close params, when validating params, then validation succeeds", () => {
     const result = validateParamsForMethod("sessions.close", {
       sessionId: "session-1",
     });
@@ -43,7 +43,7 @@ describe("gateway protocol validator", () => {
     expect(result.params.sessionId).toBe("session-1");
   });
 
-  test("rejects sessions.close params without sessionId", () => {
+  test("given sessions.close without sessionId, when validating params, then validation fails", () => {
     const result = validateParamsForMethod("sessions.close", {});
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -52,7 +52,7 @@ describe("gateway protocol validator", () => {
     expect(result.error.includes("required property")).toBe(true);
   });
 
-  test("rejects additional properties for sessions.close", () => {
+  test("given sessions.close with extra property, when validating params, then validation fails", () => {
     const result = validateParamsForMethod("sessions.close", {
       sessionId: "session-1",
       extra: "not-allowed",
@@ -64,7 +64,7 @@ describe("gateway protocol validator", () => {
     expect(result.error.includes("unexpected property 'extra'")).toBe(true);
   });
 
-  test("accepts sessions.subscribe params", () => {
+  test("given valid sessions.subscribe params, when validating params, then validation succeeds", () => {
     const result = validateParamsForMethod("sessions.subscribe", {
       sessionId: "session-2",
     });
@@ -75,7 +75,7 @@ describe("gateway protocol validator", () => {
     expect(result.params.sessionId).toBe("session-2");
   });
 
-  test("accepts sessions.send with turnId", () => {
+  test("given sessions.send with turnId, when validating params, then validation succeeds", () => {
     const result = validateParamsForMethod("sessions.send", {
       sessionId: "session-3",
       prompt: "hello",
@@ -88,7 +88,7 @@ describe("gateway protocol validator", () => {
     expect(result.params.turnId).toBe("turn-3");
   });
 
-  test("accepts sessions.open with optional agentId", () => {
+  test("given sessions.open with optional agentId, when validating params, then validation succeeds", () => {
     const result = validateParamsForMethod("sessions.open", {
       sessionId: "session-5",
       cwd: "/tmp/workspace",
@@ -104,7 +104,7 @@ describe("gateway protocol validator", () => {
     expect(result.params.agentId).toBe("code-reviewer");
   });
 
-  test("rejects sessions.unsubscribe params with extra property", () => {
+  test("given sessions.unsubscribe with extra property, when validating params, then validation fails", () => {
     const result = validateParamsForMethod("sessions.unsubscribe", {
       sessionId: "session-4",
       extra: true,
@@ -116,7 +116,7 @@ describe("gateway protocol validator", () => {
     expect(result.error.includes("unexpected property 'extra'")).toBe(true);
   });
 
-  test("accepts request frame with traceId", () => {
+  test("given request frame with non-empty traceId, when validating frame, then frame is accepted", () => {
     const ok = validateRequestFrame({
       type: "req",
       id: "req-1",
@@ -127,7 +127,7 @@ describe("gateway protocol validator", () => {
     expect(ok).toBe(true);
   });
 
-  test("rejects request frame with empty traceId", () => {
+  test("given request frame with empty traceId, when validating frame, then frame is rejected", () => {
     const ok = validateRequestFrame({
       type: "req",
       id: "req-2",
@@ -138,7 +138,7 @@ describe("gateway protocol validator", () => {
     expect(ok).toBe(false);
   });
 
-  test("accepts gateway.rotate-token empty params", () => {
+  test("given gateway.rotate-token with empty params, when validating params, then validation succeeds", () => {
     const result = validateParamsForMethod("gateway.rotate-token", {});
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -147,7 +147,7 @@ describe("gateway protocol validator", () => {
     expect(result.params).toEqual({});
   });
 
-  test("rejects gateway.rotate-token params with extra property", () => {
+  test("given gateway.rotate-token with unsupported params, when validating params, then validation fails", () => {
     const result = validateParamsForMethod("gateway.rotate-token", {
       graceMs: 1_000,
     });

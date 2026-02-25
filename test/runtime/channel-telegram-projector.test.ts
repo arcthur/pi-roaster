@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { decodeTelegramApprovalCallback } from "../../packages/brewva-channels-telegram/src/approval-callback.js";
 import {
+  decodeTelegramApprovalCallback,
   buildTelegramInboundDedupeKey,
   projectTelegramUpdateToTurn,
   renderTurnToTelegramRequests,
-} from "../../packages/brewva-channels-telegram/src/projector.js";
-import type { TelegramUpdate } from "../../packages/brewva-channels-telegram/src/types.js";
-import { buildChannelSessionId } from "../../packages/brewva-runtime/src/channels/session-map.js";
-import type { TurnEnvelope } from "../../packages/brewva-runtime/src/channels/turn.js";
+  type TelegramUpdate,
+} from "@brewva/brewva-channels-telegram";
+import { buildChannelSessionId, type TurnEnvelope } from "@brewva/brewva-runtime/channels";
 
 describe("channel telegram projector", () => {
   test("projects Telegram message update to user turn", () => {

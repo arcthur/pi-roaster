@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { buildRecentToolFailuresBlock } from "@brewva/brewva-runtime";
 
 describe("buildRecentToolFailuresBlock", () => {
-  test("returns empty string when no failures", () => {
+  test("given empty failure list, when building failure block, then output is empty", () => {
     const result = buildRecentToolFailuresBlock([]);
     expect(result).toBe("");
   });
 
-  test("formats a single failure with structured context", () => {
+  test("given single failed tool record, when building failure block, then structured context is rendered", () => {
     const result = buildRecentToolFailuresBlock([
       {
         toolName: "exec",
@@ -23,7 +23,7 @@ describe("buildRecentToolFailuresBlock", () => {
     expect(result).toContain("3 failures");
   });
 
-  test("limits output to maxEntries", () => {
+  test("given failure list exceeding maxEntries, when building failure block, then only recent entries are included", () => {
     const failures = Array.from({ length: 10 }, (_, i) => ({
       toolName: `tool_${i}`,
       args: {},
@@ -38,7 +38,7 @@ describe("buildRecentToolFailuresBlock", () => {
     expect(result).not.toContain("tool_0");
   });
 
-  test("truncates long output summaries", () => {
+  test("given failure output larger than summary budget, when building failure block, then output summary is truncated", () => {
     const result = buildRecentToolFailuresBlock([
       {
         toolName: "exec",

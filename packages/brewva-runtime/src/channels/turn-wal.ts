@@ -350,6 +350,9 @@ export class TurnWALStore {
     if (!this.enabled) return undefined;
     const current = this.syncCache().rowsByWalId.get(walId);
     if (!current) return undefined;
+    if (TERMINAL_STATUSES.has(current.status) && status !== current.status) {
+      return undefined;
+    }
     const timestamp = this.now();
     const attemptsDelta =
       typeof options.attemptsDelta === "number" && Number.isFinite(options.attemptsDelta)

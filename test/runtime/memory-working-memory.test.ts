@@ -3,58 +3,34 @@ import {
   buildWorkingMemorySnapshot,
   type MemoryCrystal,
   type MemoryInsight,
-  type MemoryUnit,
 } from "@brewva/brewva-runtime";
+import { createMemoryCrystal, createMemoryUnitFactory } from "../fixtures/memory.js";
 
-function unit(input: {
-  id: string;
-  type: MemoryUnit["type"];
-  topic: string;
-  statement: string;
-  sessionId?: string;
-  status?: MemoryUnit["status"];
-  confidence?: number;
-  updatedAt?: number;
-  metadata?: MemoryUnit["metadata"];
-}): MemoryUnit {
-  const timestamp = input.updatedAt ?? 1_700_000_000_000;
-  return {
-    id: input.id,
-    sessionId: input.sessionId ?? "mem-working-session",
-    type: input.type,
-    status: input.status ?? "active",
-    topic: input.topic,
-    statement: input.statement,
-    confidence: input.confidence ?? 0.8,
-    fingerprint: `fp-${input.id}`,
-    sourceRefs: [
-      {
-        eventId: `evt-${input.id}`,
-        eventType: "task_event",
-        sessionId: input.sessionId ?? "mem-working-session",
-        timestamp,
-      },
-    ],
-    metadata: input.metadata,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    firstSeenAt: timestamp,
-    lastSeenAt: timestamp,
-  };
-}
+const unit = createMemoryUnitFactory({
+  sessionId: "mem-working-session",
+  status: "active",
+  confidence: 0.8,
+  updatedAt: 1_700_000_000_000,
+  sourceRefsFactory: (input, timestamp) => [
+    {
+      eventId: `evt-${input.id}`,
+      eventType: "task_event",
+      sessionId: input.sessionId ?? "mem-working-session",
+      timestamp,
+    },
+  ],
+});
 
 function crystal(id: string, topic: string, summary: string): MemoryCrystal {
-  return {
+  return createMemoryCrystal({
     id,
-    sessionId: "mem-working-session",
     topic,
     summary,
-    unitIds: ["u1", "u2"],
+    sessionId: "mem-working-session",
     confidence: 0.85,
-    sourceRefs: [],
-    createdAt: 1_700_000_000_000,
+    unitIds: ["u1", "u2"],
     updatedAt: 1_700_000_000_001,
-  };
+  });
 }
 
 function insight(id: string, message: string): MemoryInsight {

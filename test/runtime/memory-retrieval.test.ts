@@ -1,35 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { searchMemory, type MemoryCrystal, type MemoryUnit } from "@brewva/brewva-runtime";
+import { searchMemory, type MemoryCrystal } from "@brewva/brewva-runtime";
+import { createMemoryCrystal, createMemoryUnitFactory } from "../fixtures/memory.js";
 
-function unit(input: {
-  id: string;
-  topic: string;
-  statement: string;
-  sessionId?: string;
-  confidence?: number;
-  type?: MemoryUnit["type"];
-  status?: MemoryUnit["status"];
-  metadata?: MemoryUnit["metadata"];
-  updatedAt?: number;
-}): MemoryUnit {
-  const timestamp = input.updatedAt ?? Date.now();
-  return {
-    id: input.id,
-    sessionId: input.sessionId ?? "mem-retrieval-session",
-    type: input.type ?? "fact",
-    status: input.status ?? "active",
-    topic: input.topic,
-    statement: input.statement,
-    confidence: input.confidence ?? 0.8,
-    fingerprint: `fp-${input.id}`,
-    sourceRefs: [],
-    metadata: input.metadata,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    firstSeenAt: timestamp,
-    lastSeenAt: timestamp,
-  };
-}
+const unit = createMemoryUnitFactory({
+  sessionId: "mem-retrieval-session",
+  type: "fact",
+  status: "active",
+  confidence: 0.8,
+  sourceRefs: [],
+});
 
 function crystal(
   id: string,
@@ -42,19 +21,15 @@ function crystal(
     metadata?: MemoryCrystal["metadata"];
   },
 ): MemoryCrystal {
-  const timestamp = input?.updatedAt ?? Date.now();
-  return {
+  return createMemoryCrystal({
     id,
-    sessionId: input?.sessionId ?? "mem-retrieval-session",
     topic,
     summary,
-    unitIds: ["u1"],
-    confidence: input?.confidence ?? 0.9,
-    sourceRefs: [],
+    sessionId: input?.sessionId ?? "mem-retrieval-session",
+    confidence: input?.confidence,
+    updatedAt: input?.updatedAt,
     metadata: input?.metadata,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
+  });
 }
 
 describe("memory retrieval", () => {

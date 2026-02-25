@@ -47,7 +47,7 @@ const OUTBOUND_TURN: TurnEnvelope = {
 };
 
 describe("runtime telegram channel bridge helper", () => {
-  test("wires telegram polling ingress through runtime bridge", async () => {
+  test("given polling transport, when telegram update arrives, then runtime bridge emits ingested turn telemetry", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
       events: {
@@ -120,7 +120,7 @@ describe("runtime telegram channel bridge helper", () => {
     expect(events.some((entry) => entry.type === "channel_turn_ingested")).toBe(true);
   });
 
-  test("wires outbound telegram send through runtime bridge telemetry", async () => {
+  test("given outbound assistant turn, when bridge sends telegram message, then emitted telemetry is recorded", async () => {
     const events: Record<string, unknown>[] = [];
     const runtime: RuntimeLike = {
       events: {

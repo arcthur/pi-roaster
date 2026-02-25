@@ -452,6 +452,13 @@ function parseCliArgs(argv: string[]): CliParseResult {
     console.error("Error: --undo/--replay cannot be combined with --task/--task-file.");
     return { kind: "error" };
   }
+  if (args.channel?.trim().toLowerCase() === "telegram") {
+    const token = args.channelConfig?.telegram?.token?.trim();
+    if (!token) {
+      console.error("Error: --telegram-token is required when --channel telegram is set.");
+      return { kind: "error" };
+    }
+  }
 
   return { kind: "ok", args };
 }
@@ -1088,7 +1095,15 @@ if (isBunMain ?? isNodeMain) {
 export { createBrewvaSession } from "./session.js";
 export { parseArgs };
 export {
+  SUPPORTED_CHANNELS,
+  canonicalizeInboundTurnSession,
+  collectPromptTurnOutputs,
+  resolveSupportedChannel,
+} from "./channel-mode.js";
+export { JsonLineWriter, type JsonLineWritable, writeJsonLine } from "./json-lines.js";
+export {
   resolveBackendWorkingCwd,
   resolveGatewayFailureStage,
   shouldFallbackAfterGatewayFailure,
 } from "./gateway-print.js";
+export { registerRuntimeCoreEventBridge } from "./session-event-bridge.js";

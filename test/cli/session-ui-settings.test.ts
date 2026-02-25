@@ -11,7 +11,7 @@ function createWorkspace(name: string): string {
 }
 
 describe("brewva session ui settings wiring", () => {
-  test("passes agentId from CLI session options into runtime identity scope", async () => {
+  test("given agentId option, when creating brewva session, then runtime identity agent id is normalized", async () => {
     const workspace = createWorkspace("agent-id");
     const result = await createBrewvaSession({
       cwd: workspace,
@@ -24,7 +24,7 @@ describe("brewva session ui settings wiring", () => {
     }
   });
 
-  test("applies ui startup settings from brewva config into session settings", async () => {
+  test("given ui quietStartup override in config, when creating brewva session, then runtime and session settings apply override", async () => {
     const workspace = createWorkspace("explicit");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -55,7 +55,7 @@ describe("brewva session ui settings wiring", () => {
     }
   });
 
-  test("uses runtime ui defaults when config does not provide ui override", async () => {
+  test("given config without ui override, when creating brewva session, then runtime ui defaults are preserved", async () => {
     const workspace = createWorkspace("default");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),

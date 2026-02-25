@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_BREWVA_CONFIG } from "@brewva/brewva-runtime";
@@ -23,7 +23,7 @@ function createEnvelope(id: string): TurnEnvelope {
 }
 
 describe("turn wal store", () => {
-  test("appends transitions and derives pending records from latest status", () => {
+  test("given a new envelope, when appendPending is called, then pending record is created and listed", () => {
     const workspace = createWorkspace("status");
     const store = new TurnWALStore({
       workspaceRoot: workspace,
@@ -35,14 +35,49 @@ describe("turn wal store", () => {
     expect(pending.status).toBe("pending");
     expect(pending.attempts).toBe(0);
     expect(store.listPending().map((row) => row.walId)).toEqual([pending.walId]);
+  });
 
+  test("given a pending record, when markInflight is called, then status becomes inflight with incremented attempts", () => {
+    const workspace = createWorkspace("status-inflight");
+    const store = new TurnWALStore({
+      workspaceRoot: workspace,
+      config: DEFAULT_BREWVA_CONFIG.infrastructure.turnWal,
+      scope: "channel-telegram",
+    });
+
+    const pending = store.appendPending(createEnvelope("turn-1"), "channel");
     const inflight = store.markInflight(pending.walId);
     expect(inflight?.status).toBe("inflight");
     expect(inflight?.attempts).toBe(1);
+    expect(store.listPending().map((row) => row.status)).toEqual(["inflight"]);
+  });
 
+  test("given an inflight record, when markDone is called, then record becomes done and leaves pending view", () => {
+    const workspace = createWorkspace("status-done");
+    const store = new TurnWALStore({
+      workspaceRoot: workspace,
+      config: DEFAULT_BREWVA_CONFIG.infrastructure.turnWal,
+      scope: "channel-telegram",
+    });
+
+    const pending = store.appendPending(createEnvelope("turn-1"), "channel");
+    store.markInflight(pending.walId);
     const done = store.markDone(pending.walId);
     expect(done?.status).toBe("done");
     expect(store.listPending()).toHaveLength(0);
+  });
+
+  test("given lifecycle transitions, when records are appended and updated, then wal file persists each transition", () => {
+    const workspace = createWorkspace("status-persist");
+    const store = new TurnWALStore({
+      workspaceRoot: workspace,
+      config: DEFAULT_BREWVA_CONFIG.infrastructure.turnWal,
+      scope: "channel-telegram",
+    });
+
+    const pending = store.appendPending(createEnvelope("turn-1"), "channel");
+    store.markInflight(pending.walId);
+    store.markDone(pending.walId);
 
     const lines = readFileSync(store.filePath, "utf8")
       .split("\n")
@@ -51,7 +86,55 @@ describe("turn wal store", () => {
     expect(lines.length).toBe(3);
   });
 
-  test("compacts terminal records older than retention window", () => {
+  test("given unknown wal id, when markDone is called, then result is undefined", () => {
+    const workspace = createWorkspace("unknown-id");
+    const store = new TurnWALStore({
+      workspaceRoot: workspace,
+      config: DEFAULT_BREWVA_CONFIG.infrastructure.turnWal,
+      scope: "channel-telegram",
+    });
+
+    expect(store.markDone("missing-wal-id")).toBeUndefined();
+  });
+
+  test("given a done record, when markInflight is called again, then transition is ignored", () => {
+    const workspace = createWorkspace("terminal-transition");
+    const store = new TurnWALStore({
+      workspaceRoot: workspace,
+      config: DEFAULT_BREWVA_CONFIG.infrastructure.turnWal,
+      scope: "channel-telegram",
+    });
+
+    const pending = store.appendPending(createEnvelope("turn-1"), "channel");
+    store.markInflight(pending.walId);
+    store.markDone(pending.walId);
+
+    const transitioned = store.markInflight(pending.walId);
+    expect(transitioned).toBeUndefined();
+    expect(store.listCurrent().map((row) => row.status)).toEqual(["done"]);
+  });
+
+  test("given malformed wal lines, when store reloads, then latest valid records are recovered", () => {
+    const workspace = createWorkspace("corrupt-lines");
+    const store = new TurnWALStore({
+      workspaceRoot: workspace,
+      config: DEFAULT_BREWVA_CONFIG.infrastructure.turnWal,
+      scope: "channel-telegram",
+    });
+    const pending = store.appendPending(createEnvelope("turn-corrupt"), "channel");
+    appendFileSync(store.filePath, '\n{"schema":"bad"}\nnot-json\n', "utf8");
+
+    const reloaded = new TurnWALStore({
+      workspaceRoot: workspace,
+      config: DEFAULT_BREWVA_CONFIG.infrastructure.turnWal,
+      scope: "channel-telegram",
+    });
+    const rows = reloaded.listPending();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.walId).toBe(pending.walId);
+  });
+
+  test("given terminal records beyond retention window, when compact runs, then stale records are dropped", () => {
     const workspace = createWorkspace("compact");
     let nowMs = 10_000;
     const store = new TurnWALStore({
@@ -75,7 +158,7 @@ describe("turn wal store", () => {
     expect(store.listCurrent()).toHaveLength(0);
   });
 
-  test("keeps append order and unique wal ids under burst appends", async () => {
+  test("given burst appends, when appendPending is called concurrently, then wal ids stay unique and rows remain ordered", async () => {
     const workspace = createWorkspace("burst");
     const store = new TurnWALStore({
       workspaceRoot: workspace,

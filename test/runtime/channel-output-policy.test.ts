@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelCapabilities } from "../../packages/brewva-runtime/src/channels/capabilities.js";
 import {
   prepareTurnForDelivery,
   resolveTurnDeliveryPlan,
-} from "../../packages/brewva-runtime/src/channels/output-policy.js";
-import type { TurnEnvelope } from "../../packages/brewva-runtime/src/channels/turn.js";
+  type ChannelCapabilities,
+  type TurnEnvelope,
+} from "@brewva/brewva-runtime/channels";
 
 const BASE_TURN: TurnEnvelope = {
   schema: "brewva.turn.v1",

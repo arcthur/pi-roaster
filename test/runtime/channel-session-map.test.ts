@@ -3,15 +3,15 @@ import {
   buildChannelDedupeKey,
   buildChannelSessionId,
   buildRawConversationKey,
-} from "../../packages/brewva-runtime/src/channels/session-map.js";
+} from "@brewva/brewva-runtime/channels";
 
 describe("channel session mapping", () => {
-  test("buildRawConversationKey normalizes channel and preserves conversation id", () => {
+  test("given raw channel and conversation id, when building raw conversation key, then channel is normalized and conversation id is preserved", () => {
     expect(buildRawConversationKey(" Telegram ", " 12345 ")).toBe("telegram:12345");
     expect(buildRawConversationKey("tg", "group:42")).toBe("telegram:group:42");
   });
 
-  test("buildChannelSessionId is deterministic and scoped by channel", () => {
+  test("given same conversation and normalized channel, when building channel session id, then id is deterministic and channel-scoped", () => {
     const first = buildChannelSessionId("telegram", "12345");
     const second = buildChannelSessionId(" telegram ", "12345");
     const otherChannel = buildChannelSessionId("discord", "12345");
@@ -22,11 +22,11 @@ describe("channel session mapping", () => {
     expect(first.length).toBe(48);
   });
 
-  test("buildChannelDedupeKey composes channel, conversation, and message id", () => {
+  test("given channel conversation and message id, when building dedupe key, then key contains all tokens", () => {
     expect(buildChannelDedupeKey("telegram", "12345", "9001")).toBe("telegram:12345:9001");
   });
 
-  test("throws on empty tokens", () => {
+  test("given empty required tokens, when building session or dedupe key, then function throws validation error", () => {
     expect(() => buildChannelSessionId("", "abc")).toThrow("channel is required");
     expect(() => buildChannelSessionId("telegram", " ")).toThrow("conversationId is required");
     expect(() => buildChannelDedupeKey("telegram", "abc", "")).toThrow("messageId is required");

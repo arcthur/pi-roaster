@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { StructuredLogger } from "@brewva/brewva-gateway";
 
 describe("gateway logger rotation", () => {
-  test("rotates even when target files already exist", () => {
+  test("given pre-existing rotated files, when logger exceeds size threshold, then rotation still succeeds", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-gateway-log-"));
     const logFilePath = join(root, "gateway.log");
     try {

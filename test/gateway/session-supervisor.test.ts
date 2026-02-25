@@ -6,25 +6,10 @@ import {
   SessionBackendCapacityError,
   SessionBackendStateError,
   SessionSupervisor,
-  type SessionWorkerInfo,
 } from "@brewva/brewva-gateway";
 
-function createFakeWorker(sessionId: string): SessionWorkerInfo {
-  const now = Date.now();
-  return {
-    sessionId,
-    pid: 43210,
-    startedAt: now - 5000,
-    lastHeartbeatAt: now,
-    lastActivityAt: now,
-    pendingRequests: 0,
-    agentSessionId: `agent-${sessionId}`,
-    cwd: "/tmp",
-  };
-}
-
 describe("session supervisor safeguards", () => {
-  test("rejects openSession when worker limit is reached and queue is disabled", async () => {
+  test("given worker limit reached and queue disabled, when openSession is called, then capacity error is raised", async () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-session-supervisor-"));
     const stateDir = join(root, "state");
     const supervisor = new SessionSupervisor({
@@ -41,11 +26,9 @@ describe("session supervisor safeguards", () => {
       maxPendingSessionOpens: 0,
     });
     try {
-      const workers = Reflect.get(supervisor, "workers") as Map<string, unknown>;
-      workers.set("existing", {
-        ...createFakeWorker("existing"),
-        child: { pid: 10001 },
-        pending: new Map(),
+      supervisor.testHooks.seedWorker({
+        sessionId: "existing",
+        pid: 10001,
       });
 
       let openError: unknown;
@@ -62,7 +45,7 @@ describe("session supervisor safeguards", () => {
     }
   });
 
-  test("persists worker registry without leaving temporary files", () => {
+  test("given seeded workers, when persisting registry, then file is written atomically without tmp residue", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-session-supervisor-"));
     const stateDir = join(root, "state");
     const supervisor = new SessionSupervisor({
@@ -77,15 +60,11 @@ describe("session supervisor safeguards", () => {
       defaultCwd: root,
     });
     try {
-      const workers = Reflect.get(supervisor, "workers") as Map<string, unknown>;
-      workers.set("s1", {
-        ...createFakeWorker("s1"),
-        child: { pid: 10011 },
-        pending: new Map(),
+      supervisor.testHooks.seedWorker({
+        sessionId: "s1",
+        pid: 10011,
       });
-
-      const persistRegistry = Reflect.get(supervisor, "persistRegistry") as () => void;
-      persistRegistry.call(supervisor);
+      supervisor.testHooks.persistRegistry();
 
       const registryPath = join(stateDir, "children.json");
       const tmpPath = `${registryPath}.tmp`;
@@ -104,7 +83,7 @@ describe("session supervisor safeguards", () => {
     }
   });
 
-  test("uses injected state store for registry persistence", () => {
+  test("given injected state store, when persisting registry, then store write path is used", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-session-supervisor-"));
     const stateDir = join(root, "state");
     const calls: Array<{ kind: string; path: string }> = [];
@@ -134,16 +113,11 @@ describe("session supervisor safeguards", () => {
       },
     });
     try {
-      const workers = Reflect.get(supervisor, "workers") as Map<string, unknown>;
-      workers.set("s1", {
-        ...createFakeWorker("s1"),
-        child: { pid: 10021 },
-        pending: new Map(),
-        pendingTurns: new Map(),
+      supervisor.testHooks.seedWorker({
+        sessionId: "s1",
+        pid: 10021,
       });
-
-      const persistRegistry = Reflect.get(supervisor, "persistRegistry") as () => void;
-      persistRegistry.call(supervisor);
+      supervisor.testHooks.persistRegistry();
 
       const registryPath = join(stateDir, "children.json");
       expect(calls).toEqual([
@@ -157,7 +131,7 @@ describe("session supervisor safeguards", () => {
     }
   });
 
-  test("throws typed session_not_found when sendPrompt targets unknown session", async () => {
+  test("given unknown session id, when sendPrompt is called, then typed session_not_found error is returned", async () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-session-supervisor-"));
     const stateDir = join(root, "state");
     const supervisor = new SessionSupervisor({
@@ -187,7 +161,7 @@ describe("session supervisor safeguards", () => {
     }
   });
 
-  test("maps worker session_busy result into typed SessionBackendStateError", () => {
+  test("given worker returns session_busy, when result is dispatched, then typed SessionBackendStateError is propagated", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-session-supervisor-"));
     const stateDir = join(root, "state");
     const supervisor = new SessionSupervisor({
@@ -206,32 +180,22 @@ describe("session supervisor safeguards", () => {
       const pendingTimer = setTimeout(() => {}, 1_000);
       pendingTimer.unref?.();
 
-      const handle = {
+      supervisor.testHooks.seedWorker({
         sessionId: "busy-session",
-        child: { pid: 10031, on: () => {}, send: () => {} },
-        startedAt: Date.now() - 2_000,
-        lastActivityAt: Date.now(),
-        pending: new Map([
-          [
-            "req-1",
-            {
-              resolve: () => {},
-              reject: (error: Error) => {
-                rejectCalls.push(error);
-              },
-              timer: pendingTimer,
+        pid: 10031,
+        pendingRequests: [
+          {
+            requestId: "req-1",
+            resolve: () => undefined,
+            reject: (error: Error) => {
+              rejectCalls.push(error);
             },
-          ],
-        ]),
-        pendingTurns: new Map(),
-        lastHeartbeatAt: Date.now(),
-      };
+            timer: pendingTimer,
+          },
+        ],
+      });
 
-      const onWorkerMessage = Reflect.get(supervisor, "onWorkerMessage") as (
-        workerHandle: unknown,
-        message: unknown,
-      ) => void;
-      onWorkerMessage.call(supervisor, handle, {
+      supervisor.testHooks.dispatchWorkerMessage("busy-session", {
         kind: "result",
         requestId: "req-1",
         ok: false,
@@ -242,7 +206,10 @@ describe("session supervisor safeguards", () => {
       expect(rejectCalls.length).toBe(1);
       expect(rejectCalls[0]).toBeInstanceOf(SessionBackendStateError);
       expect((rejectCalls[0] as SessionBackendStateError).code).toBe("session_busy");
-      expect(handle.pending.size).toBe(0);
+      const pendingRequests = supervisor
+        .listWorkers()
+        .find((worker) => worker.sessionId === "busy-session")?.pendingRequests;
+      expect(pendingRequests).toBe(0);
       clearTimeout(pendingTimer);
     } finally {
       rmSync(root, { recursive: true, force: true });

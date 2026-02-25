@@ -43,12 +43,12 @@ function buildValidCheckpointPayload() {
 }
 
 describe("tape checkpoint payload coercion", () => {
-  test("accepts valid task/truth state payload", () => {
+  test("given valid checkpoint payload, when coercing payload, then payload is accepted", () => {
     const payload = buildValidCheckpointPayload();
     expect(coerceTapeCheckpointPayload(payload)).not.toBeNull();
   });
 
-  test("rejects payload when task.items is not an array", () => {
+  test("given checkpoint payload with invalid task.items, when coercing payload, then payload is rejected", () => {
     const payload = buildValidCheckpointPayload() as unknown as {
       state: { task: { items: unknown } };
     };
@@ -56,7 +56,7 @@ describe("tape checkpoint payload coercion", () => {
     expect(coerceTapeCheckpointPayload(payload)).toBeNull();
   });
 
-  test("rejects payload when truth facts contain invalid structure", () => {
+  test("given checkpoint payload with invalid truth fact structure, when coercing payload, then payload is rejected", () => {
     const payload = buildValidCheckpointPayload() as unknown as {
       state: {
         truth: {
@@ -70,7 +70,7 @@ describe("tape checkpoint payload coercion", () => {
     expect(coerceTapeCheckpointPayload(payload)).toBeNull();
   });
 
-  test("rejects payload when task status phase is unknown", () => {
+  test("given checkpoint payload with unknown task phase, when coercing payload, then payload is rejected", () => {
     const payload = buildValidCheckpointPayload() as unknown as {
       state: {
         task: {

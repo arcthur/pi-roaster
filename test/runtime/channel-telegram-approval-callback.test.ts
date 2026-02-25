@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeTelegramApprovalCallback,
   encodeTelegramApprovalCallback,
-} from "../../packages/brewva-channels-telegram/src/approval-callback.js";
+} from "@brewva/brewva-channels-telegram";
 
 describe("channel telegram approval callback", () => {
   const secret = "top-secret";

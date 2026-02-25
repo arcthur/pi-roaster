@@ -52,3 +52,12 @@ export { createScheduleIntentTool } from "./schedule-intent.js";
 export { createSkillLoadTool } from "./skill-load.js";
 export { createSkillCompleteTool } from "./skill-complete.js";
 export { createTaskLedgerTools } from "./task-ledger.js";
+export type { BrewvaToolRuntime } from "./types.js";
+export {
+  getToolSessionId,
+  readTextBatch,
+  recordParallelReadTelemetry,
+  resolveAdaptiveBatchSize,
+  resolveParallelReadConfig,
+  summarizeReadBatch,
+} from "./utils/parallel-read.js";

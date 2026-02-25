@@ -3,11 +3,9 @@ import {
   TelegramHttpTransport,
   type TelegramFetchLike,
   type TelegramHttpTransportOptions,
-} from "../../packages/brewva-channels-telegram/src/http-transport.js";
-import type {
-  TelegramOutboundRequest,
-  TelegramUpdate,
-} from "../../packages/brewva-channels-telegram/src/types.js";
+  type TelegramOutboundRequest,
+  type TelegramUpdate,
+} from "@brewva/brewva-channels-telegram";
 import { assertRejectsWithMessage, resolveRequestUrl } from "../helpers.js";
 
 interface FetchCall {

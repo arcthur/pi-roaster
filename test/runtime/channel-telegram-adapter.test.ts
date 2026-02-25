@@ -3,16 +3,13 @@ import {
   TELEGRAM_CHANNEL_DEFAULT_CAPABILITIES,
   TelegramChannelAdapter,
   type TelegramChannelTransport,
-} from "../../packages/brewva-channels-telegram/src/adapter.js";
+} from "@brewva/brewva-channels-telegram";
 import {
   decodeTelegramApprovalCallback,
   encodeTelegramApprovalCallback,
-} from "../../packages/brewva-channels-telegram/src/approval-callback.js";
-import type {
-  TelegramOutboundRequest,
-  TelegramUpdate,
-} from "../../packages/brewva-channels-telegram/src/types.js";
-import type { TurnEnvelope } from "../../packages/brewva-runtime/src/channels/turn.js";
+} from "@brewva/brewva-channels-telegram";
+import type { TelegramOutboundRequest, TelegramUpdate } from "@brewva/brewva-channels-telegram";
+import type { TurnEnvelope } from "@brewva/brewva-runtime/channels";
 import { assertRejectsWithMessage } from "../helpers.js";
 
 function createMessageUpdate(): TelegramUpdate {

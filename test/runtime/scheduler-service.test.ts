@@ -32,7 +32,7 @@ function schedulerRuntimePort(runtime: BrewvaRuntime): SchedulerRuntimePort {
 }
 
 describe("scheduler service", () => {
-  test("accepts SchedulerRuntimePort without direct BrewvaRuntime coupling", async () => {
+  test("given SchedulerRuntimePort, when creating scheduler, then it operates without direct BrewvaRuntime coupling", async () => {
     const workspace = createWorkspace("runtime-port");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "scheduler-runtime-port-session";
@@ -295,7 +295,7 @@ describe("scheduler service", () => {
     expect(deferredA[0]?.payload?.intentId).toBe("intent-fair-a2");
   });
 
-  test("opens circuit after maxConsecutiveErrors", async () => {
+  test("given repeated executeIntent failures, when consecutive errors reach max, then circuit opens and intent is cancelled", async () => {
     const workspace = createWorkspace("circuit");
     const runtime = new BrewvaRuntime({ cwd: workspace });
     runtime.config.schedule.maxConsecutiveErrors = 2;
@@ -340,6 +340,56 @@ describe("scheduler service", () => {
     const snapshot = scheduler.snapshot();
     const state = snapshot.intents.find((intent) => intent.intentId === "intent-circuit-1");
     expect(state?.status).toBe("error");
+  });
+
+  test("given executeIntent throws below threshold, when scheduler recovers, then error is recorded and retry is scheduled", async () => {
+    const workspace = createWorkspace("execution-error-retry");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    runtime.config.schedule.maxConsecutiveErrors = 3;
+    runtime.config.schedule.minIntervalMs = 10;
+
+    const nowMs = Date.now();
+    const sessionId = "scheduler-error-retry-session";
+    runtime.events.record({
+      sessionId,
+      type: SCHEDULE_EVENT_TYPE,
+      payload: buildScheduleIntentCreatedEvent({
+        intentId: "intent-error-retry-1",
+        parentSessionId: sessionId,
+        reason: "retry before circuit",
+        continuityMode: "inherit",
+        runAt: nowMs - 1_000,
+        maxRuns: 5,
+      }) as unknown as Record<string, unknown>,
+      skipTapeCheckpoint: true,
+    });
+
+    const scheduler = new SchedulerService({
+      runtime: schedulerRuntimePort(runtime),
+      now: () => nowMs,
+      executeIntent: async () => {
+        throw new Error("boom-once");
+      },
+    });
+
+    await scheduler.recover();
+    scheduler.stop();
+
+    const events = runtime.events.query(sessionId, { type: SCHEDULE_EVENT_TYPE });
+    const parsed = events.map((event) => parseScheduleIntentEvent(event)).filter(Boolean);
+    const fired = parsed.find((event) => event?.kind === "intent_fired");
+    const cancelled = parsed.find((event) => event?.kind === "intent_cancelled");
+    expect(fired).toBeDefined();
+    expect(fired?.error).toBe("boom-once");
+    expect(cancelled).toBeUndefined();
+
+    const state = scheduler
+      .snapshot()
+      .intents.find((intent) => intent.intentId === "intent-error-retry-1");
+    expect(state?.status).toBe("active");
+    expect(state?.consecutiveErrors).toBe(1);
+    expect(state?.lastError).toBe("boom-once");
+    expect(state?.nextRunAt).toBe(nowMs + runtime.config.schedule.minIntervalMs);
   });
 
   test("enforces active intent limits", async () => {

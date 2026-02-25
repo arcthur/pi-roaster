@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { registerRuntimeCoreEventBridge } from "@brewva/brewva-cli";
 import type { BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
-import { registerRuntimeCoreEventBridge } from "../../packages/brewva-cli/src/session-event-bridge.js";
 
 type RecordedEvent = {
   sessionId: string;
@@ -106,7 +106,7 @@ function createTurnEndEvent(toolResults: unknown[] = []): AgentSessionEvent {
 }
 
 describe("session event bridge", () => {
-  test("reads session id at event time instead of capture time", () => {
+  test("given session id changes between events, when bridge records events, then each event uses current session id", () => {
     const { runtime, events, turnStarts } = createRuntimeMock();
     const sessionMock = createSessionMock("session-a");
 
@@ -131,7 +131,7 @@ describe("session event bridge", () => {
     ]);
   });
 
-  test("records agent_end cost summary for the active session", () => {
+  test("given per-session cost summaries, when agent_end is emitted, then bridge records summary for active session", () => {
     const { runtime, events, costSummaryBySession } = createRuntimeMock();
     const sessionMock = createSessionMock("session-a");
 
@@ -161,7 +161,7 @@ describe("session event bridge", () => {
     );
   });
 
-  test("records assistant usage from message_end only when usage exists", () => {
+  test("given message_end events with mixed roles, when bridge processes usage, then assistant usage with metrics is recorded", () => {
     const { runtime, usage } = createRuntimeMock();
     const sessionMock = createSessionMock("usage-session");
 
@@ -203,7 +203,7 @@ describe("session event bridge", () => {
     expect(usage[0]?.costUsd).toBe(0.02);
   });
 
-  test("records tool_execution lifecycle events", () => {
+  test("given tool execution lifecycle events, when bridge records runtime events, then start update and end events are persisted", () => {
     const { runtime, events } = createRuntimeMock();
     const sessionMock = createSessionMock("tool-events-session");
 

@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  JsonLineWriter,
-  type JsonLineWritable,
-  writeJsonLine,
-} from "../../packages/brewva-cli/src/json-lines.js";
+import { JsonLineWriter, type JsonLineWritable, writeJsonLine } from "@brewva/brewva-cli";
 
 class MemoryWritable implements JsonLineWritable {
   private readonly chunks: string[] = [];

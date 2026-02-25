@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { FileGatewayStateStore } from "@brewva/brewva-gateway";
 
 describe("gateway file state store", () => {
-  test("writes and reads token with newline normalization", () => {
+  test("given token value, when writing and reading token, then newline normalization is preserved", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-state-store-"));
     try {
       const store = new FileGatewayStateStore();
@@ -20,7 +20,7 @@ describe("gateway file state store", () => {
     }
   });
 
-  test("reads children registry and ignores malformed rows", () => {
+  test("given malformed children registry rows, when reading registry, then invalid rows are ignored", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-state-store-"));
     try {
       const store = new FileGatewayStateStore();
@@ -48,7 +48,7 @@ describe("gateway file state store", () => {
     }
   });
 
-  test("writes registry atomically without stale tmp file", () => {
+  test("given children registry entries, when writing registry, then file is written atomically without stale temp file", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-state-store-"));
     try {
       const store = new FileGatewayStateStore();

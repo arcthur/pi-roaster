@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelAdapter } from "../../packages/brewva-runtime/src/channels/adapter.js";
-import { DEFAULT_CHANNEL_CAPABILITIES } from "../../packages/brewva-runtime/src/channels/capabilities.js";
-import { ChannelAdapterRegistry } from "../../packages/brewva-runtime/src/channels/registry.js";
+import {
+  ChannelAdapterRegistry,
+  DEFAULT_CHANNEL_CAPABILITIES,
+  type ChannelAdapter,
+} from "@brewva/brewva-runtime/channels";
 
 function createAdapter(id: string): ChannelAdapter {
   return {
@@ -14,7 +16,7 @@ function createAdapter(id: string): ChannelAdapter {
 }
 
 describe("channel adapter registry", () => {
-  test("registers adapters with aliases and resolves builtin alias normalization", () => {
+  test("given adapter registration with aliases, when resolving ids, then builtin alias normalization is applied", () => {
     const registry = new ChannelAdapterRegistry();
     registry.register({
       id: "telegram",
@@ -28,7 +30,7 @@ describe("channel adapter registry", () => {
     expect(registry.list()).toEqual([{ id: "telegram", aliases: [] }]);
   });
 
-  test("rejects duplicate adapter ids and alias conflicts", () => {
+  test("given conflicting adapter ids or aliases, when registering adapter, then registry rejects duplicates", () => {
     const registry = new ChannelAdapterRegistry();
     registry.register({
       id: "telegram",
@@ -55,7 +57,7 @@ describe("channel adapter registry", () => {
     ).toThrow("adapter alias already registered: dc -> discord");
   });
 
-  test("creates adapter and validates id consistency", () => {
+  test("given adapter factory output id mismatch, when creating adapter, then registry throws mismatch error", () => {
     const registry = new ChannelAdapterRegistry();
     registry.register({
       id: "telegram",
@@ -72,7 +74,7 @@ describe("channel adapter registry", () => {
     );
   });
 
-  test("unregister removes aliases and primary id", () => {
+  test("given adapter with aliases, when unregistering by alias, then alias and primary id are removed", () => {
     const registry = new ChannelAdapterRegistry();
     registry.register({
       id: "telegram",

@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BrewvaToolRuntime } from "../../packages/brewva-tools/src/types.js";
 import {
+  type BrewvaToolRuntime,
   getToolSessionId,
   readTextBatch,
   recordParallelReadTelemetry,
   resolveAdaptiveBatchSize,
   resolveParallelReadConfig,
   summarizeReadBatch,
-} from "../../packages/brewva-tools/src/utils/parallel-read.js";
+} from "@brewva/brewva-tools";
 
 describe("parallel-read utils", () => {
   test("resolveParallelReadConfig handles enabled, disabled, and capped budgets", () => {

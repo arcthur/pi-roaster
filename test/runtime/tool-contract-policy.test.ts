@@ -42,7 +42,7 @@ function createRuntime(
 }
 
 describe("tool contract policy modes", () => {
-  test("warn mode allows disallowed tools but emits deduped warnings", () => {
+  test("given security mode standard, when disallowed tool is checked, then access is allowed and warning is deduplicated", () => {
     const workspace = createWorkspace("tool-contract-warn");
     const runtime = createRuntime(workspace, { security: { mode: "standard" } });
     const sessionId = "tool-contract-warn-1";
@@ -59,7 +59,7 @@ describe("tool contract policy modes", () => {
     expect(runtime.events.query(sessionId, { type: "tool_contract_warning" })).toHaveLength(2);
   });
 
-  test("warn mode keeps tool-contract warning dedupe after restart", () => {
+  test("given warning already emitted before restart, when runtime reloads, then duplicate tool-contract warning is not re-emitted", () => {
     const workspace = createWorkspace("tool-contract-warn-restart");
     const options = { security: { mode: "standard" as const } };
     const sessionId = "tool-contract-warn-restart-1";
@@ -76,7 +76,7 @@ describe("tool contract policy modes", () => {
     expect(reloaded.events.query(sessionId, { type: "tool_contract_warning" })).toHaveLength(1);
   });
 
-  test("enforce mode blocks disallowed tools but allows reserved lifecycle tools", () => {
+  test("given security mode strict, when disallowed tool is checked, then tool is blocked while lifecycle tools stay allowed", () => {
     const workspace = createWorkspace("tool-contract-enforce");
     const runtime = createRuntime(workspace, { security: { mode: "strict" } });
     const sessionId = "tool-contract-enforce-1";
@@ -99,7 +99,7 @@ describe("tool contract policy modes", () => {
 });
 
 describe("skill maxTokens contract modes", () => {
-  test("warn mode allows tools after token budget is exceeded but emits deduped warning", () => {
+  test("given maxTokens exceeded in standard mode, when checking access, then tool stays allowed and warning is deduplicated", () => {
     const workspace = createWorkspace("skill-max-tokens-warn");
     const runtime = createRuntime(workspace, {
       security: { mode: "standard" },
@@ -127,7 +127,7 @@ describe("skill maxTokens contract modes", () => {
     expect(runtime.events.query(sessionId, { type: "skill_budget_warning" })).toHaveLength(1);
   });
 
-  test("enforce mode blocks tools after token budget is exceeded but allows reserved lifecycle tools", () => {
+  test("given maxTokens exceeded in strict mode, when checking access, then non-lifecycle tool is blocked and lifecycle tools are allowed", () => {
     const workspace = createWorkspace("skill-max-tokens-enforce");
     const runtime = createRuntime(workspace, {
       security: { mode: "strict" },
@@ -161,7 +161,7 @@ describe("skill maxTokens contract modes", () => {
 });
 
 describe("skill maxToolCalls contract modes", () => {
-  test("warn mode allows tools after tool-call budget is exceeded but emits deduped warning", () => {
+  test("given maxToolCalls exceeded in standard mode, when checking access, then tool stays allowed and warning is deduplicated", () => {
     const workspace = createWorkspace("skill-max-tool-calls-warn");
     const runtime = createRuntime(workspace, {
       security: { mode: "standard" },
@@ -179,7 +179,7 @@ describe("skill maxToolCalls contract modes", () => {
     expect(runtime.events.query(sessionId, { type: "skill_budget_warning" })).toHaveLength(1);
   });
 
-  test("warn mode keeps tool-call budget warning dedupe after restart", () => {
+  test("given maxToolCalls warning emitted before restart, when runtime reloads, then duplicate warning is not re-emitted", () => {
     const workspace = createWorkspace("skill-max-tool-calls-warn-restart");
     const options = {
       security: { mode: "standard" as const },
@@ -200,7 +200,7 @@ describe("skill maxToolCalls contract modes", () => {
     expect(reloaded.events.query(sessionId, { type: "skill_budget_warning" })).toHaveLength(1);
   });
 
-  test("enforce mode blocks non-lifecycle tools after tool-call budget is exceeded", () => {
+  test("given maxToolCalls exceeded in strict mode, when non-lifecycle tool is checked, then access is blocked", () => {
     const workspace = createWorkspace("skill-max-tool-calls-enforce");
     const runtime = createRuntime(workspace, {
       security: { mode: "strict" },
@@ -216,7 +216,7 @@ describe("skill maxToolCalls contract modes", () => {
     expect(blocked.reason?.includes("exceeded maxToolCalls")).toBe(true);
   });
 
-  test("enforce mode still allows lifecycle completion tools after tool-call budget is exceeded", () => {
+  test("given maxToolCalls exceeded in strict mode, when lifecycle completion tools are checked, then access is allowed", () => {
     const workspace = createWorkspace("skill-max-tool-calls-lifecycle");
     const runtime = createRuntime(workspace, {
       security: { mode: "strict" },
@@ -233,7 +233,7 @@ describe("skill maxToolCalls contract modes", () => {
 });
 
 describe("skill maxParallel contract modes", () => {
-  test("warn mode allows acquiring slots beyond maxParallel but emits deduped warning", () => {
+  test("given maxParallel exceeded in standard mode, when acquiring slots, then acquisition is allowed and warning is emitted once", () => {
     const workspace = createWorkspace("skill-max-parallel-warn");
     const runtime = createRuntime(workspace, {
       security: { mode: "standard" },
@@ -248,7 +248,7 @@ describe("skill maxParallel contract modes", () => {
     expect(runtime.events.query(sessionId, { type: "skill_parallel_warning" })).toHaveLength(1);
   });
 
-  test("enforce mode rejects acquiring slots beyond maxParallel", () => {
+  test("given maxParallel exceeded in strict mode, when acquiring slot, then acquisition is rejected", () => {
     const workspace = createWorkspace("skill-max-parallel-enforce");
     const runtime = createRuntime(workspace, {
       security: { mode: "strict" },

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime } from "@brewva/brewva-runtime";
-import { discoverSkillRegistryRoots } from "../../packages/brewva-runtime/src/skills/registry.js";
+import { discoverSkillRegistryRoots } from "@brewva/brewva-runtime";
 
 function writeSkill(filePath: string, input: { name: string; tag: string }): void {
   mkdirSync(dirname(filePath), { recursive: true });

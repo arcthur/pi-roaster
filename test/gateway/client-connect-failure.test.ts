@@ -22,7 +22,7 @@ function rawToText(raw: RawData): string {
 }
 
 describe("gateway client handshake failure", () => {
-  test("closes socket when connect handshake is rejected", async () => {
+  test("given rejected connect handshake, when client attempts connect, then socket closes and unauthorized error is returned", async () => {
     const server = new WebSocketServer({
       host: "127.0.0.1",
       port: 0,

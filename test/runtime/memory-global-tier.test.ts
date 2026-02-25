@@ -2,44 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  GLOBAL_MEMORY_SESSION_ID,
-  GlobalMemoryTier,
-  type MemoryUnit,
-} from "@brewva/brewva-runtime";
+import { GLOBAL_MEMORY_SESSION_ID, GlobalMemoryTier } from "@brewva/brewva-runtime";
+import { createMemoryUnitFactory } from "../fixtures/memory.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function unit(input: {
-  id: string;
-  sessionId: string;
-  topic: string;
-  statement: string;
-  confidence?: number;
-  type?: MemoryUnit["type"];
-  status?: MemoryUnit["status"];
-  metadata?: MemoryUnit["metadata"];
-  fingerprint?: string;
-  updatedAt?: number;
-}): MemoryUnit {
-  const timestamp = input.updatedAt ?? Date.now();
-  return {
-    id: input.id,
-    sessionId: input.sessionId,
-    type: input.type ?? "fact",
-    status: input.status ?? "active",
-    topic: input.topic,
-    statement: input.statement,
-    confidence: input.confidence ?? 0.9,
-    fingerprint: input.fingerprint ?? `fp-${input.id}`,
-    sourceRefs: [],
-    metadata: input.metadata,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    firstSeenAt: timestamp,
-    lastSeenAt: timestamp,
-  };
-}
+const unit = createMemoryUnitFactory({
+  type: "fact",
+  status: "active",
+  confidence: 0.9,
+  sourceRefs: [],
+});
 
 describe("global memory tier", () => {
   test("promotes repeated cross-session units into global tier", () => {

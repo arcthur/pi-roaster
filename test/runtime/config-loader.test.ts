@@ -16,7 +16,7 @@ function createWorkspace(name: string): string {
 }
 
 describe("Brewva config loader normalization", () => {
-  test("normalizes malformed values and preserves hierarchy invariants", () => {
+  test("given malformed config values, when loading config, then clamps ranges and preserves invariants", () => {
     const workspace = createWorkspace("normalize");
     const rawConfig = {
       ui: {
@@ -129,7 +129,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.schedule.maxRecoveryCatchUps).toBe(defaults.schedule.maxRecoveryCatchUps);
   });
 
-  test("normalizes memory config bounds and enum values", () => {
+  test("given malformed memory config, when loading config, then bounds and enums are normalized", () => {
     const workspace = createWorkspace("memory-normalize");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -184,7 +184,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.memory.global.minConfidence).toBe(1);
   });
 
-  test("normalizes security execution settings and enforces strict fail-closed fallback", () => {
+  test("given strict security config with invalid execution fields, when loading config, then execution config is normalized fail-closed", () => {
     const workspace = createWorkspace("security-execution-normalize");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -229,7 +229,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.security.execution.sandbox.timeout).toBe(defaults.sandbox.timeout);
   });
 
-  test("enforceIsolation forces sandbox backend and disables host fallback", () => {
+  test("given enforceIsolation enabled, when loading config, then sandbox backend is forced and host fallback is disabled", () => {
     const workspace = createWorkspace("security-execution-enforce-isolation");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -257,7 +257,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.security.execution.fallbackToHost).toBe(false);
   });
 
-  test("returns isolated config instances when no config file exists", () => {
+  test("given no config file, when loading config multiple times, then each call returns an isolated config instance", () => {
     const workspace = createWorkspace("isolation");
 
     const first = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
@@ -267,7 +267,7 @@ describe("Brewva config loader normalization", () => {
     expect(second.security.mode).toBe(DEFAULT_BREWVA_CONFIG.security.mode);
   });
 
-  test("normalizes skills roots arrays and selector values", () => {
+  test("given malformed skills roots and selector config, when loading config, then values are normalized", () => {
     const workspace = createWorkspace("skills-normalize");
     const rawConfig = {
       skills: {
@@ -292,7 +292,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.skills.selector.k).toBe(DEFAULT_BREWVA_CONFIG.skills.selector.k);
   });
 
-  test("loads explicit ui startup overrides", () => {
+  test("given ui startup overrides in config, when loading config, then startup settings are applied", () => {
     const workspace = createWorkspace("ui-overrides");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -312,7 +312,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.ui.quietStartup).toBe(false);
   });
 
-  test("tolerates $schema meta field in config files", () => {
+  test("given $schema metadata field, when loading config, then schema hint is ignored without diagnostics", () => {
     const workspace = createWorkspace("schema-meta");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -333,7 +333,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.ui.quietStartup).toBe(false);
   });
 
-  test("tolerates invalid JSON config and reports diagnostics", () => {
+  test("given invalid JSON config file, when loading with diagnostics, then defaults are used and parse diagnostics are emitted", () => {
     const workspace = createWorkspace("invalid-json");
     writeFileSync(join(workspace, ".brewva/brewva.json"), "{", "utf8");
 
@@ -347,7 +347,7 @@ describe("Brewva config loader normalization", () => {
     );
   });
 
-  test("drops unknown keys and tolerates invalid object shapes", () => {
+  test("given unknown keys and malformed object shapes, when loading with diagnostics, then unknown keys are dropped", () => {
     const workspace = createWorkspace("invalid-shapes");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -371,7 +371,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.verification.defaultLevel).toBe(DEFAULT_BREWVA_CONFIG.verification.defaultLevel);
   });
 
-  test("reports removed memory tuning keys as schema diagnostics", () => {
+  test("given removed memory tuning keys, when loading with diagnostics, then removed-key diagnostics are reported", () => {
     const workspace = createWorkspace("removed-memory-keys");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -402,7 +402,7 @@ describe("Brewva config loader normalization", () => {
     ).toBe(true);
   });
 
-  test("loads global and project configs with project override precedence", () => {
+  test("given global and project configs, when loading config, then project values take precedence", () => {
     const workspace = createWorkspace("layered-default");
     const xdgRoot = mkdtempSync(join(tmpdir(), "brewva-config-xdg-"));
     const previousXdg = process.env.XDG_CONFIG_HOME;

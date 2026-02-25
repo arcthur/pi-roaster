@@ -1,130 +1,132 @@
 import { describe, expect, test } from "bun:test";
 import { registerRuntimeCoreBridge } from "@brewva/brewva-extensions";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { createMockExtensionAPI, invokeHandler } from "../helpers/extension.js";
 
-type Handler = (event: any, ctx: any) => unknown;
-
-function createMockExtensionAPI(): { api: ExtensionAPI; handlers: Map<string, Handler[]> } {
-  const handlers = new Map<string, Handler[]>();
-  const api = {
-    on(event: string, handler: Handler) {
-      const list = handlers.get(event) ?? [];
-      list.push(handler);
-      handlers.set(event, list);
-    },
-  } as unknown as ExtensionAPI;
-  return { api, handlers };
+interface RuntimeCalls {
+  started: Array<Record<string, unknown>>;
+  finished: Array<Record<string, unknown>>;
+  compacted: Array<{ sessionId: string; input: Record<string, unknown> }>;
+  events: Array<Record<string, unknown>>;
+  cleared: string[];
+  observedContext: Array<{ sessionId: string; usage: unknown }>;
 }
 
-function invokeHandler<T = unknown>(
-  handlers: Map<string, Handler[]>,
-  eventName: string,
-  event: Record<string, unknown>,
-  ctx: Record<string, unknown>,
-): T {
-  const list = handlers.get(eventName) ?? [];
-  const handler = list[0];
-  if (!handler) {
-    throw new Error(`Missing handler for event: ${eventName}`);
-  }
-  return handler(event, ctx) as T;
+function createRuntimeFixture(
+  input: {
+    startAllowed?: boolean;
+    startReason?: string;
+  } = {},
+): { runtime: Record<string, unknown>; calls: RuntimeCalls } {
+  const calls: RuntimeCalls = {
+    started: [],
+    finished: [],
+    compacted: [],
+    events: [],
+    cleared: [],
+    observedContext: [],
+  };
+
+  const runtime = {
+    tools: {
+      start(payload: Record<string, unknown>) {
+        calls.started.push(payload);
+        return {
+          allowed: input.startAllowed ?? true,
+          reason: input.startReason,
+        };
+      },
+      finish(payload: Record<string, unknown>) {
+        calls.finished.push(payload);
+      },
+    },
+    context: {
+      markCompacted(sessionId: string, payload: Record<string, unknown>) {
+        calls.compacted.push({ sessionId, input: payload });
+      },
+      observeUsage(sessionId: string, usage: unknown) {
+        calls.observedContext.push({ sessionId, usage });
+      },
+      getCompactionGateStatus() {
+        return {
+          required: true,
+          pressure: { level: "critical", usageRatio: 0.97, hardLimitRatio: 0.98 },
+          recentCompaction: false,
+          windowTurns: 2,
+          lastCompactionTurn: null,
+          turnsSinceCompaction: null,
+        };
+      },
+      getCompactionThresholdRatio() {
+        return 0.8;
+      },
+      getHardLimitRatio() {
+        return 0.98;
+      },
+      sanitizeInput(text: string) {
+        return text;
+      },
+    },
+    events: {
+      record(payload: Record<string, unknown>) {
+        calls.events.push(payload);
+      },
+      getTapeStatus() {
+        return {
+          tapePressure: "medium",
+          totalEntries: 42,
+          entriesSinceAnchor: 7,
+          entriesSinceCheckpoint: 4,
+          lastAnchor: { id: "anchor-1", name: "phase-alpha" },
+          thresholds: { low: 5, medium: 20, high: 50 },
+        };
+      },
+      getTapePressureThresholds() {
+        return { low: 5, medium: 20, high: 50 };
+      },
+    },
+    session: {
+      clearState(sessionId: string) {
+        calls.cleared.push(sessionId);
+      },
+    },
+    config: {
+      tape: {
+        tapePressureThresholds: { low: 5, medium: 20, high: 50 },
+      },
+    },
+  };
+
+  return { runtime, calls };
+}
+
+function createSessionContext(sessionId: string): {
+  sessionManager: { getSessionId: () => string };
+  getContextUsage: () => { tokens: number; contextWindow: number; percent: number };
+} {
+  return {
+    sessionManager: {
+      getSessionId: () => sessionId,
+    },
+    getContextUsage: () => ({ tokens: 320, contextWindow: 4096, percent: 0.078 }),
+  };
 }
 
 describe("runtime core bridge extension", () => {
-  test("wires quality/ledger/compact/shutdown hooks for no-extensions profile", () => {
+  test("given core bridge registration, when extension initializes, then required hooks are subscribed", () => {
     const { api, handlers } = createMockExtensionAPI();
-    const calls = {
-      started: [] as any[],
-      finished: [] as any[],
-      compacted: [] as any[],
-      events: [] as any[],
-      cleared: [] as string[],
-      observedContext: [] as any[],
-    };
-
-    const runtime = {
-      tools: {
-        start(input: any) {
-          calls.started.push(input);
-          return { allowed: true };
-        },
-        finish(input: any) {
-          calls.finished.push(input);
-          return undefined;
-        },
-      },
-      context: {
-        markCompacted(sessionId: string, input: any) {
-          calls.compacted.push({ sessionId, input });
-        },
-        observeUsage(sessionId: string, usage: unknown) {
-          calls.observedContext.push({ sessionId, usage });
-        },
-        getCompactionGateStatus() {
-          return {
-            required: true,
-            pressure: { level: "critical", usageRatio: 0.97, hardLimitRatio: 0.98 },
-            recentCompaction: false,
-            windowTurns: 2,
-            lastCompactionTurn: null,
-            turnsSinceCompaction: null,
-          };
-        },
-        getCompactionThresholdRatio() {
-          return 0.8;
-        },
-        getHardLimitRatio() {
-          return 0.98;
-        },
-        sanitizeInput(text: string) {
-          return text;
-        },
-      },
-      events: {
-        record(input: any) {
-          calls.events.push(input);
-          return undefined;
-        },
-        getTapeStatus() {
-          return {
-            tapePressure: "medium",
-            totalEntries: 42,
-            entriesSinceAnchor: 7,
-            entriesSinceCheckpoint: 4,
-            lastAnchor: { id: "anchor-1", name: "phase-alpha" },
-            thresholds: { low: 5, medium: 20, high: 50 },
-          };
-        },
-        getTapePressureThresholds() {
-          return { low: 5, medium: 20, high: 50 };
-        },
-      },
-      session: {
-        clearState(sessionId: string) {
-          calls.cleared.push(sessionId);
-        },
-      },
-      config: {
-        tape: {
-          tapePressureThresholds: { low: 5, medium: 20, high: 50 },
-        },
-      },
-    } as any;
-
-    registerRuntimeCoreBridge(api, runtime);
-
+    const { runtime } = createRuntimeFixture();
+    registerRuntimeCoreBridge(api, runtime as any);
     expect(handlers.has("tool_call")).toBe(true);
     expect(handlers.has("tool_result")).toBe(true);
     expect(handlers.has("before_agent_start")).toBe(true);
     expect(handlers.has("session_compact")).toBe(true);
     expect(handlers.has("session_shutdown")).toBe(true);
+  });
 
-    const sessionCtx = {
-      sessionManager: {
-        getSessionId: () => "core-1",
-      },
-      getContextUsage: () => ({ tokens: 320, contextWindow: 4096, percent: 0.078 }),
-    };
+  test("given before_agent_start, when bridge handles context, then prompt is annotated with core contract", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const { runtime, calls } = createRuntimeFixture();
+    registerRuntimeCoreBridge(api, runtime as any);
 
     const beforeStart = invokeHandler<{
       systemPrompt?: string;
@@ -137,7 +139,7 @@ describe("runtime core bridge extension", () => {
         prompt: "continue task",
         systemPrompt: "base prompt",
       },
-      sessionCtx,
+      createSessionContext("core-before-start"),
     );
     expect(beforeStart.systemPrompt?.includes("[Brewva Core Context Contract]")).toBe(true);
     expect(beforeStart.message?.content?.includes("[CoreTapeStatus]")).toBe(true);
@@ -146,7 +148,13 @@ describe("runtime core bridge extension", () => {
     );
     expect(beforeStart.message?.details?.profile).toBe("runtime-core");
     expect(calls.observedContext).toHaveLength(1);
-    expect(calls.observedContext[0].sessionId).toBe("core-1");
+    expect(calls.observedContext[0]?.sessionId).toBe("core-before-start");
+  });
+
+  test("given tool_call event, when bridge handles it, then runtime.tools.start is invoked", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const { runtime, calls } = createRuntimeFixture();
+    registerRuntimeCoreBridge(api, runtime as any);
 
     const toolCallResult = invokeHandler(
       handlers,
@@ -156,13 +164,18 @@ describe("runtime core bridge extension", () => {
         toolName: "exec",
         input: { command: "echo ok" },
       },
-      sessionCtx,
+      createSessionContext("core-tool-call"),
     );
     expect(toolCallResult).toBeUndefined();
     expect(calls.started).toHaveLength(1);
-    expect(calls.started[0].sessionId).toBe("core-1");
-    expect(calls.started[0].toolName).toBe("exec");
+    expect(calls.started[0]?.sessionId).toBe("core-tool-call");
+    expect(calls.started[0]?.toolName).toBe("exec");
+  });
 
+  test("given tool_result event, when bridge handles it, then runtime.tools.finish is invoked", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const { runtime, calls } = createRuntimeFixture();
+    registerRuntimeCoreBridge(api, runtime as any);
     invokeHandler(
       handlers,
       "tool_result",
@@ -174,13 +187,18 @@ describe("runtime core bridge extension", () => {
         content: [{ type: "text", text: "ok" }],
         details: { durationMs: 1 },
       },
-      sessionCtx,
+      createSessionContext("core-tool-result"),
     );
     expect(calls.finished).toHaveLength(1);
-    expect(calls.finished[0].sessionId).toBe("core-1");
-    expect(calls.finished[0].toolCallId).toBe("tc-1");
-    expect(calls.finished[0].success).toBe(true);
+    expect(calls.finished[0]?.sessionId).toBe("core-tool-result");
+    expect(calls.finished[0]?.toolCallId).toBe("tc-1");
+    expect(calls.finished[0]?.success).toBe(true);
+  });
 
+  test("given session_compact event, when bridge handles it, then compaction is marked and event recorded", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const { runtime, calls } = createRuntimeFixture();
+    registerRuntimeCoreBridge(api, runtime as any);
     invokeHandler(
       handlers,
       "session_compact",
@@ -191,59 +209,28 @@ describe("runtime core bridge extension", () => {
         },
         fromExtension: false,
       },
-      sessionCtx,
+      createSessionContext("core-compact"),
     );
     expect(calls.compacted).toHaveLength(1);
-    expect(calls.compacted[0].sessionId).toBe("core-1");
+    expect(calls.compacted[0]?.sessionId).toBe("core-compact");
     expect(calls.events.some((event) => event.type === "session_compact")).toBe(true);
-
-    invokeHandler(handlers, "session_shutdown", {}, sessionCtx);
-    expect(calls.cleared).toEqual(["core-1"]);
   });
 
-  test("returns block when runtime.startToolCall rejects", () => {
+  test("given session_shutdown event, when bridge handles it, then runtime session state is cleared", () => {
     const { api, handlers } = createMockExtensionAPI();
-    const runtime = {
-      tools: {
-        start: () => ({ allowed: false, reason: "blocked" }),
-        finish: () => undefined,
-      },
-      context: {
-        markCompacted: () => undefined,
-        observeUsage: () => undefined,
-        getCompactionGateStatus: () => ({
-          required: false,
-          pressure: { level: "none", usageRatio: null, hardLimitRatio: 0.98 },
-          recentCompaction: false,
-          windowTurns: 2,
-        }),
-        getCompactionThresholdRatio: () => 0.8,
-        getHardLimitRatio: () => 0.98,
-        sanitizeInput: (text: string) => text,
-      },
-      events: {
-        record: () => undefined,
-        getTapeStatus: () => ({
-          tapePressure: "none",
-          totalEntries: 0,
-          entriesSinceAnchor: 0,
-          entriesSinceCheckpoint: 0,
-          lastAnchor: undefined,
-          thresholds: { low: 5, medium: 20, high: 50 },
-        }),
-        getTapePressureThresholds: () => ({ low: 5, medium: 20, high: 50 }),
-      },
-      session: {
-        clearState: () => undefined,
-      },
-      config: {
-        tape: {
-          tapePressureThresholds: { low: 5, medium: 20, high: 50 },
-        },
-      },
-    } as any;
+    const { runtime, calls } = createRuntimeFixture();
+    registerRuntimeCoreBridge(api, runtime as any);
+    invokeHandler(handlers, "session_shutdown", {}, createSessionContext("core-shutdown"));
+    expect(calls.cleared).toEqual(["core-shutdown"]);
+  });
 
-    registerRuntimeCoreBridge(api, runtime);
+  test("given runtime.tools.start denied result, when handling tool_call, then bridge returns block response", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const { runtime } = createRuntimeFixture({
+      startAllowed: false,
+      startReason: "blocked",
+    });
+    registerRuntimeCoreBridge(api, runtime as any);
 
     const result = invokeHandler<{ block?: boolean; reason?: string }>(
       handlers,

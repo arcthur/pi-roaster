@@ -47,3 +47,33 @@ export async function assertRejectsWithMessage(
     throw new Error(`expected rejection containing: ${messagePart}; received: ${message}`);
   }
 }
+
+function formatConsoleArgs(args: unknown[]): string {
+  return args.map((value) => String(value)).join(" ");
+}
+
+export function captureConsole<T>(run: () => T): {
+  result: T;
+  logs: string[];
+  errors: string[];
+} {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const logs: string[] = [];
+  const errors: string[] = [];
+
+  console.log = (...args: unknown[]) => {
+    logs.push(formatConsoleArgs(args));
+  };
+  console.error = (...args: unknown[]) => {
+    errors.push(formatConsoleArgs(args));
+  };
+
+  try {
+    const result = run();
+    return { result, logs, errors };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+}
