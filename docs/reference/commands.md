@@ -222,6 +222,16 @@ Channel mode rejects incompatible input surfaces:
 `--telegram-callback-secret`, `--telegram-poll-timeout`, `--telegram-poll-limit`,
 and `--telegram-poll-retry-ms` are optional tuning flags.
 
+With channel orchestration enabled (default `channels.orchestration.enabled=true`), channel text commands are available:
+
+- `/new-agent <name>` or `/new-agent name=<name> model=<provider/id>`
+- `/del-agent <name>` (soft delete)
+- `/agents`
+- `/focus @<agent>`
+- `/run @a,@b <task>`
+- `/discuss @a,@b [maxRounds=N] <topic>`
+- `@agent <task>`
+
 Daemon startup also requires:
 
 - `schedule.enabled=true`

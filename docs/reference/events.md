@@ -89,6 +89,19 @@ This list is intentionally non-exhaustive. Unknown event types/fields should be 
 - `channel_turn_outbound_complete`
 - `channel_turn_outbound_error`
 - `channel_turn_bridge_error`
+- `channel_command_received`
+- `channel_command_rejected`
+- `channel_agent_created`
+- `channel_agent_deleted`
+- `channel_focus_changed`
+- `channel_fanout_started`
+- `channel_fanout_finished`
+- `channel_discussion_round`
+- `channel_a2a_invoked`
+- `channel_a2a_blocked`
+- `channel_approval_routing_persisted`
+- `channel_approval_state_persisted`
+- `channel_workspace_cost_summary`
 
 ### Tool and Ledger
 

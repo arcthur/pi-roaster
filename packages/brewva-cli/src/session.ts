@@ -15,6 +15,7 @@ import {
   readTool,
   SettingsManager,
   type CreateAgentSessionResult,
+  type ExtensionFactory,
   writeTool,
 } from "@mariozechner/pi-coding-agent";
 import { registerRuntimeCoreEventBridge } from "./session-event-bridge.js";
@@ -25,6 +26,7 @@ export interface BrewvaSessionResult extends CreateAgentSessionResult {
 
 export interface CreateBrewvaSessionOptions extends RuntimeCreateBrewvaSessionOptions {
   runtime?: BrewvaRuntime;
+  extensionFactories?: ExtensionFactory[];
 }
 
 function resolveModel(
@@ -79,13 +81,17 @@ export async function createBrewvaSession(
   applyRuntimeUiSettings(settingsManager, runtime.config.ui);
 
   const extensionsEnabled = options.enableExtensions !== false;
+  const extensionFactories = extensionsEnabled
+    ? [createBrewvaExtension({ runtime, registerTools: true })]
+    : [createRuntimeCoreBridgeExtension({ runtime })];
+  if (options.extensionFactories && options.extensionFactories.length > 0) {
+    extensionFactories.push(...options.extensionFactories);
+  }
   const resourceLoader = new DefaultResourceLoader({
     cwd,
     agentDir,
     settingsManager,
-    extensionFactories: extensionsEnabled
-      ? [createBrewvaExtension({ runtime, registerTools: true })]
-      : [createRuntimeCoreBridgeExtension({ runtime })],
+    extensionFactories,
   });
   await resourceLoader.reload();
 

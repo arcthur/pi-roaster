@@ -446,4 +446,56 @@ describe("Brewva config loader normalization", () => {
       }
     }
   });
+
+  test("given channel orchestration config, when loading config, then orchestration values are normalized", () => {
+    const workspace = createWorkspace("channels-orchestration");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          channels: {
+            orchestration: {
+              enabled: true,
+              scopeStrategy: "thread",
+              aclModeWhenOwnersEmpty: "closed",
+              owners: {
+                telegram: [" 123 ", "", null, "@ops"],
+              },
+              limits: {
+                fanoutMaxAgents: 0,
+                maxDiscussionRounds: 4.8,
+                a2aMaxDepth: -1,
+                a2aMaxHops: "5",
+                maxLiveRuntimes: 12,
+                idleRuntimeTtlMs: 0,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
+    expect(loaded.channels.orchestration.enabled).toBe(true);
+    expect(loaded.channels.orchestration.scopeStrategy).toBe("thread");
+    expect(loaded.channels.orchestration.aclModeWhenOwnersEmpty).toBe("closed");
+    expect(loaded.channels.orchestration.owners.telegram).toEqual(["123", "@ops"]);
+    expect(loaded.channels.orchestration.limits.fanoutMaxAgents).toBe(
+      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.fanoutMaxAgents,
+    );
+    expect(loaded.channels.orchestration.limits.maxDiscussionRounds).toBe(4);
+    expect(loaded.channels.orchestration.limits.a2aMaxDepth).toBe(
+      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.a2aMaxDepth,
+    );
+    expect(loaded.channels.orchestration.limits.a2aMaxHops).toBe(
+      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.a2aMaxHops,
+    );
+    expect(loaded.channels.orchestration.limits.maxLiveRuntimes).toBe(12);
+    expect(loaded.channels.orchestration.limits.idleRuntimeTtlMs).toBe(
+      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.idleRuntimeTtlMs,
+    );
+  });
 });

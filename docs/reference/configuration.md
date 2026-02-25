@@ -20,6 +20,7 @@ Configuration contract sources:
 - `security`
 - `schedule`
 - `parallel`
+- `channels`
 - `infrastructure`
 - `ui`
 
@@ -30,7 +31,7 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 ### `skills`
 
 - `skills.roots`: `[]`
-- `skills.packs`: `["skill-creator"]`
+- `skills.packs`: `["skill-creator", "telegram-interactive-components"]`
 - `skills.disabled`: `[]`
 - `skills.overrides`: `{}`
 - `skills.selector.k`: `4`
@@ -102,6 +103,19 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 
 - `parallel.enabled`: `true`
 - `parallel.maxConcurrent`: `3`
+
+### `channels`
+
+- `channels.orchestration.enabled`: `true`
+- `channels.orchestration.scopeStrategy`: `chat`
+- `channels.orchestration.aclModeWhenOwnersEmpty`: `open`
+- `channels.orchestration.owners.telegram`: `[]`
+- `channels.orchestration.limits.fanoutMaxAgents`: `4`
+- `channels.orchestration.limits.maxDiscussionRounds`: `3`
+- `channels.orchestration.limits.a2aMaxDepth`: `4`
+- `channels.orchestration.limits.a2aMaxHops`: `6`
+- `channels.orchestration.limits.maxLiveRuntimes`: `8`
+- `channels.orchestration.limits.idleRuntimeTtlMs`: `900000`
 
 ### `infrastructure`
 

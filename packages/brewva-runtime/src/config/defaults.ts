@@ -88,6 +88,24 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     enabled: true,
     maxConcurrent: 3,
   },
+  channels: {
+    orchestration: {
+      enabled: true,
+      scopeStrategy: "chat",
+      aclModeWhenOwnersEmpty: "open",
+      owners: {
+        telegram: [],
+      },
+      limits: {
+        fanoutMaxAgents: 4,
+        maxDiscussionRounds: 3,
+        a2aMaxDepth: 4,
+        a2aMaxHops: 6,
+        maxLiveRuntimes: 8,
+        idleRuntimeTtlMs: 900_000,
+      },
+    },
+  },
   infrastructure: {
     events: {
       enabled: true,

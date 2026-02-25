@@ -72,6 +72,15 @@ export interface TelegramOutboundRenderOptions {
   callbackSecret?: string;
   maxTextLength?: number;
   persistApprovalState?: (params: TelegramApprovalStatePersistParams) => void;
+  persistApprovalRouting?: (params: TelegramApprovalRoutingPersistParams) => void;
+}
+
+export interface TelegramApprovalRoutingPersistParams {
+  conversationId: string;
+  requestId: string;
+  agentId?: string;
+  agentSessionId?: string;
+  turnId?: string;
 }
 
 function nowMs(options?: TelegramInboundProjectionOptions): number {
@@ -634,6 +643,9 @@ function projectCallbackQueryToApprovalTurn(
   if (stateDetail) {
     partText.push(stateDetail);
   }
+  if (restoredState?.stateKey) {
+    partText.push(`state_path: .brewva/channel/approval-state/${restoredState.stateKey}.json`);
+  }
 
   return {
     schema: "brewva.turn.v1",
@@ -843,6 +855,13 @@ export function renderTurnToTelegramRequests(
 
   const turnMetaApprovalState =
     turn.kind === "approval" ? extractApprovalStateSnapshotFromTurnMeta(turn) : undefined;
+  const turnMeta = asRecord(turn.meta);
+  const originAgentId =
+    turnMeta && typeof turnMeta.agentId === "string" ? normalizeOptionalText(turnMeta.agentId) : "";
+  const originAgentSessionId =
+    turnMeta && typeof turnMeta.agentSessionId === "string"
+      ? normalizeOptionalText(turnMeta.agentSessionId)
+      : "";
   for (const [index, approvalEntry] of approvalEntries.entries()) {
     const approvalPayload = approvalEntry.payload;
     const projection = approvalEntry.projection;
@@ -860,6 +879,20 @@ export function renderTurnToTelegramRequests(
 
     if (inlineEnabled && callbackSecret) {
       try {
+        if (options.persistApprovalRouting) {
+          try {
+            options.persistApprovalRouting({
+              conversationId: chatId,
+              requestId: approvalPayload.requestId,
+              agentId: originAgentId || undefined,
+              agentSessionId: originAgentSessionId || undefined,
+              turnId: turn.turnId,
+            });
+          } catch {
+            // Best effort routing persistence; do not break inline approvals.
+          }
+        }
+
         const markup = buildReplyMarkup(
           approvalPayload,
           callbackSecret,

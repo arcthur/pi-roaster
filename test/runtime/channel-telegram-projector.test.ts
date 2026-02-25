@@ -392,12 +392,24 @@ describe("channel telegram projector", () => {
       },
     });
 
-    expect(callbackTurn?.kind).toBe("approval");
-    expect(callbackTurn?.approval?.detail).toContain("screen: deploy-confirm");
-    expect(callbackTurn?.approval?.detail).toContain("state_key: deploy-confirm-st");
-    expect(callbackTurn?.meta?.approvalScreenId).toBe("deploy-confirm");
-    expect(callbackTurn?.meta?.approvalStateKey).toBe("deploy-confirm-st");
-    expect(callbackTurn?.meta?.approvalState).toEqual({
+    expect(callbackTurn).toBeDefined();
+    if (!callbackTurn) return;
+
+    expect(callbackTurn.kind).toBe("approval");
+    expect(callbackTurn.approval?.detail).toContain("screen: deploy-confirm");
+    expect(callbackTurn.approval?.detail).toContain("state_key: deploy-confirm-st");
+
+    const firstPart = callbackTurn.parts[0];
+    expect(firstPart?.type).toBe("text");
+    if (firstPart && firstPart.type === "text") {
+      expect(firstPart.text).toContain(
+        "state_path: .brewva/channel/approval-state/deploy-confirm-st.json",
+      );
+    }
+
+    expect(callbackTurn.meta?.approvalScreenId).toBe("deploy-confirm");
+    expect(callbackTurn.meta?.approvalStateKey).toBe("deploy-confirm-st");
+    expect(callbackTurn.meta?.approvalState).toEqual({
       flow: "deploy",
       step: "confirm",
     });
@@ -600,5 +612,74 @@ next
     expect(buildTelegramInboundDedupeKey(messageUpdate)).toBe("telegram:12345:7");
     expect(buildTelegramInboundDedupeKey(editUpdate)).toBe("telegram:12345:edit:7:100");
     expect(buildTelegramInboundDedupeKey(callbackUpdate)).toBe("telegram:callback:cb-7");
+  });
+
+  test("persists approval routing when inline callbacks are enabled", () => {
+    const captured: Array<{
+      conversationId: string;
+      requestId: string;
+      agentId?: string;
+      agentSessionId?: string;
+      turnId?: string;
+    }> = [];
+
+    const turn: TurnEnvelope = {
+      schema: "brewva.turn.v1",
+      kind: "assistant",
+      sessionId: "agent-session",
+      turnId: "t1",
+      channel: "telegram",
+      conversationId: "12345",
+      timestamp: 1_700_000_000_000,
+      parts: [
+        {
+          type: "text",
+          text: [
+            "Please choose:",
+            "```telegram-ui",
+            JSON.stringify(
+              {
+                version: "telegram-ui/v1",
+                screen_id: "deploy_confirm_v1",
+                text: "Choose next step.",
+                components: [
+                  {
+                    type: "buttons",
+                    rows: [[{ action_id: "confirm", label: "Confirm" }]],
+                  },
+                ],
+                state: {
+                  flow: "deploy",
+                },
+                fallback_text: "Reply with: confirm",
+              },
+              null,
+              2,
+            ),
+            "```",
+          ].join("\n"),
+        },
+      ],
+      meta: {
+        agentId: "jack",
+        agentSessionId: "agent-session",
+      },
+    };
+
+    const requests = renderTurnToTelegramRequests(turn, {
+      inlineApproval: true,
+      callbackSecret: "callback-secret",
+      persistApprovalRouting: (params) => {
+        captured.push(params);
+      },
+    });
+
+    expect(requests.length).toBeGreaterThan(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.conversationId).toBe("12345");
+    expect(captured[0]?.agentId).toBe("jack");
+    expect(captured[0]?.agentSessionId).toBe("agent-session");
+    expect(captured[0]?.turnId).toBe("t1");
+    expect(captured[0]?.requestId).toMatch(/^[a-z0-9_-]+_[0-9a-f]{8}$/iu);
   });
 });

@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrewvaConfig } from "@brewva/brewva-runtime";
 
-export function createTestWorkspace(
-  name: string,
-  options?: { configDir?: string },
-): string {
+export function createTestWorkspace(name: string, options?: { configDir?: string }): string {
   const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
   const configDir = options?.configDir ?? ".brewva";
   mkdirSync(join(workspace, configDir), { recursive: true });

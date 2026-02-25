@@ -1100,6 +1100,21 @@ export {
   collectPromptTurnOutputs,
   resolveSupportedChannel,
 } from "./channel-mode.js";
+export { AgentRegistry } from "./channel/agent-registry.js";
+export { ApprovalRoutingStore } from "./channel/approval-routing.js";
+export { ApprovalStateStore } from "./channel/approval-state.js";
+export {
+  AgentRuntimeManager,
+  forceAgentRuntimeNamespace,
+} from "./channel/agent-runtime-manager.js";
+export { isOwnerAuthorized } from "./channel/acl.js";
+export { createChannelA2AExtension } from "./channel/channel-a2a-extension.js";
+export { ChannelCoordinator } from "./channel/coordinator.js";
+export { CommandRouter } from "./channel/command-router.js";
+export type { AgentSessionUsage } from "./channel/eviction.js";
+export { selectIdleEvictableAgentsByTtl, selectLruEvictableAgent } from "./channel/eviction.js";
+export { resolveChannelOrchestrationConfig } from "./channel/orchestration-config.js";
+export { buildAgentScopedConversationKey, buildRoutingScopeKey } from "./channel/routing-scope.js";
 export { JsonLineWriter, type JsonLineWritable, writeJsonLine } from "./json-lines.js";
 export {
   resolveBackendWorkingCwd,

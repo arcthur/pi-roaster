@@ -11,6 +11,65 @@
         "$schema": {
           "type": "string"
         },
+        "channels": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "orchestration": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "aclModeWhenOwnersEmpty": {
+                  "type": "string",
+                  "enum": ["open", "closed"]
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "limits": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "a2aMaxDepth": {
+                      "type": "number"
+                    },
+                    "a2aMaxHops": {
+                      "type": "number"
+                    },
+                    "fanoutMaxAgents": {
+                      "type": "number"
+                    },
+                    "idleRuntimeTtlMs": {
+                      "type": "number"
+                    },
+                    "maxDiscussionRounds": {
+                      "type": "number"
+                    },
+                    "maxLiveRuntimes": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "owners": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "telegram": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "scopeStrategy": {
+                  "type": "string",
+                  "enum": ["chat", "thread"]
+                }
+              }
+            }
+          }
+        },
         "infrastructure": {
           "type": "object",
           "additionalProperties": false,

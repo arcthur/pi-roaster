@@ -10,15 +10,18 @@ import {
 describe("Gap remediation: runtime core compaction gate", () => {
   test("blocks non-session_compact tools at critical pressure and unblocks after compaction", async () => {
     const workspace = createWorkspace("core-compaction-gate");
-    writeConfig(workspace, createConfig({
-      infrastructure: {
-        contextBudget: {
-          enabled: true,
-          compactionThresholdPercent: 0.8,
-          hardLimitPercent: 0.9,
+    writeConfig(
+      workspace,
+      createConfig({
+        infrastructure: {
+          contextBudget: {
+            enabled: true,
+            compactionThresholdPercent: 0.8,
+            hardLimitPercent: 0.9,
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: GAP_REMEDIATION_CONFIG_PATH });
     const sessionId = "core-compaction-gate-1";

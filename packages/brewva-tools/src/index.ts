@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { createA2ATools } from "./a2a.js";
 import { createAstGrepTools } from "./ast-grep.js";
 import { createCostViewTool } from "./cost-view.js";
 import { createExecTool } from "./exec.js";
@@ -40,6 +41,7 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
 
 export { createLspTools } from "./lsp.js";
 export { createAstGrepTools } from "./ast-grep.js";
+export { createA2ATools } from "./a2a.js";
 export { createLookAtTool } from "./look-at.js";
 export { createExecTool } from "./exec.js";
 export { createProcessTool } from "./process.js";

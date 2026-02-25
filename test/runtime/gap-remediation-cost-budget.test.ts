@@ -44,15 +44,18 @@ describe("Gap remediation: cost view and budget linkage", () => {
 
   test("tracks skill/tool breakdown and blocks tools when budget action is block_tools", async () => {
     const workspace = createWorkspace("cost");
-    writeConfig(workspace, createConfig({
-      infrastructure: {
-        costTracking: {
-          maxCostUsdPerSession: 0.01,
-          alertThresholdRatio: 0.5,
-          actionOnExceed: "block_tools",
+    writeConfig(
+      workspace,
+      createConfig({
+        infrastructure: {
+          costTracking: {
+            maxCostUsdPerSession: 0.01,
+            alertThresholdRatio: 0.5,
+            actionOnExceed: "block_tools",
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: GAP_REMEDIATION_CONFIG_PATH });
     const sessionId = "cost-1";
@@ -84,15 +87,18 @@ describe("Gap remediation: cost view and budget linkage", () => {
 
   test("enforces global skill budget status consistently with tool access checks", async () => {
     const workspace = createWorkspace("cost-budget-consistency");
-    writeConfig(workspace, createConfig({
-      infrastructure: {
-        costTracking: {
-          maxCostUsdPerSession: 0.001,
-          alertThresholdRatio: 0.5,
-          actionOnExceed: "block_tools",
+    writeConfig(
+      workspace,
+      createConfig({
+        infrastructure: {
+          costTracking: {
+            maxCostUsdPerSession: 0.001,
+            alertThresholdRatio: 0.5,
+            actionOnExceed: "block_tools",
+          },
         },
-      },
-    }));
+      }),
+    );
     mkdirSync(join(workspace, "skills/base/patching"), { recursive: true });
     writeFileSync(
       join(workspace, "skills/base/patching/SKILL.md"),

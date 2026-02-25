@@ -417,6 +417,24 @@ export interface BrewvaConfig {
     maxRecoveryCatchUps: number;
   };
   parallel: { enabled: boolean; maxConcurrent: number };
+  channels: {
+    orchestration: {
+      enabled: boolean;
+      scopeStrategy: "chat" | "thread";
+      aclModeWhenOwnersEmpty: "open" | "closed";
+      owners: {
+        telegram: string[];
+      };
+      limits: {
+        fanoutMaxAgents: number;
+        maxDiscussionRounds: number;
+        a2aMaxDepth: number;
+        a2aMaxHops: number;
+        maxLiveRuntimes: number;
+        idleRuntimeTtlMs: number;
+      };
+    };
+  };
   infrastructure: {
     events: {
       enabled: boolean;
@@ -488,6 +506,14 @@ export interface BrewvaConfigFile {
   };
   schedule?: Partial<BrewvaConfig["schedule"]>;
   parallel?: Partial<BrewvaConfig["parallel"]>;
+  channels?: Partial<Omit<BrewvaConfig["channels"], "orchestration">> & {
+    orchestration?: Partial<
+      Omit<BrewvaConfig["channels"]["orchestration"], "owners" | "limits">
+    > & {
+      owners?: Partial<BrewvaConfig["channels"]["orchestration"]["owners"]>;
+      limits?: Partial<BrewvaConfig["channels"]["orchestration"]["limits"]>;
+    };
+  };
   infrastructure?: Partial<
     Omit<
       BrewvaConfig["infrastructure"],

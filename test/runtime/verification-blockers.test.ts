@@ -7,7 +7,10 @@ function createWorkspace(name: string): string {
   return createTestWorkspace(name);
 }
 
-function writeConfig(workspace: string, config: import("@brewva/brewva-runtime").BrewvaConfig): void {
+function writeConfig(
+  workspace: string,
+  config: import("@brewva/brewva-runtime").BrewvaConfig,
+): void {
   writeTestConfig(workspace, config);
 }
 

@@ -23,6 +23,9 @@ Defined in `packages/brewva-tools/src/ast-grep.ts`.
 ## Runtime-Aware Tools
 
 - `look_at`
+- `agent_send`
+- `agent_broadcast`
+- `agent_list`
 - `exec`
 - `process`
 - `cost_view`
@@ -65,6 +68,7 @@ For cron intents, runtime defaults `maxRuns` to `10000` when omitted.
 Definitions:
 
 - `packages/brewva-tools/src/look-at.ts`
+- `packages/brewva-tools/src/a2a.ts`
 - `packages/brewva-tools/src/exec.ts`
 - `packages/brewva-tools/src/process.ts`
 - `packages/brewva-tools/src/cost-view.ts`

@@ -9,7 +9,4 @@ export * from "./daemon/heartbeat-policy.js";
 export * from "./daemon/logger.js";
 export * from "./daemon/pid.js";
 export * from "./daemon/session-backend.js";
-export {
-  SessionSupervisor,
-  type SessionSupervisorOptions,
-} from "./daemon/session-supervisor.js";
+export { SessionSupervisor, type SessionSupervisorOptions } from "./daemon/session-supervisor.js";

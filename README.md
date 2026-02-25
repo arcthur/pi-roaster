@@ -92,6 +92,15 @@ Event visibility is stratified by `infrastructure.events.level`:
 - `ops` (default): audit + operational transitions/warnings
 - `debug`: full diagnostics (`viewport_*`, `cognitive_*`, parallel scan detail)
 
+### 5. Workspace-First Orchestration — Isolated, Durable, Auditable
+
+Channel orchestration is modeled as workspace state first, process memory second:
+
+- **Isolated by default**: each worker agent runtime is bound to a dedicated state namespace under `.brewva/agents/<agentId>/state/*` to prevent cross-agent contamination.
+- **Durable callback continuity**: channel callback routing and UI approval state are persisted under `.brewva/channel/*`, so restarts can rehydrate both target agent routing and callback UI state.
+- **Recoverable lifecycle**: registry/focus/runtime lifecycle decisions are driven by persisted records and deterministic rebuild paths (lazy runtime reconstruction, bounded eviction, replay-friendly state).
+- **Auditable orchestration events**: orchestration commands, fan-out/discussion flows, and A2A boundaries are emitted as explicit events for inspection and postmortem replay.
+
 ## Architecture
 
 README uses a conceptual architecture view (high-level intent and control model):

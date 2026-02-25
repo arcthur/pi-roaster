@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 
 function collectToolNames(sourceRoot: string): string[] {
   const files = [
+    "a2a.ts",
     "ast-grep.ts",
     "cost-view.ts",
     "exec.ts",

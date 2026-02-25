@@ -8,6 +8,8 @@ const VALID_EVENT_LEVELS = new Set(["audit", "ops", "debug"]);
 const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "shadow"]);
 const VALID_MEMORY_COGNITIVE_MODES = new Set(["off", "shadow", "active"]);
 const VALID_VERIFICATION_LEVELS = new Set<VerificationLevel>(["quick", "standard", "strict"]);
+const VALID_CHANNEL_SCOPE_STRATEGIES = new Set(["chat", "thread"]);
+const VALID_CHANNEL_ACL_MODES = new Set(["open", "closed"]);
 
 type AnyRecord = Record<string, unknown>;
 
@@ -142,6 +144,16 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
     : {};
   const scheduleInput = isRecord(input.schedule) ? input.schedule : {};
   const parallelInput = isRecord(input.parallel) ? input.parallel : {};
+  const channelsInput = isRecord(input.channels) ? input.channels : {};
+  const channelsOrchestrationInput = isRecord(channelsInput.orchestration)
+    ? channelsInput.orchestration
+    : {};
+  const channelsOwnersInput = isRecord(channelsOrchestrationInput.owners)
+    ? channelsOrchestrationInput.owners
+    : {};
+  const channelsLimitsInput = isRecord(channelsOrchestrationInput.limits)
+    ? channelsOrchestrationInput.limits
+    : {};
   const infrastructureInput = isRecord(input.infrastructure) ? input.infrastructure : {};
   const infrastructureEventsInput = isRecord(infrastructureInput.events)
     ? infrastructureInput.events
@@ -368,6 +380,56 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         parallelInput.maxConcurrent,
         defaults.parallel.maxConcurrent,
       ),
+    },
+    channels: {
+      orchestration: {
+        enabled: normalizeBoolean(
+          channelsOrchestrationInput.enabled,
+          defaults.channels.orchestration.enabled,
+        ),
+        scopeStrategy: VALID_CHANNEL_SCOPE_STRATEGIES.has(
+          channelsOrchestrationInput.scopeStrategy as string,
+        )
+          ? (channelsOrchestrationInput.scopeStrategy as BrewvaConfig["channels"]["orchestration"]["scopeStrategy"])
+          : defaults.channels.orchestration.scopeStrategy,
+        aclModeWhenOwnersEmpty: VALID_CHANNEL_ACL_MODES.has(
+          channelsOrchestrationInput.aclModeWhenOwnersEmpty as string,
+        )
+          ? (channelsOrchestrationInput.aclModeWhenOwnersEmpty as BrewvaConfig["channels"]["orchestration"]["aclModeWhenOwnersEmpty"])
+          : defaults.channels.orchestration.aclModeWhenOwnersEmpty,
+        owners: {
+          telegram: normalizeStringArray(
+            channelsOwnersInput.telegram,
+            defaults.channels.orchestration.owners.telegram,
+          ),
+        },
+        limits: {
+          fanoutMaxAgents: normalizePositiveInteger(
+            channelsLimitsInput.fanoutMaxAgents,
+            defaults.channels.orchestration.limits.fanoutMaxAgents,
+          ),
+          maxDiscussionRounds: normalizePositiveInteger(
+            channelsLimitsInput.maxDiscussionRounds,
+            defaults.channels.orchestration.limits.maxDiscussionRounds,
+          ),
+          a2aMaxDepth: normalizePositiveInteger(
+            channelsLimitsInput.a2aMaxDepth,
+            defaults.channels.orchestration.limits.a2aMaxDepth,
+          ),
+          a2aMaxHops: normalizePositiveInteger(
+            channelsLimitsInput.a2aMaxHops,
+            defaults.channels.orchestration.limits.a2aMaxHops,
+          ),
+          maxLiveRuntimes: normalizePositiveInteger(
+            channelsLimitsInput.maxLiveRuntimes,
+            defaults.channels.orchestration.limits.maxLiveRuntimes,
+          ),
+          idleRuntimeTtlMs: normalizePositiveInteger(
+            channelsLimitsInput.idleRuntimeTtlMs,
+            defaults.channels.orchestration.limits.idleRuntimeTtlMs,
+          ),
+        },
+      },
     },
     infrastructure: {
       events: {
