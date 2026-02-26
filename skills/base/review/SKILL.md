@@ -13,7 +13,7 @@ tools:
 budget:
   max_tool_calls: 60
   max_tokens: 120000
-outputs: [review_context, risk_profile, findings, review_decision, testing_gaps]
+outputs: [review_context, plan_conformance, risk_profile, findings, failure_modes, review_decision, testing_gaps]
 consumes: [change_summary, files_changed, verification, execution_steps]
 escalation_path:
   scope_unknown: exploration
@@ -72,7 +72,28 @@ REVIEW_CONTEXT
   - "<assumption>"
 ```
 
-### Step 2: Risk modeling and depth routing (mandatory)
+### Step 2: Plan conformance baseline (conditional)
+
+When `execution_steps` from a prior planning phase are available, build a conformance baseline before risk modeling.
+
+Required output:
+
+```text
+PLAN_CONFORMANCE
+- in_plan_and_done:
+  - "<item>"
+- in_plan_not_done:
+  - "<item>"
+- out_of_plan_but_done:
+  - "<item>"
+- scope_drift_risk: <low|medium|high>
+- assumptions:
+  - "<assumption>"
+```
+
+Skip this step when no prior plan exists.
+
+### Step 3: Risk modeling and depth routing (mandatory)
 
 Score each factor as `0|1|2` and compute the total:
 
@@ -104,7 +125,7 @@ RISK_PROFILE
   - "<core|security|architecture|performance|ux>"
 ```
 
-### Step 3: Check plan and evidence collection
+### Step 4: Check plan and evidence collection
 
 Before reviewing details, enumerate checks and concrete search targets.
 
@@ -121,7 +142,7 @@ If an external aggregated review tool (for example `code_review`) is available, 
 
 - use it to broaden candidate issue discovery
 - still perform lane-based validation for severity, confidence, and evidence
-- never skip Step 1/Step 2 risk modeling because of tool output
+- never skip Step 1/Step 3 risk modeling because of tool output
 
 `core` lane (always enabled):
 
@@ -136,7 +157,23 @@ In `DEEP`, activate additional lanes based on risk:
 - `performance` lane: `skills/base/review/references/boundary-failure.md`
 - `ux` lane: enable only when UI changes are explicit, focusing on state flows and accessibility risks
 
-### Step 4: Emit findings first (mandatory ordering)
+Failure modes matrix (mandatory in `DEEP` mode):
+
+For each new code path, identify one realistic production failure mode.
+
+```text
+FAILURE_MODES
+- code_path: "<path>"
+  failure_mode: "<timeout|race|nil|stale data|etc>"
+  test_coverage: <yes|no>
+  error_handling: <yes|no>
+  user_visible_error: <clear|unclear|silent>
+  critical_gap: <yes|no>
+```
+
+`critical_gap = yes` when `test_coverage = no` AND `error_handling = no` AND `user_visible_error = silent`.
+
+### Step 5: Emit findings first (mandatory ordering)
 
 Output order is mandatory:
 
@@ -194,7 +231,7 @@ NO_FINDINGS
   - "<remaining uncertainty>"
 ```
 
-### Step 5: Emit normalized results table (mandatory)
+### Step 6: Emit normalized results table (mandatory)
 
 After `FINDING` blocks, emit this exact header and columns:
 
@@ -226,7 +263,7 @@ Checks performed:
 - <check_name>: <patterns inspected> => <result>
 ```
 
-### Step 6: Decision and handoff
+### Step 7: Decision and handoff
 
 Decision types:
 
@@ -254,7 +291,7 @@ Final interaction line:
   `"Would you like me to fix any of these issues? (e.g., 'fix issue #1' or 'fix issues #2 and #3')"`
 - if `X = 0`, state that no actionable issues were found and list residual risks/testing gaps.
 
-### Step 7: Evidence bridge on blocker
+### Step 8: Evidence bridge on blocker
 
 If risk is high and required verification evidence cannot be obtained, emit `TOOL_BRIDGE` using:
 `skills/base/planning/references/executable-evidence-bridge.md`

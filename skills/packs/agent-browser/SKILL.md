@@ -1,10 +1,10 @@
 ---
-name: browser
+name: agent-browser
 description: Browser automation workflow for navigation, interaction, extraction, and visual verification.
 version: 1.0.0
 stability: stable
 tier: pack
-tags: [browser, automation, e2e, screenshot, extraction]
+tags: [agent-browser, browser, automation, e2e, screenshot, extraction]
 anti_tags: [backend-only]
 tools:
   required: [exec, read]
@@ -19,7 +19,7 @@ escalation_path:
   browser_env_missing: exploration
 ---
 
-# Browser Pack Skill
+# Agent Browser Pack Skill
 
 ## Intent
 
@@ -92,6 +92,10 @@ agent-browser press Enter
 
 Prefer ref-based commands over brittle CSS selectors.
 
+Fallback:
+
+- If refs are unavailable or unstable, use semantic locators from `Semantic Locator Fallback`.
+
 ### Step 4: Wait for deterministic state
 
 ```bash
@@ -103,6 +107,7 @@ agent-browser wait --url "**/dashboard"
 Rule:
 
 - Avoid fixed sleeps unless no deterministic wait condition exists.
+- For untrusted pages or high-impact actions, apply `Security Baseline` first.
 
 ### Step 5: Capture evidence artifacts
 
@@ -119,6 +124,16 @@ agent-browser record start run.webm
 # perform interactions
 agent-browser record stop
 ```
+
+Optional verification before final capture:
+
+```bash
+agent-browser snapshot -i
+agent-browser click @e2
+agent-browser diff snapshot
+```
+
+Use `Diff Verification` for state-changing flows to prove effect, then capture final artifacts.
 
 ### Step 6: Emit structured result
 
@@ -192,6 +207,136 @@ agent-browser state load auth.json
 - Use `--session <name>` for isolated parallel flows.
 - Use `--profile <path>` for persistent login state.
 - For multi-step authentication, save state once and reuse.
+
+## Security Baseline (optional, recommended)
+
+Deep-dive reference: `skills/packs/agent-browser/references/security-baseline.md`
+
+All controls are opt-in. For agent workflows on untrusted pages, enable at least:
+
+- `content boundaries` to reduce prompt-injection confusion
+- domain allowlist to block off-target navigation
+- action policy to deny destructive operations by default
+- output limits to avoid context flooding
+
+```bash
+export AGENT_BROWSER_CONTENT_BOUNDARIES=1
+export AGENT_BROWSER_ALLOWED_DOMAINS="example.com,*.example.com"
+export AGENT_BROWSER_ACTION_POLICY=./policy.json
+export AGENT_BROWSER_MAX_OUTPUT=50000
+```
+
+Example policy:
+
+```json
+{
+  "default": "deny",
+  "allow": ["navigate", "snapshot", "click", "scroll", "wait", "get"]
+}
+```
+
+Notes:
+
+- Include required CDN/asset domains in `AGENT_BROWSER_ALLOWED_DOMAINS`.
+- Auth vault commands can bypass action policy; allowlist still applies.
+
+## Diff Verification (optional, recommended for state changes)
+
+Deep-dive reference: `skills/packs/agent-browser/references/diff-verification.md`
+
+Use `diff` to verify that an interaction changed the page as intended.
+
+```bash
+# baseline
+agent-browser snapshot -i
+# action
+agent-browser click @e2
+# verification
+agent-browser diff snapshot
+```
+
+Visual regression flow:
+
+```bash
+agent-browser screenshot baseline.png
+# later or after changes
+agent-browser diff screenshot --baseline baseline.png
+```
+
+Cross-environment comparison:
+
+```bash
+agent-browser diff url https://staging.example.com https://prod.example.com --screenshot
+```
+
+## Semantic Locator Fallback
+
+Deep-dive reference: `skills/packs/agent-browser/references/semantic-locators.md`
+
+When refs are not available, stale, or repeatedly unstable, switch to semantic locators:
+
+```bash
+agent-browser find text "Sign In" click
+agent-browser find label "Email" fill "user@test.com"
+agent-browser find role button click --name "Submit"
+agent-browser find placeholder "Search" type "query"
+agent-browser find testid "submit-btn" click
+```
+
+Rules:
+
+- Prefer refs first (`snapshot -i`), semantic locators second.
+- After navigation or major DOM change, re-snapshot and return to refs when possible.
+
+## Eval Safe Mode
+
+Deep-dive reference: `skills/packs/agent-browser/references/eval-safe-mode.md`
+
+Use `eval` for browser-context JavaScript only when built-in commands cannot express the check/extraction.
+
+```bash
+# simple expressions
+agent-browser eval 'document.title'
+agent-browser eval 'document.querySelectorAll("img").length'
+```
+
+For complex JS, avoid shell quoting hazards by using `--stdin` or `-b`:
+
+```bash
+agent-browser eval --stdin <<'EVALEOF'
+JSON.stringify(
+  Array.from(document.querySelectorAll("a")).map(a => a.href)
+)
+EVALEOF
+```
+
+```bash
+agent-browser eval -b "$(echo -n 'Array.from(document.querySelectorAll(\"a\")).map(a => a.href)' | base64)"
+```
+
+Rules of thumb:
+
+- Single-line and quote-simple: regular `eval '...'`.
+- Nested quotes, template literals, multiline, or generated scripts: prefer `--stdin`.
+
+## References
+
+- Security baseline details: `skills/packs/agent-browser/references/security-baseline.md`
+- Diff verification patterns: `skills/packs/agent-browser/references/diff-verification.md`
+- Semantic locator fallback patterns: `skills/packs/agent-browser/references/semantic-locators.md`
+- Eval safe mode patterns: `skills/packs/agent-browser/references/eval-safe-mode.md`
+
+## Ready-to-Use Templates
+
+- Form automation with diff evidence: `skills/packs/agent-browser/templates/form-automation.sh`
+- Authenticated session reuse with state file: `skills/packs/agent-browser/templates/authenticated-session.sh`
+- Capture workflow with optional verification click: `skills/packs/agent-browser/templates/capture-workflow.sh`
+
+```bash
+./skills/packs/agent-browser/templates/form-automation.sh <form-url> @e1 "value1" @e2 "value2" @e3 "**/success"
+./skills/packs/agent-browser/templates/authenticated-session.sh <login-url> <target-url> ./auth-state.json
+./skills/packs/agent-browser/templates/capture-workflow.sh <url> ./browser-artifacts @e5
+```
 
 ## Troubleshooting
 

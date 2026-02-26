@@ -20,7 +20,7 @@ Skill parsing, merge, and selection logic:
 
 ## Pack Skills
 
-- `browser`
+- `agent-browser`
 - `frontend-ui-ux`
 - `gh-issues`
 - `github`

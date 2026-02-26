@@ -12,7 +12,7 @@ Use executable evidence as the default proof model. Prefer reproducible commands
 
 ## Skill-Type Adaptation
 
-- **Execution-oriented skills** (`debugging`, `verification`, `patching`, `git`, `browser`, `bun`):
+- **Execution-oriented skills** (`debugging`, `verification`, `patching`, `git`, `agent-browser`, `bun`):
   - command execution is mandatory before conclusions.
   - fallback is `TOOL_BRIDGE` when execution is blocked.
 - **Read-only analysis skills** (`review`, `planning`, `compose`, `exploration`, `cartography`):

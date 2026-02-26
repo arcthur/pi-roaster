@@ -13,7 +13,7 @@ tools:
 budget:
   max_tool_calls: 60
   max_tokens: 130000
-outputs: [objective, assumptions, options, execution_steps, risk_register, verification_plan]
+outputs: [scope_challenge, what_already_exists, objective, assumptions, options, execution_steps, risk_register, verification_plan, test_diagram, handoff_packet]
 consumes: [architecture_map, key_modules, unknowns, root_cause]
 escalation_path:
   system_unclear: exploration
@@ -37,6 +37,36 @@ Use this skill when the task is:
 Skip this skill for trivial one-file fixes with obvious implementation.
 
 ## Planning Workflow
+
+### Step 0: Scope Challenge (mandatory)
+
+Before any architecture or option analysis, challenge the scope:
+
+1. What existing code/flows already solve each sub-problem?
+2. What is the minimum change set to achieve the goal?
+3. Complexity smell: if the plan touches more than 8 files or introduces more than 2 new classes/services, challenge scope.
+
+Required output:
+
+```text
+WHAT_ALREADY_EXISTS
+- sub_problem: "<sub-problem>"
+  existing_flow: "<file/flow>"
+  reuse_decision: "<reuse|partial_reuse|rebuild>"
+  reason: "<why>"
+```
+
+```text
+SCOPE_CHALLENGE
+- minimum_change_set:
+  - "<must-have change>"
+- deferrable_items:
+  - "<can defer without blocking core goal>"
+- complexity_smells:
+  - "<smell>"
+```
+
+If scope is excessive, recommend reduction before proceeding to Step 1.
 
 ### Step 1: Classify intent (mandatory)
 
@@ -212,6 +242,40 @@ VERIFICATION_PLAN
   - "<criterion>"
 ```
 
+Test diagram (mandatory for non-trivial plans):
+
+```text
+TEST_DIAGRAM
+[Entry]
+  |
+  +--> (Path A: happy path) ----> [Outcome A]
+  |
+  +--> (Path B: branch/error) --> [Outcome B]
+
+TEST_MAPPING
+- node: "<diagram node>"
+  new_behavior: "<what is new>"
+  required_test: "<test file + case>"
+```
+
+### Step 9: Handoff Packet (mandatory)
+
+Deliver a packet that implementation and review can consume directly.
+
+```text
+HANDOFF_PACKET
+- selected_option: "<approved approach>"
+- must_not_regress:
+  - "<behavior or contract>"
+- acceptance_checks:
+  - "<test/check>"
+- deferred_items:
+  - item: "<deferred work>"
+    rationale: "<why deferred>"
+- unresolved_decisions:
+  - "<decision not finalized>"
+```
+
 ## Stop Conditions
 
 - System shape remains unclear after focused exploration.
@@ -247,8 +311,10 @@ Input:
 
 Expected outputs:
 
-1. `INTENT_CLASSIFICATION`: `ARCHITECTURE`.
-2. `SYSTEM_SNAPSHOT`: current gate path and command config coupling.
-3. `OPTION_A/B`: wrapper-only vs evaluate() redesign.
-4. `PLAN_DECISION` with risk-driven rationale.
-5. `EXECUTION_STEPS` + `RISK_REGISTER` + `VERIFICATION_PLAN`.
+1. `WHAT_ALREADY_EXISTS` + `SCOPE_CHALLENGE`: existing gate flow and minimum change set.
+2. `INTENT_CLASSIFICATION`: `ARCHITECTURE`.
+3. `SYSTEM_SNAPSHOT`: current gate path and command config coupling.
+4. `OPTION_A/B`: wrapper-only vs evaluate() redesign.
+5. `PLAN_DECISION` with risk-driven rationale.
+6. `EXECUTION_STEPS` + `RISK_REGISTER` + `VERIFICATION_PLAN` + `TEST_DIAGRAM`.
+7. `HANDOFF_PACKET` with must-not-regress and acceptance checks.
