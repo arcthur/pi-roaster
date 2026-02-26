@@ -1,7 +1,10 @@
 import { buildLedgerDigest } from "../ledger/digest.js";
 import type { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { formatLedgerRows } from "../ledger/query.js";
-import { withToolFailureContextMetadata } from "../ledger/tool-failure-context.js";
+import {
+  readToolFailureContextMetadata,
+  withToolFailureContextMetadata,
+} from "../ledger/tool-failure-context.js";
 import { syncTruthFromToolResult } from "../truth/sync.js";
 import type {
   BrewvaConfig,
@@ -13,6 +16,7 @@ import type {
   TruthFactStatus,
   TruthState,
 } from "../types.js";
+import type { JsonValue } from "../utils/json.js";
 import { classifyEvidence } from "../verification/classifier.js";
 import type { VerificationGate } from "../verification/gate.js";
 import type { RuntimeCallback } from "./callback.js";
@@ -178,6 +182,9 @@ export class LedgerService {
       outputText: input.outputText,
       success: input.success,
     });
+    const toolFailureContext = readToolFailureContextMetadata(
+      metadata as Record<string, JsonValue> | undefined,
+    );
 
     this.verification.stateStore.appendEvidence(input.sessionId, evidence);
     this.recordEvent({
@@ -189,6 +196,13 @@ export class LedgerService {
         verdict,
         success: input.success,
         ledgerId: ledgerRow.id,
+        failureContext: toolFailureContext
+          ? {
+              args: toolFailureContext.args,
+              outputText: toolFailureContext.outputText,
+              turn,
+            }
+          : null,
       },
     });
     this.maybeCompactLedger(input.sessionId, turn);

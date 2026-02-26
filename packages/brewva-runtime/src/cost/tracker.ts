@@ -127,17 +127,31 @@ export class SessionCostTracker {
   }
 
   recordToolCall(sessionId: string, input: { toolName: string; turn: number }): void {
+    this.recordTurnToolCall(sessionId, input, true);
+  }
+
+  restoreToolCallForTurn(sessionId: string, input: { toolName: string; turn: number }): void {
+    this.recordTurnToolCall(sessionId, input, false);
+  }
+
+  private recordTurnToolCall(
+    sessionId: string,
+    input: { toolName: string; turn: number },
+    incrementCallCount: boolean,
+  ): void {
     const state = this.getOrCreate(sessionId);
     const turn = normalizeTurn(input.turn);
     const toolName = input.toolName.trim() || "unknown_tool";
 
-    const toolState = state.tools[toolName] ?? {
-      callCount: 0,
-      allocatedTokens: 0,
-      allocatedCostUsd: 0,
-    };
-    toolState.callCount += 1;
-    state.tools[toolName] = toolState;
+    if (incrementCallCount) {
+      const toolState = state.tools[toolName] ?? {
+        callCount: 0,
+        allocatedTokens: 0,
+        allocatedCostUsd: 0,
+      };
+      toolState.callCount += 1;
+      state.tools[toolName] = toolState;
+    }
 
     const callsForTurn = state.turnToolCalls.get(turn) ?? new Map<string, number>();
     callsForTurn.set(toolName, (callsForTurn.get(toolName) ?? 0) + 1);
@@ -270,16 +284,36 @@ export class SessionCostTracker {
     };
   }
 
-  restore(sessionId: string, snapshot: SessionCostSummary | undefined): void {
+  getSkillLastTurnByName(sessionId: string): Record<string, number> {
+    const state = this.getOrCreate(sessionId);
+    const out: Record<string, number> = {};
+    for (const [skillName, skillState] of Object.entries(state.skills)) {
+      if (skillState.lastTurnSeen > 0) {
+        out[skillName] = skillState.lastTurnSeen;
+      }
+    }
+    return out;
+  }
+
+  restore(
+    sessionId: string,
+    snapshot: SessionCostSummary | undefined,
+    skillLastTurnByName?: Record<string, number>,
+  ): void {
     if (!snapshot) return;
 
     const restoredSkills: SessionCostState["skills"] = {};
     for (const [skillName, skill] of Object.entries(snapshot.skills)) {
+      const rawLastTurn = skillLastTurnByName?.[skillName];
+      const normalizedLastTurn =
+        typeof rawLastTurn === "number" && Number.isFinite(rawLastTurn)
+          ? normalizeTurn(rawLastTurn)
+          : -1;
       restoredSkills[skillName] = {
         totals: cloneTotals(skill),
         usageCount: Math.max(0, Math.trunc(skill.usageCount)),
         turnCount: Math.max(0, Math.trunc(skill.turns)),
-        lastTurnSeen: -1,
+        lastTurnSeen: normalizedLastTurn > 0 ? normalizedLastTurn : -1,
       };
     }
 

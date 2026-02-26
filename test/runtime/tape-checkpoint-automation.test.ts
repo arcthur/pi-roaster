@@ -6,6 +6,7 @@ import {
   DEFAULT_BREWVA_CONFIG,
   BrewvaRuntime,
   TAPE_CHECKPOINT_EVENT_TYPE,
+  buildTapeCheckpointPayload,
 } from "@brewva/brewva-runtime";
 
 function repoRoot(): string {
@@ -36,6 +37,42 @@ function readLatestEvolvesRows(filePath: string): Map<string, EvolveRow> {
 }
 
 describe("tape checkpoint automation", () => {
+  test("uses session-local checkpoint counters instead of per-event tape rescans", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-counter-"));
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.tape.checkpointIntervalEntries = 1000;
+    const sessionId = "tape-counter-1";
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
+
+    const runtimePrivate = runtime as unknown as {
+      eventStore: {
+        list: (sessionId: string, query?: Record<string, unknown>) => unknown[];
+      };
+    };
+    const originalList = runtimePrivate.eventStore.list.bind(runtimePrivate.eventStore);
+    let listCalls = 0;
+    runtimePrivate.eventStore.list = (targetSessionId: string, query?: Record<string, unknown>) => {
+      listCalls += 1;
+      return originalList(targetSessionId, query);
+    };
+
+    for (let index = 0; index < 24; index += 1) {
+      runtime.events.record({
+        sessionId,
+        type: "tool_call",
+        payload: {
+          toolCallId: `tc-${index}`,
+          toolName: "look_at",
+        },
+      });
+    }
+
+    expect(listCalls).toBe(1);
+    const checkpoints = originalList(sessionId, { type: TAPE_CHECKPOINT_EVENT_TYPE });
+    expect(checkpoints).toHaveLength(0);
+    runtimePrivate.eventStore.list = originalList;
+  });
+
   test("writes checkpoint events by interval and replays consistent state after restart", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-tape-checkpoint-"));
     const sessionId = "tape-checkpoint-1";
@@ -142,6 +179,114 @@ describe("tape checkpoint automation", () => {
     const blockedAfterRestart = reloaded.tools.checkAccess(sessionId, "look_at");
     expect(blockedAfterRestart.allowed).toBe(false);
     expect(blockedAfterRestart.reason?.includes("Session cost exceeded")).toBe(true);
+  });
+
+  test("resets checkpoint counter state when a checkpoint is manually recorded", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-manual-checkpoint-counter-"));
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.tape.checkpointIntervalEntries = 3;
+    const sessionId = "manual-checkpoint-counter-1";
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
+
+    const recordSyntheticEvent = (index: number): void => {
+      runtime.events.record({
+        sessionId,
+        type: "tool_call",
+        payload: {
+          toolCallId: `manual-tc-${index}`,
+          toolName: "look_at",
+        },
+      });
+    };
+
+    recordSyntheticEvent(1);
+    recordSyntheticEvent(2);
+    expect(runtime.events.query(sessionId, { type: TAPE_CHECKPOINT_EVENT_TYPE })).toHaveLength(0);
+
+    const replay = (
+      runtime as unknown as {
+        turnReplay: {
+          getCheckpointEvidenceState: (sessionId: string) => unknown;
+          getCheckpointMemoryState: (sessionId: string) => unknown;
+        };
+      }
+    ).turnReplay;
+
+    const payload = buildTapeCheckpointPayload({
+      taskState: runtime.task.getState(sessionId),
+      truthState: runtime.truth.getState(sessionId),
+      costSummary: runtime.cost.getSummary(sessionId),
+      evidenceState: replay.getCheckpointEvidenceState(sessionId) as Parameters<
+        typeof buildTapeCheckpointPayload
+      >[0]["evidenceState"],
+      memoryState: replay.getCheckpointMemoryState(sessionId) as Parameters<
+        typeof buildTapeCheckpointPayload
+      >[0]["memoryState"],
+      reason: "manual_test",
+    });
+    runtime.events.record({
+      sessionId,
+      type: TAPE_CHECKPOINT_EVENT_TYPE,
+      payload: payload as unknown as Record<string, unknown>,
+    });
+    expect(runtime.events.query(sessionId, { type: TAPE_CHECKPOINT_EVENT_TYPE })).toHaveLength(1);
+
+    recordSyntheticEvent(3);
+    recordSyntheticEvent(4);
+    expect(runtime.events.query(sessionId, { type: TAPE_CHECKPOINT_EVENT_TYPE })).toHaveLength(1);
+
+    recordSyntheticEvent(5);
+    expect(runtime.events.query(sessionId, { type: TAPE_CHECKPOINT_EVENT_TYPE })).toHaveLength(2);
+  });
+
+  test("preserves same-turn tool cost allocation across checkpoint-based restart", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-cost-alloc-rehydrate-"));
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.tape.checkpointIntervalEntries = 2;
+    const sessionId = "cost-allocation-rehydrate-1";
+
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.tools.markCall(sessionId, "look_at");
+    runtime.cost.recordAssistantUsage({
+      sessionId,
+      model: "test/model",
+      inputTokens: 80,
+      outputTokens: 20,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 100,
+      costUsd: 0.001,
+    });
+
+    const checkpoints = runtime.events.query(sessionId, {
+      type: TAPE_CHECKPOINT_EVENT_TYPE,
+    });
+    expect(checkpoints.length).toBeGreaterThanOrEqual(1);
+    const beforeRestart = runtime.cost.getSummary(sessionId);
+    expect(beforeRestart.tools.look_at?.allocatedTokens).toBe(100);
+    expect(beforeRestart.skills["(none)"]?.turns).toBe(1);
+
+    const reloaded = new BrewvaRuntime({ cwd: workspace, config });
+    reloaded.context.onTurnStart(sessionId, 1);
+    reloaded.cost.recordAssistantUsage({
+      sessionId,
+      model: "test/model",
+      inputTokens: 40,
+      outputTokens: 10,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 50,
+      costUsd: 0.0005,
+    });
+    const afterRestart = reloaded.cost.getSummary(sessionId);
+
+    expect(afterRestart.tools.look_at?.callCount).toBe(1);
+    expect(afterRestart.tools.look_at?.allocatedTokens).toBe(150);
+    expect(afterRestart.totalTokens).toBe(150);
+    expect(afterRestart.totalCostUsd).toBeCloseTo(0.0015, 8);
+    expect(afterRestart.skills["(none)"]?.turns).toBe(1);
+    expect(afterRestart.tools.llm).toBeUndefined();
   });
 
   test("rehydrates ledger compaction cooldown turn from tape after restart", async () => {

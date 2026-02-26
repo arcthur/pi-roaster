@@ -12,12 +12,6 @@ import type {
 } from "../types.js";
 import type { RuntimeCallback } from "./callback.js";
 
-const REPLAY_INVALIDATION_EVENT_TYPES = new Set<string>([
-  TASK_EVENT_TYPE,
-  TRUTH_EVENT_TYPE,
-  TAPE_CHECKPOINT_EVENT_TYPE,
-]);
-
 const AUDIT_EVENT_TYPES = new Set<string>([
   TAPE_ANCHOR_EVENT_TYPE,
   TAPE_CHECKPOINT_EVENT_TYPE,
@@ -75,7 +69,7 @@ export interface EventPipelineServiceOptions {
   events: BrewvaEventStore;
   level: "audit" | "ops" | "debug";
   inferEventCategory: RuntimeCallback<[type: string], BrewvaEventCategory>;
-  invalidateReplay: RuntimeCallback<[sessionId: string]>;
+  observeReplayEvent: RuntimeCallback<[event: BrewvaEventRecord]>;
   ingestMemoryEvent: RuntimeCallback<[event: BrewvaEventRecord]>;
   maybeRecordTapeCheckpoint: RuntimeCallback<[event: BrewvaEventRecord]>;
 }
@@ -84,7 +78,7 @@ export class EventPipelineService {
   private readonly events: BrewvaEventStore;
   private readonly level: "audit" | "ops" | "debug";
   private readonly inferEventCategory: (type: string) => BrewvaEventCategory;
-  private readonly invalidateReplay: (sessionId: string) => void;
+  private readonly observeReplayEvent: (event: BrewvaEventRecord) => void;
   private readonly ingestMemoryEvent: (event: BrewvaEventRecord) => void;
   private readonly maybeRecordTapeCheckpoint: (event: BrewvaEventRecord) => void;
   private readonly eventListeners = new Set<(event: BrewvaStructuredEvent) => void>();
@@ -93,7 +87,7 @@ export class EventPipelineService {
     this.events = options.events;
     this.level = options.level;
     this.inferEventCategory = options.inferEventCategory;
-    this.invalidateReplay = options.invalidateReplay;
+    this.observeReplayEvent = options.observeReplayEvent;
     this.ingestMemoryEvent = options.ingestMemoryEvent;
     this.maybeRecordTapeCheckpoint = options.maybeRecordTapeCheckpoint;
   }
@@ -112,9 +106,7 @@ export class EventPipelineService {
     });
     if (!row) return undefined;
 
-    if (REPLAY_INVALIDATION_EVENT_TYPES.has(row.type)) {
-      this.invalidateReplay(row.sessionId);
-    }
+    this.observeReplayEvent(row);
 
     const structured = this.toStructuredEvent(row);
     for (const listener of this.eventListeners.values()) {

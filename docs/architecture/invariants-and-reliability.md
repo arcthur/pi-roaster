@@ -28,8 +28,8 @@ Relevant implementation:
 ## 3) Recovery Consistency Invariant
 
 - Runtime recovery state must be derivable from persisted event tape only
-  (`checkpoint + delta` replay for task/truth, plus event-fold hydration for
-  runtime session counters/budgets/cost).
+  (`checkpoint + delta` replay for task/truth/cost/evidence/memory, plus
+  event-fold hydration for runtime session counters/budgets/compaction state).
 - Process restart must not require opaque runtime snapshot blobs.
 
 Relevant implementation:

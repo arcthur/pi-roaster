@@ -23,7 +23,8 @@
 ## Recovery Path
 
 - On `SIGINT`/`SIGTERM`, CLI records `session_interrupted`, waits for agent idle (bounded by graceful timeout), then exits.
-- Next startup reconstructs foldable task/truth state from event tape (`checkpoint + delta` replay).
+- Next startup reconstructs foldable replay state from event tape (`checkpoint + delta` replay),
+  including task/truth/cost/evidence/memory fold slices.
 - First `onTurnStart()` hydrates session-local runtime state from tape events
   (skill/budget/cost counters, warning dedupe, ledger compaction cooldown).
 - If memory projection artifacts are missing, runtime can rebuild memory

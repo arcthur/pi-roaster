@@ -7,6 +7,7 @@ import type { MemoryEngine } from "../memory/engine.js";
 import type { ParallelBudgetManager } from "../parallel/budget.js";
 import type { ParallelResultStore } from "../parallel/results.js";
 import type { FileChangeTracker } from "../state/file-change-tracker.js";
+import { TAPE_CHECKPOINT_EVENT_TYPE, coerceTapeCheckpointPayload } from "../tape/events.js";
 import type { TurnReplayEngine } from "../tape/replay-engine.js";
 import type { BrewvaEventRecord } from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
@@ -72,6 +73,10 @@ export class SessionLifecycleService {
     this.clearReservedInjectionTokensForSession(sessionId);
   }
 
+  ensureHydrated(sessionId: string): void {
+    this.hydrateSessionStateFromEvents(sessionId);
+  }
+
   clearSessionState(sessionId: string): void {
     this.hydratedSessions.delete(sessionId);
     this.sessionState.clearSession(sessionId);
@@ -99,6 +104,18 @@ export class SessionLifecycleService {
     const events = this.events.list(sessionId);
     this.costTracker.clear(sessionId);
     if (events.length === 0) return;
+
+    const latestCheckpoint = this.findLatestCheckpoint(events);
+    const costReplayStartIndex = latestCheckpoint ? latestCheckpoint.index + 1 : 0;
+    const checkpointTurn = latestCheckpoint ? this.normalizeTurn(latestCheckpoint.turn) : null;
+    if (latestCheckpoint) {
+      this.costTracker.restore(
+        sessionId,
+        latestCheckpoint.payload.state.cost,
+        latestCheckpoint.payload.state.costSkillLastTurnByName,
+      );
+    }
+
     this.memory.rebuildSessionFromTape({
       sessionId,
       events,
@@ -121,7 +138,8 @@ export class SessionLifecycleService {
       this.sessionState.skillParallelWarningsBySession.get(sessionId) ?? [],
     );
 
-    for (const event of events) {
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index];
       if (!event) continue;
       if (typeof event.turn === "number" && Number.isFinite(event.turn)) {
         derivedTurn = Math.max(derivedTurn, Math.floor(event.turn));
@@ -132,7 +150,18 @@ export class SessionLifecycleService {
           ? (event.payload as Record<string, unknown>)
           : null;
 
-      this.replayCostStateEvent(sessionId, event, payload);
+      const replayCostTail = index >= costReplayStartIndex;
+      const replayCheckpointTurnTransient =
+        !replayCostTail &&
+        checkpointTurn !== null &&
+        this.normalizeTurn(event.turn) === checkpointTurn &&
+        this.isCheckpointTurnCostTransientEvent(event.type);
+
+      if (replayCostTail || replayCheckpointTurnTransient) {
+        this.replayCostStateEvent(sessionId, event, payload, {
+          checkpointTurnTransient: replayCheckpointTurnTransient,
+        });
+      }
 
       if (event.type === "skill_activated") {
         const skillName = this.readSkillName(payload);
@@ -226,6 +255,29 @@ export class SessionLifecycleService {
     }
   }
 
+  private findLatestCheckpoint(events: BrewvaEventRecord[]): {
+    index: number;
+    turn: number;
+    payload: NonNullable<ReturnType<typeof coerceTapeCheckpointPayload>>;
+  } | null {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (!event || event.type !== TAPE_CHECKPOINT_EVENT_TYPE) continue;
+      const payload = coerceTapeCheckpointPayload(event.payload);
+      if (!payload) continue;
+      return {
+        index,
+        turn: this.normalizeTurn(event.turn),
+        payload,
+      };
+    }
+    return null;
+  }
+
+  private isCheckpointTurnCostTransientEvent(type: string): boolean {
+    return type === "tool_call_marked" || type === "cognitive_usage_recorded";
+  }
+
   private readSkillName(payload: Record<string, unknown> | null): string | null {
     const skillName =
       payload && typeof payload.skillName === "string"
@@ -246,17 +298,28 @@ export class SessionLifecycleService {
     sessionId: string,
     event: BrewvaEventRecord,
     payload: Record<string, unknown> | null,
+    options?: {
+      checkpointTurnTransient?: boolean;
+    },
   ): void {
     const turn = this.normalizeTurn(event.turn);
+    const checkpointTurnTransient = options?.checkpointTurnTransient === true;
 
     if (event.type === "tool_call_marked") {
       const toolName =
         payload && typeof payload.toolName === "string" ? payload.toolName.trim() : "";
       if (!toolName) return;
-      this.costTracker.recordToolCall(sessionId, {
-        toolName,
-        turn,
-      });
+      if (checkpointTurnTransient) {
+        this.costTracker.restoreToolCallForTurn(sessionId, {
+          toolName,
+          turn,
+        });
+      } else {
+        this.costTracker.recordToolCall(sessionId, {
+          toolName,
+          turn,
+        });
+      }
       return;
     }
 

@@ -4,7 +4,6 @@ import { buildContextInjection as buildContextInjectionOrchestrated } from "../c
 import { ContextInjectionCollector, type ContextInjectionPriority } from "../context/injection.js";
 import type { ToolFailureEntry } from "../context/tool-failures.js";
 import { EvidenceLedger } from "../ledger/evidence-ledger.js";
-import { readToolFailureContextMetadata } from "../ledger/tool-failure-context.js";
 import { MemoryEngine } from "../memory/engine.js";
 import { FileChangeTracker } from "../state/file-change-tracker.js";
 import type {
@@ -27,13 +26,6 @@ import { RuntimeSessionStateStore } from "./session-state.js";
 
 const OUTPUT_HEALTH_GUARD_LOOKBACK_EVENTS = 32;
 const RECENT_COMPACTION_WINDOW_TURNS = 2;
-const TOOL_FAILURE_INFRASTRUCTURE_TOOLS = new Set([
-  "ledger_checkpoint",
-  "brewva_cost",
-  "brewva_context_compaction",
-  "brewva_rollback",
-  "brewva_verify",
-]);
 
 export interface ContextServiceOptions {
   cwd: string;
@@ -66,6 +58,7 @@ export interface ContextServiceOptions {
   getCurrentTurn: RuntimeCallback<[sessionId: string], number>;
   getActiveSkill: RuntimeCallback<[sessionId: string], SkillDocument | undefined>;
   sanitizeInput: RuntimeCallback<[text: string], string>;
+  getFoldedToolFailures: RuntimeCallback<[sessionId: string], ToolFailureEntry[]>;
   recordEvent: RuntimeCallback<
     [
       input: {
@@ -106,6 +99,7 @@ export class ContextService {
   private readonly getCurrentTurn: (sessionId: string) => number;
   private readonly getActiveSkill: (sessionId: string) => SkillDocument | undefined;
   private readonly sanitizeInput: (text: string) => string;
+  private readonly getFoldedToolFailures: (sessionId: string) => ToolFailureEntry[];
   private readonly recordEvent: ContextServiceOptions["recordEvent"];
 
   constructor(options: ContextServiceOptions) {
@@ -130,6 +124,7 @@ export class ContextService {
     this.getCurrentTurn = options.getCurrentTurn;
     this.getActiveSkill = options.getActiveSkill;
     this.sanitizeInput = options.sanitizeInput;
+    this.getFoldedToolFailures = options.getFoldedToolFailures;
     this.recordEvent = options.recordEvent;
   }
 
@@ -337,24 +332,13 @@ export class ContextService {
   }
 
   private getRecentToolFailures(sessionId: string): ToolFailureEntry[] {
-    const rows = this.ledger.list(sessionId);
-    const failures: ToolFailureEntry[] = [];
-
-    for (const row of rows) {
-      if (row.verdict !== "fail") continue;
-      if (TOOL_FAILURE_INFRASTRUCTURE_TOOLS.has(row.tool)) continue;
-      const persistedContext = readToolFailureContextMetadata(row.metadata);
-      if (!persistedContext) continue;
-
-      failures.push({
-        toolName: row.tool,
-        args: persistedContext.args,
-        outputText: this.sanitizeInput(persistedContext.outputText),
-        turn: Number.isFinite(row.turn) ? row.turn : 0,
-      });
-    }
-
-    return failures;
+    const folded = this.getFoldedToolFailures(sessionId);
+    return folded.map((entry) => ({
+      toolName: entry.toolName,
+      args: entry.args,
+      outputText: this.sanitizeInput(entry.outputText),
+      turn: Number.isFinite(entry.turn) ? Math.max(0, Math.floor(entry.turn)) : 0,
+    }));
   }
 
   async buildContextInjection(

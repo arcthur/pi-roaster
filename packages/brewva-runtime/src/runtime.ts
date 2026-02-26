@@ -711,6 +711,7 @@ export class BrewvaRuntime {
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       sanitizeInput: (text) => this.sanitizeInput(text),
+      getFoldedToolFailures: (sessionId) => this.turnReplay.getRecentToolFailures(sessionId, 12),
       recordEvent: (input) => this.recordEvent(input),
     });
     const tapeService = new TapeService({
@@ -720,13 +721,19 @@ export class BrewvaRuntime {
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
+      getCostSummary: (sessionId) => this.resolveCheckpointCostSummary(sessionId),
+      getCostSkillLastTurnByName: (sessionId) =>
+        this.resolveCheckpointCostSkillLastTurnByName(sessionId),
+      getCheckpointEvidenceState: (sessionId) =>
+        this.turnReplay.getCheckpointEvidenceState(sessionId),
+      getCheckpointMemoryState: (sessionId) => this.turnReplay.getCheckpointMemoryState(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });
     const eventPipeline = new EventPipelineService({
       events: this.eventStore,
       level: this.config.infrastructure.events.level,
       inferEventCategory,
-      invalidateReplay: (sessionId) => this.turnReplay.invalidate(sessionId),
+      observeReplayEvent: (event) => this.turnReplay.observeEvent(event),
       ingestMemoryEvent: (event) => this.memoryEngine.ingestEvent(event),
       maybeRecordTapeCheckpoint: (event) => tapeService.maybeRecordTapeCheckpoint(event),
     });
@@ -1065,6 +1072,35 @@ export class BrewvaRuntime {
       },
     });
     return budget;
+  }
+
+  private resolveCheckpointCostSummary(sessionId: string): SessionCostSummary {
+    this.sessionLifecycleService.ensureHydrated(sessionId);
+    const liveSummary = this.costService.getCostSummary(sessionId);
+    if (this.hasCostSummaryData(liveSummary)) {
+      return liveSummary;
+    }
+    return this.turnReplay.getCostSummary(sessionId);
+  }
+
+  private resolveCheckpointCostSkillLastTurnByName(sessionId: string): Record<string, number> {
+    this.sessionLifecycleService.ensureHydrated(sessionId);
+    const liveSummary = this.costService.getCostSummary(sessionId);
+    if (this.hasCostSummaryData(liveSummary)) {
+      return this.costTracker.getSkillLastTurnByName(sessionId);
+    }
+    return this.turnReplay.getCostSkillLastTurnByName(sessionId);
+  }
+
+  private hasCostSummaryData(summary: SessionCostSummary): boolean {
+    return (
+      summary.totalTokens > 0 ||
+      summary.totalCostUsd > 0 ||
+      summary.alerts.length > 0 ||
+      Object.keys(summary.models).length > 0 ||
+      Object.keys(summary.skills).length > 0 ||
+      Object.keys(summary.tools).length > 0
+    );
   }
 
   private getCurrentTurn(sessionId: string): number {

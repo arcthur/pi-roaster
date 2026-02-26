@@ -189,6 +189,22 @@ Execution profile note:
 
 Switching level changes observability granularity, not business decisions.
 
+## Replay Fold Scope
+
+`TurnReplayEngine` reconstructs state with `checkpoint + delta` from the event tape.
+The folded replay view includes:
+
+- task state
+- truth state
+- cost summary state
+- cost skill turn dedupe metadata (`skillLastTurnByName`)
+- evidence fold state (including recent tool failures with anchor-epoch TTL pruning)
+- memory crystal fold state
+
+Checkpoint payloads persisted by tape automation include corresponding state slices,
+so replay can seek to the latest checkpoint and avoid full-tape recomputation for
+these domains.
+
 ## Scheduling Notes
 
 - Schedule APIs are intent-based (`createIntent` / `updateIntent` / `cancelIntent`) and persisted through event tape.

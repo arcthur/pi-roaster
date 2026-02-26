@@ -232,4 +232,29 @@ describe("Tool failure context injection", () => {
     expect(injection.text.includes("source=brewva.tool-failures")).toBe(false);
     expect(injection.text.includes("TAIL_MARKER_3")).toBe(true);
   });
+
+  test("drops stale failures after 3 tape handoffs", async () => {
+    const workspace = createWorkspace("tool-failures-ttl");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "tool-failures-ttl-1";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: "bun test" },
+      outputText: "Error: stale failure",
+      success: false,
+    });
+
+    const before = await runtime.context.buildInjection(sessionId, "continue");
+    expect(before.text.includes("[RecentToolFailures]")).toBe(true);
+
+    runtime.events.recordTapeHandoff(sessionId, { name: "phase-1" });
+    runtime.events.recordTapeHandoff(sessionId, { name: "phase-2" });
+    runtime.events.recordTapeHandoff(sessionId, { name: "phase-3" });
+
+    const after = await runtime.context.buildInjection(sessionId, "continue");
+    expect(after.text.includes("[RecentToolFailures]")).toBe(false);
+    expect(after.text.includes("stale failure")).toBe(false);
+  });
 });

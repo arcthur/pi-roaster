@@ -4,11 +4,14 @@ import {
   buildTapeAnchorPayload,
   buildTapeCheckpointPayload,
   coerceTapeAnchorPayload,
+  type TapeCheckpointEvidenceState,
+  type TapeCheckpointMemoryState,
 } from "../tape/events.js";
 import type {
   BrewvaConfig,
   BrewvaEventQuery,
   BrewvaEventRecord,
+  SessionCostSummary,
   TapePressureLevel,
   TapeSearchMatch,
   TapeSearchResult,
@@ -33,6 +36,10 @@ export interface TapeServiceOptions {
   getCurrentTurn: RuntimeCallback<[sessionId: string], number>;
   getTaskState: RuntimeCallback<[sessionId: string], TaskState>;
   getTruthState: RuntimeCallback<[sessionId: string], TruthState>;
+  getCostSummary: RuntimeCallback<[sessionId: string], SessionCostSummary>;
+  getCostSkillLastTurnByName: RuntimeCallback<[sessionId: string], Record<string, number>>;
+  getCheckpointEvidenceState: RuntimeCallback<[sessionId: string], TapeCheckpointEvidenceState>;
+  getCheckpointMemoryState: RuntimeCallback<[sessionId: string], TapeCheckpointMemoryState>;
   recordEvent: RuntimeCallback<
     [
       input: {
@@ -48,6 +55,13 @@ export interface TapeServiceOptions {
   >;
 }
 
+interface TapeCheckpointCounterState {
+  entriesSinceCheckpoint: number;
+  latestAnchorEventId?: string;
+  lastCheckpointEventId?: string;
+  processedEventIds: Set<string>;
+}
+
 export class TapeService {
   private readonly tapeConfig: BrewvaConfig["tape"];
   private readonly sessionState: RuntimeSessionStateStore;
@@ -58,6 +72,10 @@ export class TapeService {
   private readonly getCurrentTurn: (sessionId: string) => number;
   private readonly getTaskState: (sessionId: string) => TaskState;
   private readonly getTruthState: (sessionId: string) => TruthState;
+  private readonly getCostSummary: (sessionId: string) => SessionCostSummary;
+  private readonly getCostSkillLastTurnByName: (sessionId: string) => Record<string, number>;
+  private readonly getCheckpointEvidenceState: (sessionId: string) => TapeCheckpointEvidenceState;
+  private readonly getCheckpointMemoryState: (sessionId: string) => TapeCheckpointMemoryState;
   private readonly recordEvent: TapeServiceOptions["recordEvent"];
 
   constructor(options: TapeServiceOptions) {
@@ -67,6 +85,10 @@ export class TapeService {
     this.getCurrentTurn = options.getCurrentTurn;
     this.getTaskState = options.getTaskState;
     this.getTruthState = options.getTruthState;
+    this.getCostSummary = options.getCostSummary;
+    this.getCostSkillLastTurnByName = options.getCostSkillLastTurnByName;
+    this.getCheckpointEvidenceState = options.getCheckpointEvidenceState;
+    this.getCheckpointMemoryState = options.getCheckpointMemoryState;
     this.recordEvent = options.recordEvent;
   }
 
@@ -86,34 +108,53 @@ export class TapeService {
     const events = this.queryEvents(sessionId);
     const totalEntries = events.length;
 
+    const counterInitialized =
+      this.sessionState.tapeCheckpointCounterInitializedBySession.has(sessionId);
+
     let lastAnchorIndex = -1;
     let lastCheckpointIndex = -1;
     let lastAnchorEvent: BrewvaEventRecord | undefined;
     let lastCheckpointId: string | undefined;
 
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      const event = events[index];
-      if (!event) continue;
-
-      if (lastCheckpointIndex < 0 && event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
-        lastCheckpointIndex = index;
-        lastCheckpointId = event.id;
+    if (counterInitialized) {
+      lastCheckpointId = this.sessionState.tapeLastCheckpointEventIdBySession.get(sessionId);
+      const targetAnchorId = this.sessionState.tapeLatestAnchorEventIdBySession.get(sessionId);
+      if (targetAnchorId) {
+        for (let index = events.length - 1; index >= 0; index -= 1) {
+          const event = events[index];
+          if (!event) continue;
+          if (event.id === targetAnchorId) {
+            lastAnchorIndex = index;
+            lastAnchorEvent = event;
+            break;
+          }
+        }
       }
-
-      if (lastAnchorIndex < 0 && event.type === TAPE_ANCHOR_EVENT_TYPE) {
-        lastAnchorIndex = index;
-        lastAnchorEvent = event;
-      }
-
-      if (lastAnchorIndex >= 0 && lastCheckpointIndex >= 0) {
-        break;
+    } else {
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (!event) continue;
+        if (lastCheckpointIndex < 0 && event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
+          lastCheckpointIndex = index;
+          lastCheckpointId = event.id;
+        }
+        if (lastAnchorIndex < 0 && event.type === TAPE_ANCHOR_EVENT_TYPE) {
+          lastAnchorIndex = index;
+          lastAnchorEvent = event;
+        }
+        if (lastAnchorIndex >= 0 && lastCheckpointIndex >= 0) {
+          break;
+        }
       }
     }
 
     const entriesSinceAnchor =
       lastAnchorIndex >= 0 ? Math.max(0, totalEntries - lastAnchorIndex - 1) : totalEntries;
-    const entriesSinceCheckpoint =
-      lastCheckpointIndex >= 0 ? Math.max(0, totalEntries - lastCheckpointIndex - 1) : totalEntries;
+    const entriesSinceCheckpoint = counterInitialized
+      ? (this.sessionState.tapeEntriesSinceCheckpointBySession.get(sessionId) ?? totalEntries)
+      : lastCheckpointIndex >= 0
+        ? Math.max(0, totalEntries - lastCheckpointIndex - 1)
+        : totalEntries;
 
     const thresholds = this.getPressureThresholds();
     const anchorPayload = coerceTapeAnchorPayload(lastAnchorEvent?.payload);
@@ -274,14 +315,102 @@ export class TapeService {
     return Math.max(0, Math.floor(configured));
   }
 
-  maybeRecordTapeCheckpoint(lastEvent: BrewvaEventRecord): void {
-    if (lastEvent.type === TAPE_CHECKPOINT_EVENT_TYPE) {
-      return;
+  private writeTapeCheckpointCounter(sessionId: string, state: TapeCheckpointCounterState): void {
+    this.sessionState.tapeCheckpointCounterInitializedBySession.add(sessionId);
+    this.sessionState.tapeEntriesSinceCheckpointBySession.set(
+      sessionId,
+      Math.max(0, Math.floor(state.entriesSinceCheckpoint)),
+    );
+    if (state.latestAnchorEventId) {
+      this.sessionState.tapeLatestAnchorEventIdBySession.set(sessionId, state.latestAnchorEventId);
+    } else {
+      this.sessionState.tapeLatestAnchorEventIdBySession.delete(sessionId);
     }
-    if (lastEvent.type.startsWith("memory_")) {
-      return;
+    if (state.lastCheckpointEventId) {
+      this.sessionState.tapeLastCheckpointEventIdBySession.set(
+        sessionId,
+        state.lastCheckpointEventId,
+      );
+    } else {
+      this.sessionState.tapeLastCheckpointEventIdBySession.delete(sessionId);
+    }
+    this.sessionState.tapeProcessedEventIdsSinceCheckpointBySession.set(
+      sessionId,
+      state.processedEventIds,
+    );
+  }
+
+  private bootstrapTapeCheckpointCounter(sessionId: string): TapeCheckpointCounterState {
+    const events = this.queryEvents(sessionId);
+    let latestAnchorEventId: string | undefined;
+    let lastCheckpointEventId: string | undefined;
+    let entriesSinceCheckpoint = 0;
+    const processedEventIds = new Set<string>();
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (!event) continue;
+      if (!latestAnchorEventId && event.type === TAPE_ANCHOR_EVENT_TYPE) {
+        latestAnchorEventId = event.id;
+      }
+      if (event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
+        lastCheckpointEventId = event.id;
+        break;
+      }
+      processedEventIds.add(event.id);
+      if (event.type.startsWith("memory_")) {
+        continue;
+      }
+      entriesSinceCheckpoint += 1;
     }
 
+    const state: TapeCheckpointCounterState = {
+      entriesSinceCheckpoint,
+      latestAnchorEventId,
+      lastCheckpointEventId,
+      processedEventIds,
+    };
+    this.writeTapeCheckpointCounter(sessionId, state);
+    return state;
+  }
+
+  private getTapeCheckpointCounter(sessionId: string): TapeCheckpointCounterState {
+    if (!this.sessionState.tapeCheckpointCounterInitializedBySession.has(sessionId)) {
+      return this.bootstrapTapeCheckpointCounter(sessionId);
+    }
+    return {
+      entriesSinceCheckpoint:
+        this.sessionState.tapeEntriesSinceCheckpointBySession.get(sessionId) ?? 0,
+      latestAnchorEventId: this.sessionState.tapeLatestAnchorEventIdBySession.get(sessionId),
+      lastCheckpointEventId: this.sessionState.tapeLastCheckpointEventIdBySession.get(sessionId),
+      processedEventIds:
+        this.sessionState.tapeProcessedEventIdsSinceCheckpointBySession.get(sessionId) ?? new Set(),
+    };
+  }
+
+  private applyEventToTapeCheckpointCounter(
+    state: TapeCheckpointCounterState,
+    event: BrewvaEventRecord,
+  ): void {
+    if (state.processedEventIds.has(event.id)) {
+      return;
+    }
+    if (event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
+      state.entriesSinceCheckpoint = 0;
+      state.lastCheckpointEventId = event.id;
+      state.processedEventIds = new Set<string>([event.id]);
+      return;
+    }
+    state.processedEventIds.add(event.id);
+    if (event.type === TAPE_ANCHOR_EVENT_TYPE) {
+      state.latestAnchorEventId = event.id;
+    }
+    if (event.type.startsWith("memory_")) {
+      return;
+    }
+    state.entriesSinceCheckpoint += 1;
+  }
+
+  maybeRecordTapeCheckpoint(lastEvent: BrewvaEventRecord): void {
     const intervalEntries = this.resolveTapeCheckpointIntervalEntries();
     if (intervalEntries <= 0) {
       return;
@@ -292,29 +421,15 @@ export class TapeService {
       return;
     }
 
-    const events = this.queryEvents(sessionId);
-    if (events.length === 0) {
+    const counterState = this.getTapeCheckpointCounter(sessionId);
+    this.applyEventToTapeCheckpointCounter(counterState, lastEvent);
+    this.writeTapeCheckpointCounter(sessionId, counterState);
+
+    if (lastEvent.type === TAPE_CHECKPOINT_EVENT_TYPE || lastEvent.type.startsWith("memory_")) {
       return;
     }
 
-    let latestAnchorEventId: string | undefined;
-    let entriesSinceCheckpoint = 0;
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      const event = events[index];
-      if (!event) continue;
-      if (!latestAnchorEventId && event.type === TAPE_ANCHOR_EVENT_TYPE) {
-        latestAnchorEventId = event.id;
-      }
-      if (event.type === TAPE_CHECKPOINT_EVENT_TYPE) {
-        break;
-      }
-      if (event.type.startsWith("memory_")) {
-        continue;
-      }
-      entriesSinceCheckpoint += 1;
-    }
-
-    if (entriesSinceCheckpoint < intervalEntries) {
+    if (counterState.entriesSinceCheckpoint < intervalEntries) {
       return;
     }
 
@@ -323,17 +438,27 @@ export class TapeService {
       const payload = buildTapeCheckpointPayload({
         taskState: this.getTaskState(sessionId),
         truthState: this.getTruthState(sessionId),
+        costSummary: this.getCostSummary(sessionId),
+        costSkillLastTurnByName: this.getCostSkillLastTurnByName(sessionId),
+        evidenceState: this.getCheckpointEvidenceState(sessionId),
+        memoryState: this.getCheckpointMemoryState(sessionId),
         basedOnEventId: lastEvent.id,
-        latestAnchorEventId,
+        latestAnchorEventId: counterState.latestAnchorEventId,
         reason: `interval_entries_${intervalEntries}`,
       });
-      this.recordEvent({
+      const row = this.recordEvent({
         sessionId,
         turn: this.getCurrentTurn(sessionId),
         type: TAPE_CHECKPOINT_EVENT_TYPE,
         payload: payload as unknown as Record<string, unknown>,
         skipTapeCheckpoint: true,
       });
+      if (row) {
+        counterState.entriesSinceCheckpoint = 0;
+        counterState.lastCheckpointEventId = row.id;
+        counterState.processedEventIds = new Set<string>([row.id]);
+        this.writeTapeCheckpointCounter(sessionId, counterState);
+      }
     } finally {
       this.sessionState.tapeCheckpointWriteInProgressBySession.delete(sessionId);
     }

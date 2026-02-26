@@ -1,4 +1,4 @@
-import type { TaskSpec, TaskState, TruthState } from "../types.js";
+import type { SessionCostSummary, TaskSpec, TaskState, TruthState } from "../types.js";
 import { isRecord, normalizeNonEmptyString } from "../utils/coerce.js";
 
 export const TAPE_ANCHOR_EVENT_TYPE = "anchor";
@@ -33,11 +33,45 @@ export interface TapeCheckpointPayload {
   state: {
     task: TaskState;
     truth: TruthState;
+    cost: SessionCostSummary;
+    costSkillLastTurnByName: Record<string, number>;
+    evidence: TapeCheckpointEvidenceState;
+    memory: TapeCheckpointMemoryState;
   };
   basedOnEventId?: string;
   latestAnchorEventId?: string;
   reason: string;
   createdAt: number;
+}
+
+export interface TapeCheckpointToolFailureEntry {
+  toolName: string;
+  args: Record<string, unknown>;
+  outputText: string;
+  turn: number;
+  anchorEpoch: number;
+  timestamp: number;
+}
+
+export interface TapeCheckpointEvidenceState {
+  totalRecords: number;
+  failureRecords: number;
+  anchorEpoch: number;
+  recentFailures: TapeCheckpointToolFailureEntry[];
+}
+
+export interface TapeCheckpointMemoryCrystalState {
+  id: string;
+  topic: string;
+  summary?: string;
+  unitCount: number;
+  confidence: number;
+  updatedAt: number;
+}
+
+export interface TapeCheckpointMemoryState {
+  updatedAt: number | null;
+  crystals: TapeCheckpointMemoryCrystalState[];
 }
 
 function normalizeFiniteNumber(value: unknown): number | null {
@@ -48,6 +82,16 @@ function normalizeFiniteNumber(value: unknown): number | null {
 function normalizeOptionalFiniteNumber(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
   return normalizeFiniteNumber(value) ?? undefined;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.floor(value));
+}
+
+function normalizeNonNegativeNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, value);
 }
 
 function normalizeStringArray(value: unknown): string[] | null {
@@ -272,6 +316,287 @@ function coerceCheckpointTruthState(value: unknown): TruthState | null {
   };
 }
 
+function coerceSessionCostTotals(value: unknown): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+} | null {
+  if (!isRecord(value)) return null;
+  const inputTokens = normalizeNonNegativeNumber(value.inputTokens);
+  const outputTokens = normalizeNonNegativeNumber(value.outputTokens);
+  const cacheReadTokens = normalizeNonNegativeNumber(value.cacheReadTokens);
+  const cacheWriteTokens = normalizeNonNegativeNumber(value.cacheWriteTokens);
+  const totalTokens = normalizeNonNegativeNumber(value.totalTokens);
+  const totalCostUsd = normalizeNonNegativeNumber(value.totalCostUsd);
+  if (
+    inputTokens === null ||
+    outputTokens === null ||
+    cacheReadTokens === null ||
+    cacheWriteTokens === null ||
+    totalTokens === null ||
+    totalCostUsd === null
+  ) {
+    return null;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens,
+    totalCostUsd,
+  };
+}
+
+function coerceSessionCostSummary(value: unknown): SessionCostSummary | null {
+  if (!isRecord(value)) return null;
+  const totals = coerceSessionCostTotals(value);
+  if (!totals) return null;
+
+  const models: SessionCostSummary["models"] = {};
+  if (isRecord(value.models)) {
+    for (const [model, rawTotals] of Object.entries(value.models)) {
+      const parsed = coerceSessionCostTotals(rawTotals);
+      if (!parsed) continue;
+      models[model] = parsed;
+    }
+  }
+
+  const skills: SessionCostSummary["skills"] = {};
+  if (isRecord(value.skills)) {
+    for (const [skillName, rawSkill] of Object.entries(value.skills)) {
+      if (!isRecord(rawSkill)) continue;
+      const parsedTotals = coerceSessionCostTotals(rawSkill);
+      const usageCount = normalizeNonNegativeInteger(rawSkill.usageCount);
+      const turns = normalizeNonNegativeInteger(rawSkill.turns);
+      if (!parsedTotals || usageCount === null || turns === null) continue;
+      skills[skillName] = {
+        ...parsedTotals,
+        usageCount,
+        turns,
+      };
+    }
+  }
+
+  const tools: SessionCostSummary["tools"] = {};
+  if (isRecord(value.tools)) {
+    for (const [toolName, rawTool] of Object.entries(value.tools)) {
+      if (!isRecord(rawTool)) continue;
+      const callCount = normalizeNonNegativeInteger(rawTool.callCount);
+      const allocatedTokens = normalizeNonNegativeNumber(rawTool.allocatedTokens);
+      const allocatedCostUsd = normalizeNonNegativeNumber(rawTool.allocatedCostUsd);
+      if (callCount === null || allocatedTokens === null || allocatedCostUsd === null) continue;
+      tools[toolName] = {
+        callCount,
+        allocatedTokens,
+        allocatedCostUsd,
+      };
+    }
+  }
+
+  const alerts: SessionCostSummary["alerts"] = [];
+  if (Array.isArray(value.alerts)) {
+    for (const rawAlert of value.alerts) {
+      if (!isRecord(rawAlert)) continue;
+      const kind =
+        rawAlert.kind === "session_threshold" ||
+        rawAlert.kind === "session_cap" ||
+        rawAlert.kind === "skill_cap"
+          ? rawAlert.kind
+          : null;
+      const scope =
+        rawAlert.scope === "session" || rawAlert.scope === "skill" ? rawAlert.scope : null;
+      const timestamp = normalizeNonNegativeNumber(rawAlert.timestamp);
+      const costUsd = normalizeNonNegativeNumber(rawAlert.costUsd);
+      const thresholdUsd = normalizeNonNegativeNumber(rawAlert.thresholdUsd);
+      if (!kind || !scope || timestamp === null || costUsd === null || thresholdUsd === null) {
+        continue;
+      }
+      alerts.push({
+        kind,
+        scope,
+        timestamp,
+        costUsd,
+        thresholdUsd,
+        scopeId: normalizeNonEmptyString(rawAlert.scopeId),
+      });
+    }
+  }
+
+  const budgetRecord = isRecord(value.budget) ? value.budget : {};
+  const action: SessionCostSummary["budget"]["action"] =
+    budgetRecord.action === "warn" || budgetRecord.action === "block_tools"
+      ? budgetRecord.action
+      : "warn";
+  const budget: SessionCostSummary["budget"] = {
+    action,
+    sessionExceeded: budgetRecord.sessionExceeded === true,
+    skillExceeded: budgetRecord.skillExceeded === true,
+    blocked: budgetRecord.blocked === true,
+  };
+
+  return {
+    ...totals,
+    models,
+    skills,
+    tools,
+    alerts,
+    budget,
+  };
+}
+
+function coerceCostSkillLastTurnByName(value: unknown): Record<string, number> | null {
+  if (!isRecord(value)) return null;
+  const out: Record<string, number> = {};
+  for (const [skillName, rawTurn] of Object.entries(value)) {
+    const turn = normalizeNonNegativeInteger(rawTurn);
+    if (turn === null) continue;
+    out[skillName] = turn;
+  }
+  return out;
+}
+
+function coerceCheckpointToolFailureEntry(value: unknown): TapeCheckpointToolFailureEntry | null {
+  if (!isRecord(value)) return null;
+  const toolName = normalizeNonEmptyString(value.toolName);
+  const outputText = typeof value.outputText === "string" ? value.outputText : null;
+  const turn = normalizeNonNegativeInteger(value.turn);
+  const anchorEpoch = normalizeNonNegativeInteger(value.anchorEpoch);
+  const timestamp = normalizeNonNegativeNumber(value.timestamp);
+  if (
+    !toolName ||
+    outputText === null ||
+    turn === null ||
+    anchorEpoch === null ||
+    timestamp === null
+  ) {
+    return null;
+  }
+
+  const args = isRecord(value.args) ? value.args : {};
+  return {
+    toolName,
+    args,
+    outputText,
+    turn,
+    anchorEpoch,
+    timestamp,
+  };
+}
+
+function coerceCheckpointEvidenceState(value: unknown): TapeCheckpointEvidenceState | null {
+  if (!isRecord(value)) return null;
+  const totalRecords = normalizeNonNegativeInteger(value.totalRecords);
+  const failureRecords = normalizeNonNegativeInteger(value.failureRecords);
+  const anchorEpoch = normalizeNonNegativeInteger(value.anchorEpoch);
+  if (totalRecords === null || failureRecords === null || anchorEpoch === null) return null;
+
+  const recentFailures: TapeCheckpointToolFailureEntry[] = [];
+  if (Array.isArray(value.recentFailures)) {
+    for (const rawFailure of value.recentFailures) {
+      const parsed = coerceCheckpointToolFailureEntry(rawFailure);
+      if (!parsed) continue;
+      recentFailures.push(parsed);
+    }
+  }
+
+  return {
+    totalRecords,
+    failureRecords,
+    anchorEpoch,
+    recentFailures,
+  };
+}
+
+function coerceCheckpointMemoryCrystalState(
+  value: unknown,
+): TapeCheckpointMemoryCrystalState | null {
+  if (!isRecord(value)) return null;
+  const id = normalizeNonEmptyString(value.id);
+  const topic = normalizeNonEmptyString(value.topic);
+  const summary = normalizeNonEmptyString(value.summary);
+  const unitCount = normalizeNonNegativeInteger(value.unitCount);
+  const confidence = normalizeNonNegativeNumber(value.confidence);
+  const updatedAt = normalizeNonNegativeNumber(value.updatedAt);
+  if (!id || !topic || unitCount === null || confidence === null || updatedAt === null) {
+    return null;
+  }
+  return {
+    id,
+    topic,
+    summary,
+    unitCount,
+    confidence,
+    updatedAt,
+  };
+}
+
+function coerceCheckpointMemoryState(value: unknown): TapeCheckpointMemoryState | null {
+  if (!isRecord(value)) return null;
+
+  let updatedAt: number | null = null;
+  if (value.updatedAt !== null && value.updatedAt !== undefined) {
+    const normalized = normalizeNonNegativeNumber(value.updatedAt);
+    if (normalized === null) return null;
+    updatedAt = normalized;
+  }
+
+  const crystals: TapeCheckpointMemoryCrystalState[] = [];
+  if (Array.isArray(value.crystals)) {
+    for (const rawCrystal of value.crystals) {
+      const parsed = coerceCheckpointMemoryCrystalState(rawCrystal);
+      if (!parsed) continue;
+      crystals.push(parsed);
+    }
+  }
+
+  return {
+    updatedAt,
+    crystals,
+  };
+}
+
+function createEmptySessionCostSummary(): SessionCostSummary {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    totalCostUsd: 0,
+    models: {},
+    skills: {},
+    tools: {},
+    alerts: [],
+    budget: {
+      action: "warn",
+      sessionExceeded: false,
+      skillExceeded: false,
+      blocked: false,
+    },
+  };
+}
+
+function createEmptyCheckpointEvidenceState(): TapeCheckpointEvidenceState {
+  return {
+    totalRecords: 0,
+    failureRecords: 0,
+    anchorEpoch: 0,
+    recentFailures: [],
+  };
+}
+
+function createEmptyCheckpointMemoryState(): TapeCheckpointMemoryState {
+  return {
+    updatedAt: null,
+    crystals: [],
+  };
+}
+
 export function buildTapeAnchorPayload(input: {
   name: string;
   summary?: string;
@@ -290,6 +615,10 @@ export function buildTapeAnchorPayload(input: {
 export function buildTapeCheckpointPayload(input: {
   taskState: TaskState;
   truthState: TruthState;
+  costSummary: SessionCostSummary;
+  costSkillLastTurnByName?: Record<string, number>;
+  evidenceState: TapeCheckpointEvidenceState;
+  memoryState: TapeCheckpointMemoryState;
   basedOnEventId?: string;
   latestAnchorEventId?: string;
   reason: string;
@@ -300,6 +629,10 @@ export function buildTapeCheckpointPayload(input: {
     state: {
       task: input.taskState,
       truth: input.truthState,
+      cost: input.costSummary,
+      costSkillLastTurnByName: input.costSkillLastTurnByName ?? {},
+      evidence: input.evidenceState,
+      memory: input.memoryState,
     },
     basedOnEventId: input.basedOnEventId,
     latestAnchorEventId: input.latestAnchorEventId,
@@ -345,12 +678,33 @@ export function coerceTapeCheckpointPayload(value: unknown): TapeCheckpointPaylo
 
   const basedOnEventId = normalizeNonEmptyString(value.basedOnEventId);
   const latestAnchorEventId = normalizeNonEmptyString(value.latestAnchorEventId);
+  const cost =
+    value.state.cost === undefined
+      ? createEmptySessionCostSummary()
+      : coerceSessionCostSummary(value.state.cost);
+  const costSkillLastTurnByName =
+    value.state.costSkillLastTurnByName === undefined
+      ? {}
+      : coerceCostSkillLastTurnByName(value.state.costSkillLastTurnByName);
+  const evidence =
+    value.state.evidence === undefined
+      ? createEmptyCheckpointEvidenceState()
+      : coerceCheckpointEvidenceState(value.state.evidence);
+  const memory =
+    value.state.memory === undefined
+      ? createEmptyCheckpointMemoryState()
+      : coerceCheckpointMemoryState(value.state.memory);
+  if (!cost || !costSkillLastTurnByName || !evidence || !memory) return null;
 
   return {
     schema: TAPE_CHECKPOINT_SCHEMA,
     state: {
       task,
       truth,
+      cost,
+      costSkillLastTurnByName,
+      evidence,
+      memory,
     },
     basedOnEventId,
     latestAnchorEventId,

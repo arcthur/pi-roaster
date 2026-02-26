@@ -92,7 +92,7 @@ describe("session state cleanup", () => {
     expect((runtime as any).ledger.lastHashBySession.has(sessionId) as boolean).toBe(false);
   });
 
-  test("invalidates replay cache on task events and rebuilds from tape", async () => {
+  test("keeps replay cache hot and incrementally updates task replay view", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-replay-view-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "replay-view-1";
@@ -109,7 +109,7 @@ describe("session state cleanup", () => {
     expect(turnReplay.hasSession(sessionId)).toBe(true);
 
     runtime.task.addItem(sessionId, { text: "item-1" });
-    expect(turnReplay.hasSession(sessionId)).toBe(false);
+    expect(turnReplay.hasSession(sessionId)).toBe(true);
 
     const updated = runtime.task.getState(sessionId);
     expect(updated.items).toHaveLength(1);
@@ -117,7 +117,7 @@ describe("session state cleanup", () => {
     expect(turnReplay.hasSession(sessionId)).toBe(true);
   });
 
-  test("keeps replay cache for non-folding events and invalidates for truth/task/checkpoint events", async () => {
+  test("keeps replay cache for non-folding events and incrementally folds truth updates", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-replay-filter-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const sessionId = "replay-filter-1";
@@ -157,9 +157,11 @@ describe("session state cleanup", () => {
         lastSeenAt: Date.now(),
       }) as unknown as Record<string, unknown>,
     });
-    expect(turnReplay.hasSession(sessionId)).toBe(false);
+    expect(turnReplay.hasSession(sessionId)).toBe(true);
 
-    runtime.truth.getState(sessionId);
+    const truthState = runtime.truth.getState(sessionId);
+    expect(truthState.facts).toHaveLength(1);
+    expect(truthState.facts[0]?.id).toBe("truth-1");
     expect(turnReplay.hasSession(sessionId)).toBe(true);
   });
 });

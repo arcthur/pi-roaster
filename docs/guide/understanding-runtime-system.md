@@ -38,8 +38,9 @@ Runtime domain logic is delegated to service modules in
 Short-lived per-session maps are centralized in
 `packages/brewva-runtime/src/services/session-state.ts` (`RuntimeSessionStateStore`).
 
-Task/truth reconstruction is still replay-based (`checkpoint + delta`) through
-`TurnReplayEngine`, not persisted in-memory snapshot files.
+Replay reconstruction is still tape-based (`checkpoint + delta`) through
+`TurnReplayEngine`, not persisted in-memory snapshot files. Folded replay slices
+include task/truth plus cost/evidence/memory state.
 
 ## Scheduling Boundary
 

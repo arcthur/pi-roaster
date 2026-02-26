@@ -37,6 +37,34 @@ function buildValidCheckpointPayload() {
       ],
       updatedAt: 3,
     },
+    costSummary: {
+      inputTokens: 10,
+      outputTokens: 2,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 12,
+      totalCostUsd: 0.002,
+      models: {},
+      skills: {},
+      tools: {},
+      alerts: [],
+      budget: {
+        action: "warn",
+        sessionExceeded: false,
+        skillExceeded: false,
+        blocked: false,
+      },
+    },
+    evidenceState: {
+      totalRecords: 1,
+      failureRecords: 0,
+      anchorEpoch: 0,
+      recentFailures: [],
+    },
+    memoryState: {
+      updatedAt: 3,
+      crystals: [],
+    },
     reason: "unit_test",
     createdAt: 10,
   });
@@ -84,5 +112,25 @@ describe("tape checkpoint payload coercion", () => {
       updatedAt: 9,
     };
     expect(coerceTapeCheckpointPayload(payload)).toBeNull();
+  });
+
+  test("given legacy checkpoint payload missing extended state fields, when coercing payload, then defaults are applied", () => {
+    const payload = buildValidCheckpointPayload() as unknown as {
+      state: {
+        cost?: unknown;
+        evidence?: unknown;
+        memory?: unknown;
+      };
+    };
+    delete payload.state.cost;
+    delete payload.state.evidence;
+    delete payload.state.memory;
+
+    const coerced = coerceTapeCheckpointPayload(payload);
+    expect(coerced).not.toBeNull();
+    expect(coerced?.state.cost.totalTokens).toBe(0);
+    expect(coerced?.state.costSkillLastTurnByName).toEqual({});
+    expect(coerced?.state.evidence.totalRecords).toBe(0);
+    expect(coerced?.state.memory.crystals).toHaveLength(0);
   });
 });

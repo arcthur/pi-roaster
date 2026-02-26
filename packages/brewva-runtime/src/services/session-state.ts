@@ -27,6 +27,11 @@ export class RuntimeSessionStateStore {
   readonly skillOutputsBySession = new Map<string, Map<string, SkillOutputRecord>>();
   readonly viewportPolicyBySession = new Map<string, SessionViewportPolicySnapshot>();
   readonly tapeCheckpointWriteInProgressBySession = new Set<string>();
+  readonly tapeCheckpointCounterInitializedBySession = new Set<string>();
+  readonly tapeEntriesSinceCheckpointBySession = new Map<string, number>();
+  readonly tapeLatestAnchorEventIdBySession = new Map<string, string>();
+  readonly tapeLastCheckpointEventIdBySession = new Map<string, string>();
+  readonly tapeProcessedEventIdsSinceCheckpointBySession = new Map<string, Set<string>>();
 
   getCurrentTurn(sessionId: string): number {
     return this.turnsBySession.get(sessionId) ?? 0;
@@ -58,6 +63,11 @@ export class RuntimeSessionStateStore {
 
   clearSession(sessionId: string): void {
     this.tapeCheckpointWriteInProgressBySession.delete(sessionId);
+    this.tapeCheckpointCounterInitializedBySession.delete(sessionId);
+    this.tapeEntriesSinceCheckpointBySession.delete(sessionId);
+    this.tapeLatestAnchorEventIdBySession.delete(sessionId);
+    this.tapeLastCheckpointEventIdBySession.delete(sessionId);
+    this.tapeProcessedEventIdsSinceCheckpointBySession.delete(sessionId);
     this.activeSkillsBySession.delete(sessionId);
     this.turnsBySession.delete(sessionId);
     this.toolCallsBySession.delete(sessionId);

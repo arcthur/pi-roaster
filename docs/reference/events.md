@@ -205,6 +205,29 @@ Event-sourced truth ledger stream (`brewva.truth.ledger.v1`), including:
 - `fact_upserted`
 - `fact_resolved`
 
+### `checkpoint`
+
+Tape checkpoint payload (`brewva.tape.checkpoint.v1`) includes:
+
+- `state.task`
+- `state.truth`
+- `state.cost`
+- `state.costSkillLastTurnByName`
+- `state.evidence`
+- `state.memory`
+- `basedOnEventId`
+- `latestAnchorEventId`
+- `reason`
+- `createdAt`
+
+`state.costSkillLastTurnByName` persists per-skill last seen turn metadata used
+by replay/hydration to keep `summary.skills[*].turns` deduplicated by turn after
+checkpoint restore.
+
+Legacy checkpoints that do not carry `state.cost`, `state.costSkillLastTurnByName`,
+`state.evidence`, or `state.memory` are accepted with empty defaults for those
+slices.
+
 ### `schedule_intent`
 
 Primary schedule stream (`brewva.schedule.v1`) with `kind`:
