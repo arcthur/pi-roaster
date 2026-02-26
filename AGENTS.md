@@ -15,6 +15,7 @@ Primary deliverables:
 
 - Runtime core (`@brewva/brewva-runtime`)
 - Channel adapter package (`@brewva/brewva-channels-telegram`)
+- Telegram edge ingress package (`@brewva/brewva-ingress`)
 - Tool registry (`@brewva/brewva-tools`)
 - Extension composition (`@brewva/brewva-extensions`)
 - CLI entrypoint/session bootstrap (`@brewva/brewva-cli`)
@@ -30,13 +31,14 @@ brewva/
 ├── packages/
 │   ├── brewva-runtime/            # runtime facade, services, replay, memory, schedule, policy
 │   ├── brewva-channels-telegram/  # telegram adapter, transport, projector
+│   ├── brewva-ingress/            # edge ingress server + worker adapters for webhook delivery
 │   ├── brewva-tools/              # runtime-aware tools (lsp/ast/ledger/task/schedule/tape)
 │   ├── brewva-extensions/         # SDK hook wiring for runtime integration
 │   ├── brewva-cli/                # CLI modes, session wiring, replay/undo, daemon command surface
 │   └── brewva-gateway/            # local control-plane daemon and session supervisor
 ├── distribution/                  # launcher + per-platform binary packages
 ├── script/                        # build-binaries.ts, verify-dist.ts, schema generator
-├── docs/                          # architecture / guide / journeys / reference
+├── docs/                          # index / guide / architecture / journeys / reference / troubleshooting / research
 ├── skills/                        # base / packs / project skills
 └── test/                          # runtime / cli / extensions / gateway / docs coverage
 ```
@@ -131,6 +133,7 @@ brewva/
 | Turn WAL durability/recovery | `packages/brewva-runtime/src/channels/turn-wal*.ts`      | append/recover/compact turn WAL rows            |
 | Tool registry                | `packages/brewva-tools/src/index.ts`                     | assembled tool surface                          |
 | Extension composition        | `packages/brewva-extensions/src/index.ts`                | runtime hook wiring and bridge helpers          |
+| Telegram ingress             | `packages/brewva-ingress/src/index.ts`                   | webhook ingress worker/server bootstrap         |
 | CLI command surface          | `packages/brewva-cli/src/index.ts`                       | mode routing, args, entrypoint behavior         |
 | CLI session bootstrap        | `packages/brewva-cli/src/session.ts`                     | runtime/session creation and options            |
 | Gateway daemon core          | `packages/brewva-gateway/src`                            | websocket API, supervisor, policies             |
@@ -230,8 +233,11 @@ Before finalizing:
 
 ## RELATED REFERENCE DOCS
 
+- `docs/index.md`
+- `docs/architecture/system-architecture.md`
 - `docs/reference/runtime.md`
 - `docs/reference/configuration.md`
 - `docs/reference/events.md`
 - `docs/reference/extensions.md`
 - `docs/reference/limitations.md`
+- `docs/research/README.md`

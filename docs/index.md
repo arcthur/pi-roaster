@@ -3,10 +3,11 @@
 This repository uses a layered documentation system:
 
 - `guide`: how to use and operate the system
+- `architecture`: implemented design, boundaries, and invariants
 - `reference`: stable contracts and technical surfaces
 - `journeys`: end-to-end workflows across subsystems
 - `troubleshooting`: failure patterns and remediation
-- `research`: design notes and roadmap context
+- `research`: incubating design notes with explicit promotion targets
 
 ## Getting Started
 
@@ -51,10 +52,14 @@ This repository uses a layered documentation system:
 - Glossary: `docs/reference/glossary.md`
 - Known limitations: `docs/reference/limitations.md`
 
-## Troubleshooting and Research
+## Troubleshooting
 
 - Troubleshooting: `docs/troubleshooting/common-failures.md`
-- Research notes: `docs/research/roadmap-notes.md`
+
+## Research (Incubation Layer)
+
+- Research playbook: `docs/research/README.md`
+- Roadmap notes: `docs/research/roadmap-notes.md`
 
 ## Source of Truth
 

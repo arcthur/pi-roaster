@@ -23,8 +23,10 @@
 ## Documentation Model
 
 - `guide`: operational usage
+- `architecture`: implemented design and reliability boundaries
 - `reference`: contract-level definitions
 - `journeys`: cross-module execution flows
 - `troubleshooting`: incident-oriented remediation
+- `research`: incubating notes and roadmap hypotheses before promotion to stable docs
 
 Start from `docs/index.md` for the complete map.

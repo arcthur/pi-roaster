@@ -3,6 +3,127 @@
 This document describes the implemented architecture of Brewva based on
 current package dependencies and runtime wiring.
 
+## Design Principles And Drivers
+
+### 1) Agent Autonomy With Explicit Pressure Contracts
+
+The runtime exposes three orthogonal control loops and keeps control actions in
+the agent loop:
+
+| Pipeline                | Resource                                                       | Pressure Signal                          | Agent/Runtime Action                                                 |
+| ----------------------- | -------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
+| **State Tape**          | Append-only operational state (task/truth/verification/cost)   | `tape_pressure`                          | `tape_handoff` marks semantic phase boundaries                       |
+| **Message Buffer**      | LLM context window (user/assistant/tool messages)              | `context_pressure`                       | `session_compact` compacts conversation history                      |
+| **Cognitive Inference** | Runtime cognition budget for semantic relation/ranking/lessons | cognitive budget status (calls + tokens) | `CognitivePort` path or deterministic fallback under budget pressure |
+
+In extension-enabled execution, runtime injects context policy as explicit
+contract text and pressure state, but does not silently compact on behalf of
+the agent. Memory/context surfaces are explicit and traceable via
+`brewva.identity`, `brewva.truth`, `brewva.task-state`,
+`brewva.tool-failures`, and `brewva.memory`.
+
+Cognitive behavior follows a dual-path model:
+
+- `memory.cognitive.mode="off"`: deterministic mode only.
+- `memory.cognitive.mode="shadow"`: cognition runs and is audited but cannot
+  mutate runtime decisions.
+- `memory.cognitive.mode="active"`: cognition can influence decisions within
+  budget, with deterministic fallback on error/exhaustion.
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-runtime/src/context/budget.ts`
+- `packages/brewva-extensions/src/context-transform.ts`
+- `packages/brewva-cli/src/session.ts`
+
+### 2) Tape-First Recovery And Replay
+
+Runtime state is recovered from append-only tape events instead of opaque
+process-local blobs:
+
+- Per turn: replay from checkpoints + deltas reconstructs task/truth/cost and
+  related runtime state.
+- On startup: session hydration rebuilds counters, warning dedupe sets, and
+  budget states from persisted tape/events.
+- For memory artifacts: missing projection files can be rebuilt from
+  `memory_*` snapshot semantics and extraction fallback.
+- Checkpoints optimize replay speed; anchors remain semantic phase markers
+  controlled by the agent.
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/tape/replay-engine.ts`
+- `packages/brewva-runtime/src/channels/turn-wal.ts`
+- `packages/brewva-runtime/src/events/store.ts`
+- `packages/brewva-cli/src/index.ts`
+
+### 3) Contract-Driven Execution Boundaries
+
+Execution is constrained by explicit contracts at each layer:
+
+- Skill contracts define allowed tools, budget envelope, and required outputs.
+- Verification gates (`quick` / `standard` / `strict`) block completion until
+  required evidence is recorded.
+- Fail-closed context handling blocks unsafe continuation when context pressure
+  is critical and compaction contract is not satisfied.
+- Evidence ledger is append-only; missing evidence is treated as a hard
+  completion blocker.
+- Budget policies constrain context injection, session cost, and parallel
+  runtime behavior.
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/security/tool-policy.ts`
+- `packages/brewva-runtime/src/ledger/evidence-ledger.ts`
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-tools/src/skill-complete.ts`
+
+### 4) Projection-Based Memory (Derived, Traceable, Reviewable)
+
+Memory is a projection layer derived from event tape semantics:
+
+- Source of truth is tape events under `.orchestrator/events/`.
+- Projection outputs (`Unit`, `Crystal`, `Insight`, `EVOLVES`) are persisted as
+  derived artifacts under `.orchestrator/memory/`.
+- Projection snapshots (`memory_*`) keep replay/rebuild paths deterministic even
+  when projection artifacts are missing.
+- Working-memory context can be injected with budget-aware truncation/drop
+  behavior in extension-enabled profile.
+- EVOLVES effects remain review-gated before mutating stable unit state.
+
+Event stream visibility remains level-based via
+`infrastructure.events.level`:
+
+- `audit`: replay/audit-critical stream.
+- `ops`: audit stream + operational transitions and warnings.
+- `debug`: full diagnostic details including cognitive and scan telemetry.
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/memory/engine.ts`
+- `packages/brewva-runtime/src/memory/store.ts`
+- `packages/brewva-runtime/src/cost/tracker.ts`
+- `packages/brewva-extensions/src/event-stream.ts`
+
+### 5) Workspace-First Orchestration
+
+Orchestration is modeled as workspace state first, process memory second:
+
+- Worker state is isolated by agent/session namespaces to avoid contamination.
+- Callback routing and approval state are persisted for restart continuity.
+- Runtime lifecycle restoration relies on persisted records and deterministic
+  rebuild paths.
+- Cross-agent coordination and channel boundaries remain explicit in evented
+  surfaces for replay and postmortem analysis.
+
+Implementation anchors:
+
+- `packages/brewva-gateway/src`
+- `packages/brewva-ingress/src/telegram-ingress.ts`
+- `packages/brewva-ingress/src/telegram-webhook-worker.ts`
+- `packages/brewva-runtime/src/runtime.ts`
+
 ## Package Dependency Graph
 
 ```mermaid
