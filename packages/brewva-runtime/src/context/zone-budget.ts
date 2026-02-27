@@ -1,4 +1,4 @@
-import { ZONE_ORDER, type ContextZone } from "./zones.js";
+import { ZONE_ORDER, createZeroZoneTokenMap, type ContextZone } from "./zones.js";
 
 export type ZoneBudgetConfig = Record<ContextZone, { min: number; max: number }>;
 
@@ -19,17 +19,6 @@ function normalizeLimit(value: number): number {
   return Math.max(0, Math.floor(value));
 }
 
-function createZeroAllocations(): Record<ContextZone, number> {
-  return {
-    identity: 0,
-    truth: 0,
-    task_state: 0,
-    tool_failures: 0,
-    memory_working: 0,
-    memory_recall: 0,
-  };
-}
-
 export class ZoneBudgetAllocator {
   private readonly config: ZoneBudgetConfig;
 
@@ -39,12 +28,12 @@ export class ZoneBudgetAllocator {
 
   allocate(input: { totalBudget: number; zoneDemands: ZoneDemand }): ZoneBudgetAllocationResult {
     const totalBudget = Math.max(0, Math.floor(input.totalBudget));
-    const demands: Record<ContextZone, number> = createZeroAllocations();
+    const demands: Record<ContextZone, number> = createZeroZoneTokenMap();
     for (const zone of ZONE_ORDER) {
       demands[zone] = normalizeDemand(input.zoneDemands[zone]);
     }
 
-    const allocated = createZeroAllocations();
+    const allocated = createZeroZoneTokenMap();
     let floorSum = 0;
     for (const zone of ZONE_ORDER) {
       const demand = demands[zone];
@@ -60,7 +49,7 @@ export class ZoneBudgetAllocator {
       return {
         accepted: false,
         reason: "floor_unmet",
-        ...createZeroAllocations(),
+        ...createZeroZoneTokenMap(),
       };
     }
 

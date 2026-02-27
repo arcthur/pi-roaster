@@ -103,5 +103,6 @@ export function buildContextSourceTokenLimits(
     "brewva.truth-facts": fromRatio(0.15, 96, 420),
     "brewva.memory-working": fromRatio(0.3, 128, Math.max(220, Math.floor(budget * 0.65))),
     "brewva.memory-recall": fromRatio(0.36, 160, budget),
+    "brewva.rag-external": fromRatio(0.2, 128, budget),
   };
 }

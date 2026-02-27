@@ -379,6 +379,12 @@ export interface BrewvaConfig {
       confidence: number;
     };
     recallMode: "primary" | "fallback";
+    externalRecall: {
+      enabled: boolean;
+      minInternalScore: number;
+      queryTopK: number;
+      injectedConfidence: number;
+    };
     evolvesMode: "off" | "shadow";
     cognitive: {
       mode: "off" | "shadow" | "active";
@@ -449,7 +455,29 @@ export interface BrewvaConfig {
       hardLimitPercent: number;
       truncationStrategy: "drop-entry" | "summarize" | "tail";
       compactionInstructions: string;
+      compaction: {
+        minTurnsBetween: number;
+        minSecondsBetween: number;
+        pressureBypassPercent: number;
+      };
+      adaptiveZones: {
+        enabled: boolean;
+        emaAlpha: number;
+        minTurnsBeforeAdapt: number;
+        stepTokens: number;
+        maxShiftPerTurn: number;
+        upshiftTruncationRatio: number;
+        downshiftIdleRatio: number;
+      };
+      floorUnmetPolicy: {
+        enabled: boolean;
+        relaxOrder: ContextBudgetZone[];
+        finalFallback: "critical_only";
+        requestCompaction: boolean;
+      };
       arena: {
+        maxEntriesPerSession: number;
+        degradationPolicy: ContextArenaDegradationPolicy;
         zones: {
           identity: { min: number; max: number };
           truth: { min: number; max: number };
@@ -457,6 +485,7 @@ export interface BrewvaConfig {
           toolFailures: { min: number; max: number };
           memoryWorking: { min: number; max: number };
           memoryRecall: { min: number; max: number };
+          ragExternal: { min: number; max: number };
         };
       };
     };
@@ -692,6 +721,19 @@ export type TapePressureLevel = "none" | "low" | "medium" | "high";
 
 export type ContextPressureLevel = "none" | "low" | "medium" | "high" | "critical" | "unknown";
 
+export type ContextBudgetZone =
+  | "identity"
+  | "truth"
+  | "task_state"
+  | "tool_failures"
+  | "memory_working"
+  | "memory_recall"
+  | "rag_external";
+
+export type ContextArenaDegradationPolicy = "drop_recall" | "drop_low_priority" | "force_compact";
+
+export type ContextCompactionReason = "usage_threshold" | "hard_limit" | "floor_unmet";
+
 export interface ContextPressureStatus {
   level: ContextPressureLevel;
   usageRatio: number | null;
@@ -701,6 +743,7 @@ export interface ContextPressureStatus {
 
 export interface ContextCompactionGateStatus {
   required: boolean;
+  reason: ContextCompactionReason | null;
   pressure: ContextPressureStatus;
   recentCompaction: boolean;
   windowTurns: number;
@@ -754,6 +797,7 @@ export interface ContextBudgetSessionState {
   lastCompactionTurn: number;
   lastCompactionAtMs?: number;
   lastContextUsage?: ContextBudgetUsage;
+  pendingCompactionReason?: ContextCompactionReason;
 }
 
 export interface ContextInjectionDecision {
@@ -767,7 +811,7 @@ export interface ContextInjectionDecision {
 
 export interface ContextCompactionDecision {
   shouldCompact: boolean;
-  reason?: "usage_threshold" | "hard_limit";
+  reason?: ContextCompactionReason;
   usage?: ContextBudgetUsage;
 }
 

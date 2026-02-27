@@ -4,7 +4,8 @@ export type ContextZone =
   | "task_state"
   | "tool_failures"
   | "memory_working"
-  | "memory_recall";
+  | "memory_recall"
+  | "rag_external";
 
 export const ZONE_ORDER: ContextZone[] = [
   "identity",
@@ -13,6 +14,7 @@ export const ZONE_ORDER: ContextZone[] = [
   "tool_failures",
   "memory_working",
   "memory_recall",
+  "rag_external",
 ];
 
 const SOURCE_TO_ZONE: Record<string, ContextZone> = {
@@ -23,6 +25,7 @@ const SOURCE_TO_ZONE: Record<string, ContextZone> = {
   "brewva.tool-failures": "tool_failures",
   "brewva.memory-working": "memory_working",
   "brewva.memory-recall": "memory_recall",
+  "brewva.rag-external": "rag_external",
 };
 
 export function zoneForSource(source: string): ContextZone {
@@ -32,4 +35,16 @@ export function zoneForSource(source: string): ContextZone {
 export function zoneOrderIndex(zone: ContextZone): number {
   const index = ZONE_ORDER.indexOf(zone);
   return index >= 0 ? index : ZONE_ORDER.length;
+}
+
+export function createZeroZoneTokenMap(): Record<ContextZone, number> {
+  return {
+    identity: 0,
+    truth: 0,
+    task_state: 0,
+    tool_failures: 0,
+    memory_working: 0,
+    memory_recall: 0,
+    rag_external: 0,
+  };
 }

@@ -29,7 +29,7 @@ import {
 } from "./runtime-helpers.js";
 import { SchedulerService } from "./schedule/service.js";
 import { sanitizeContextText } from "./security/sanitize.js";
-import { ContextService } from "./services/context.js";
+import { ContextService, type ExternalRecallPort } from "./services/context.js";
 import { CostService } from "./services/cost.js";
 import { EventPipelineService, type RuntimeRecordEventInput } from "./services/event-pipeline.js";
 import { FileChangeService } from "./services/file-change.js";
@@ -50,6 +50,7 @@ import { selectTopKSkills } from "./skills/selector.js";
 import { FileChangeTracker } from "./state/file-change-tracker.js";
 import { TurnReplayEngine } from "./tape/replay-engine.js";
 import type {
+  ContextCompactionReason,
   ContextPressureLevel,
   ContextPressureStatus,
   ContextCompactionGateStatus,
@@ -96,6 +97,7 @@ export interface BrewvaRuntimeOptions {
   configPath?: string;
   config?: BrewvaConfig;
   cognitivePort?: CognitivePort;
+  externalRecallPort?: ExternalRecallPort;
   agentId?: string;
 }
 
@@ -224,6 +226,8 @@ export class BrewvaRuntime {
       injectionScopeId?: string,
     ): void;
     shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean;
+    requestCompaction(sessionId: string, reason: ContextCompactionReason): void;
+    getPendingCompactionReason(sessionId: string): ContextCompactionReason | null;
     getCompactionInstructions(): string;
     getCompactionWindowTurns(): number;
     markCompacted(
@@ -577,7 +581,12 @@ export class BrewvaRuntime {
         tool_failures: this.config.infrastructure.contextBudget.arena.zones.toolFailures,
         memory_working: this.config.infrastructure.contextBudget.arena.zones.memoryWorking,
         memory_recall: this.config.infrastructure.contextBudget.arena.zones.memoryRecall,
+        rag_external: this.config.infrastructure.contextBudget.arena.zones.ragExternal,
       },
+      adaptiveZones: this.config.infrastructure.contextBudget.adaptiveZones,
+      maxEntriesPerSession: this.config.infrastructure.contextBudget.arena.maxEntriesPerSession,
+      degradationPolicy: this.config.infrastructure.contextBudget.arena.degradationPolicy,
+      floorUnmetPolicy: this.config.infrastructure.contextBudget.floorUnmetPolicy,
     });
     const turnReplay = new TurnReplayEngine({
       listEvents: (sessionId) => eventStore.list(sessionId),
@@ -705,6 +714,7 @@ export class BrewvaRuntime {
       contextBudget: this.contextBudget,
       contextInjection: this.contextInjection,
       memory: this.memoryEngine,
+      externalRecallPort: options.externalRecallPort,
       fileChanges: this.fileChanges,
       ledger: this.ledger,
       sessionState: this.sessionState,
@@ -906,6 +916,10 @@ export class BrewvaRuntime {
           ),
         shouldRequestCompaction: (sessionId, usage) =>
           this.contextService.shouldRequestCompaction(sessionId, usage),
+        requestCompaction: (sessionId, reason) =>
+          this.contextService.requestCompaction(sessionId, reason),
+        getPendingCompactionReason: (sessionId) =>
+          this.contextService.getPendingCompactionReason(sessionId),
         getCompactionInstructions: () => this.contextService.getCompactionInstructions(),
         getCompactionWindowTurns: () => this.contextService.getRecentCompactionWindowTurns(),
         markCompacted: (sessionId, input) =>

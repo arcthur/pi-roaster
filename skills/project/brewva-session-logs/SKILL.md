@@ -1,10 +1,10 @@
 ---
 name: brewva-session-logs
-description: Search and analyze Brewva runtime session artifacts (event store, evidence ledger, memory, cost, tape) using jq and rg.
-version: 1.0.0
+description: Search and analyze Brewva runtime session artifacts (event store, evidence ledger, memory, cost, tape, context arena telemetry) using jq and rg.
+version: 1.1.0
 stability: stable
 tier: project
-tags: [session, logs, events, ledger, memory, cost, diagnosis, jsonl]
+tags: [session, logs, events, ledger, memory, cost, diagnosis, jsonl, context-arena]
 anti_tags: []
 tools:
   required: [read, grep]
@@ -82,8 +82,9 @@ All paths are relative to the workspace root (detected via `.brewva/` marker or 
 | `turn`      | number? | Turn number (when applicable) |
 | `payload`   | object? | Event-specific data           |
 
-Event types: `session_start`, `agent_end`, `tool_call`, `tape_anchor`, `checkpoint`,
-`memory_*`, `cost_update`, `context_usage`, `task_event`, `ledger_compacted`,
+Event types: `session_start`, `agent_end`, `tool_call`, `anchor`, `checkpoint`,
+`memory_*`, `cost_update`, `context_usage`, `context_injected`, `context_injection_dropped`,
+`context_arena_*`, `context_external_recall_*`, `task_event`, `ledger_compacted`,
 `skill_completed`.
 
 ### Evidence Ledger
@@ -184,6 +185,50 @@ done | awk '{a[$1]+=$2} END {for(d in a) printf "%s $%.4f\n", d, a[d]}' | sort -
 ```bash
 jq -r 'select(.type == "context_usage") | "turn=\(.turn // "?") tokens=\(.payload.tokens) pct=\(.payload.percent * 100 | floor)%"' \
   .orchestrator/events/<sessionId>.jsonl
+```
+
+### Context arena planning telemetry
+
+```bash
+jq -r '
+  select(.type == "context_injected" or .type == "context_injection_dropped")
+  | [
+      .timestamp,
+      .type,
+      ("floor_unmet=" + ((.payload.floorUnmet // false) | tostring)),
+      ("degrade=" + (.payload.degradationApplied // "none")),
+      ("truth_alloc=" + ((.payload.zoneAllocatedTokens.truth // 0) | tostring)),
+      ("truth_accept=" + ((.payload.zoneAcceptedTokens.truth // 0) | tostring)),
+      ("recall_alloc=" + ((.payload.zoneAllocatedTokens.memory_recall // 0) | tostring)),
+      ("recall_accept=" + ((.payload.zoneAcceptedTokens.memory_recall // 0) | tostring))
+    ]
+  | @tsv
+' .orchestrator/events/<sessionId>.jsonl
+```
+
+### Arena adaptation / SLO / floor recovery events
+
+```bash
+jq -r '
+  select(
+    .type == "context_arena_zone_adapted"
+    or .type == "context_arena_slo_enforced"
+    or .type == "context_arena_floor_unmet_recovered"
+    or .type == "context_arena_floor_unmet_unrecoverable"
+  )
+  | [.timestamp, .type, (.payload | tostring)]
+  | @tsv
+' .orchestrator/events/<sessionId>.jsonl
+```
+
+### External recall boundary outcomes
+
+```bash
+jq -r '
+  select(.type == "context_external_recall_injected" or .type == "context_external_recall_skipped")
+  | [.timestamp, .type, (.payload.reason // "injected"), (.payload.query // "")]
+  | @tsv
+' .orchestrator/events/<sessionId>.jsonl
 ```
 
 ### Search across ALL sessions for a keyword
@@ -337,6 +382,7 @@ Determine what to inspect:
 - date range → scan event files by timestamp
 - keyword/pattern → `rg` across all session files
 - cost question → filter `agent_end` or `cost_update` events
+- context allocator question → filter `context_injected`, `context_injection_dropped`, `context_arena_*`, `context_external_recall_*`
 
 ### Step 2: Extract evidence
 

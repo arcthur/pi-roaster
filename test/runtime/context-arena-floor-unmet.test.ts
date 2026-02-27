@@ -17,7 +17,7 @@ function createConfig(): BrewvaConfig {
 }
 
 describe("context arena floor unmet", () => {
-  test("emits context_arena_floor_unmet when zone floors exceed available budget", async () => {
+  test("emits context_arena_floor_unmet_unrecoverable when zone floors exceed available budget", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-arena-floor-unmet-"));
     writeFileSync(
       join(workspace, "AGENTS.md"),
@@ -46,7 +46,7 @@ describe("context arena floor unmet", () => {
     expect(result.text).toBe("");
 
     const event = runtime.events.query(sessionId, {
-      type: "context_arena_floor_unmet",
+      type: "context_arena_floor_unmet_unrecoverable",
       last: 1,
     })[0];
     expect(event).toBeDefined();

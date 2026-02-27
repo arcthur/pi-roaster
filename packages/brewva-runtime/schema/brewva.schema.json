@@ -78,10 +78,43 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "adaptiveZones": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "downshiftIdleRatio": {
+                      "type": "number"
+                    },
+                    "emaAlpha": {
+                      "type": "number"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "maxShiftPerTurn": {
+                      "type": "number"
+                    },
+                    "minTurnsBeforeAdapt": {
+                      "type": "number"
+                    },
+                    "stepTokens": {
+                      "type": "number"
+                    },
+                    "upshiftTruncationRatio": {
+                      "type": "number"
+                    }
+                  }
+                },
                 "arena": {
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
+                    "degradationPolicy": {
+                      "$ref": "#/definitions/ContextArenaDegradationPolicy"
+                    },
+                    "maxEntriesPerSession": {
+                      "type": "number"
+                    },
                     "zones": {
                       "type": "object",
                       "additionalProperties": false,
@@ -111,6 +144,18 @@
                           }
                         },
                         "memoryWorking": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "max": {
+                              "type": "number"
+                            },
+                            "min": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "ragExternal": {
                           "type": "object",
                           "additionalProperties": false,
                           "properties": {
@@ -162,6 +207,21 @@
                     }
                   }
                 },
+                "compaction": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "minSecondsBetween": {
+                      "type": "number"
+                    },
+                    "minTurnsBetween": {
+                      "type": "number"
+                    },
+                    "pressureBypassPercent": {
+                      "type": "number"
+                    }
+                  }
+                },
                 "compactionInstructions": {
                   "type": "string"
                 },
@@ -170,6 +230,37 @@
                 },
                 "enabled": {
                   "type": "boolean"
+                },
+                "floorUnmetPolicy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "finalFallback": {
+                      "type": "string",
+                      "const": "critical_only"
+                    },
+                    "relaxOrder": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "identity",
+                          "truth",
+                          "task_state",
+                          "tool_failures",
+                          "memory_working",
+                          "memory_recall",
+                          "rag_external"
+                        ]
+                      }
+                    },
+                    "requestCompaction": {
+                      "type": "boolean"
+                    }
+                  }
                 },
                 "hardLimitPercent": {
                   "type": "number"
@@ -315,6 +406,24 @@
             "evolvesMode": {
               "type": "string",
               "enum": ["off", "shadow"]
+            },
+            "externalRecall": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "injectedConfidence": {
+                  "type": "number"
+                },
+                "minInternalScore": {
+                  "type": "number"
+                },
+                "queryTopK": {
+                  "type": "number"
+                }
+              }
             },
             "global": {
               "type": "object",
@@ -556,6 +665,10 @@
           }
         }
       }
+    },
+    "ContextArenaDegradationPolicy": {
+      "type": "string",
+      "enum": ["drop_recall", "drop_low_priority", "force_compact"]
     },
     "SkillContractOverride": {
       "type": "object",

@@ -10,19 +10,19 @@ current package dependencies and runtime wiring.
 The runtime exposes four orthogonal control loops and keeps control actions in
 the agent loop:
 
-| Pipeline                    | Resource                                                                        | Pressure Signal                          | Agent/Runtime Action                                                 |
-| --------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
-| **State Tape**              | Append-only operational state (task/truth/verification/cost)                    | `tape_pressure`                          | `tape_handoff` marks semantic phase boundaries                       |
-| **Message Buffer**          | LLM context window (user/assistant/tool messages)                               | `context_pressure`                       | `session_compact` compacts conversation history                      |
-| **Context Injection Arena** | Append-only semantic injection arena (identity/truth/task/tool-failures/memory) | zone floors/caps + injection hard limit  | deterministic zone planning + truncation/drop + floor_unmet event    |
-| **Cognitive Inference**     | Runtime cognition budget for semantic relation/ranking/lessons                  | cognitive budget status (calls + tokens) | `CognitivePort` path or deterministic fallback under budget pressure |
+| Pipeline                    | Resource                                                                                  | Pressure Signal                                     | Agent/Runtime Action                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------- |
+| **State Tape**              | Append-only operational state (task/truth/verification/cost)                              | `tape_pressure`                                     | `tape_handoff` marks semantic phase boundaries                              |
+| **Message Buffer**          | LLM context window (user/assistant/tool messages)                                         | `context_pressure`                                  | `session_compact` compacts conversation history                             |
+| **Context Injection Arena** | Append-only semantic arena (identity/truth/task/tool-failures/memory + optional external) | zone floors/caps + arena SLO + global injection cap | allocator-first planning + adaptive zone controller + deterministic degrade |
+| **Cognitive Inference**     | Runtime cognition budget for semantic relation/ranking/lessons                            | cognitive budget status (calls + tokens)            | `CognitivePort` path or deterministic fallback under budget pressure        |
 
 In extension-enabled execution, runtime injects context policy as explicit
 contract text and pressure state, but does not silently compact on behalf of
 the agent. Memory/context surfaces are explicit and traceable via
 `brewva.identity`, `brewva.truth-static`, `brewva.truth-facts`,
 `brewva.task-state`, `brewva.tool-failures`, `brewva.memory-working`,
-and `brewva.memory-recall`.
+`brewva.memory-recall`, and optional `brewva.rag-external`.
 
 Context injection follows allocator-first constraints:
 
@@ -30,13 +30,23 @@ Context injection follows allocator-first constraints:
   writes append, planning reads latest-by-key, and lifecycle reset is explicit
   (`markCompacted -> onCompaction -> resetEpoch`).
 - Planning order is deterministic by semantic zone locality first
-  (`identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall`),
+  (`identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall -> rag_external`),
   then by source priority/timestamp within a zone.
+- Allocation and control are split by design:
+  - `ZoneBudgetAllocator` stays pure (`totalBudget + demand + config -> allocation`).
+  - `ZoneBudgetController` is the closed-loop control plane (EMA-based utilization/truncation feedback) that mutates next-turn zone caps and emits `context_arena_zone_adapted`.
 - Budgeting is bidirectional (Goldilocks): per-zone floor+cap allocation and
-  global injection cap are enforced together; unsatisfied demanded floors emit
-  `context_arena_floor_unmet` and reject that injection plan.
+  global injection cap are enforced together.
+  - Floor unmet path is deterministic: floor relaxation cascade (`floorUnmetPolicy.relaxOrder`) -> `critical_only` fallback -> explicit `context_arena_floor_unmet_unrecoverable`.
+  - Recoverable floor unmet emits `context_arena_floor_unmet_recovered`.
+- Arena memory has explicit SLO boundaries (`arena.maxEntriesPerSession`):
+  deterministic degradation policy (`drop_recall` / `drop_low_priority` / `force_compact`) with `context_arena_slo_enforced` telemetry.
 - Memory recall loading is dynamic: `memory.recallMode="fallback"` skips
   `brewva.memory-recall` under high/critical context pressure.
+- External retrieval is an explicit I/O boundary, not a parallel prompt path:
+  `brewva.rag-external` is injected only when skill tag `external-knowledge`
+  is active, internal recall score is below threshold, and an external provider
+  is available (`context_external_recall_skipped` / `context_external_recall_injected`).
 
 Cognitive behavior follows a dual-path model:
 
@@ -52,6 +62,7 @@ Implementation anchors:
 - `packages/brewva-runtime/src/context/budget.ts`
 - `packages/brewva-runtime/src/context/arena.ts`
 - `packages/brewva-runtime/src/context/zone-budget.ts`
+- `packages/brewva-runtime/src/context/zone-budget-controller.ts`
 - `packages/brewva-runtime/src/context/zones.ts`
 - `packages/brewva-runtime/src/context/injection-orchestrator.ts`
 - `packages/brewva-extensions/src/context-transform.ts`

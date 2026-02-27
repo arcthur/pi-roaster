@@ -149,6 +149,7 @@ describe("ContextArena", () => {
         tool_failures: { min: 0, max: 240 },
         memory_working: { min: 0, max: 300 },
         memory_recall: { min: 0, max: 600 },
+        rag_external: { min: 0, max: 0 },
       },
     });
     arena.append(sessionId, {
@@ -190,5 +191,224 @@ describe("ContextArena", () => {
     const plan = arena.plan(hotSession, 10_000);
     expect(plan.entries).toHaveLength(1);
     expect(plan.entries[0]?.content).toBe("fact-2499");
+  });
+
+  test("drop_recall policy drops incoming recall entry at SLO ceiling", () => {
+    const arena = new ContextArena({
+      maxEntriesPerSession: 1,
+      degradationPolicy: "drop_recall",
+    });
+    arena.append(sessionId, {
+      source: "brewva.truth-facts",
+      id: "truth-facts",
+      content: "truth",
+      priority: "critical",
+    });
+    const dropped = arena.append(sessionId, {
+      source: "brewva.memory-recall",
+      id: "memory-recall",
+      content: "recall",
+      priority: "normal",
+    });
+    expect(dropped.accepted).toBe(false);
+    expect(dropped.sloEnforced?.policy).toBe("drop_recall");
+    expect(dropped.sloEnforced?.dropped).toBe(true);
+  });
+
+  test("drop_recall policy does not evict existing recall entries when incoming entry is also recall", () => {
+    const arena = new ContextArena({
+      maxEntriesPerSession: 1,
+      degradationPolicy: "drop_recall",
+    });
+    arena.append(sessionId, {
+      source: "brewva.memory-recall",
+      id: "memory-recall",
+      content: "old-recall",
+      priority: "normal",
+    });
+    const dropped = arena.append(sessionId, {
+      source: "brewva.memory-recall",
+      id: "memory-recall-next",
+      content: "new-recall",
+      priority: "normal",
+    });
+    expect(dropped.accepted).toBe(false);
+    expect(dropped.sloEnforced?.policy).toBe("drop_recall");
+
+    const plan = arena.plan(sessionId, 500);
+    expect(plan.entries).toHaveLength(1);
+    expect(plan.entries[0]?.id).toBe("memory-recall");
+    expect(plan.entries[0]?.content).toBe("old-recall");
+  });
+
+  test("drop_low_priority policy evicts low-priority active entry for critical append", () => {
+    const arena = new ContextArena({
+      maxEntriesPerSession: 1,
+      degradationPolicy: "drop_low_priority",
+    });
+    arena.append(sessionId, {
+      source: "brewva.memory-recall",
+      id: "memory-recall",
+      content: "recall",
+      priority: "low",
+    });
+    const appended = arena.append(sessionId, {
+      source: "brewva.truth-facts",
+      id: "truth-facts",
+      content: "truth",
+      priority: "critical",
+    });
+    expect(appended.accepted).toBe(true);
+    expect(appended.sloEnforced?.policy).toBe("drop_low_priority");
+    const plan = arena.plan(sessionId, 500);
+    expect(plan.entries).toHaveLength(1);
+    expect(plan.entries[0]?.source).toBe("brewva.truth-facts");
+  });
+
+  test("force_compact policy clears active arena when ceiling is hit", () => {
+    const arena = new ContextArena({
+      maxEntriesPerSession: 1,
+      degradationPolicy: "force_compact",
+    });
+    arena.append(sessionId, {
+      source: "brewva.truth-facts",
+      id: "truth-facts",
+      content: "truth-v1",
+      priority: "critical",
+    });
+    const appended = arena.append(sessionId, {
+      source: "brewva.task-state",
+      id: "task-state",
+      content: "task-v1",
+      priority: "critical",
+    });
+    expect(appended.accepted).toBe(true);
+    expect(appended.sloEnforced?.policy).toBe("force_compact");
+    const plan = arena.plan(sessionId, 500);
+    expect(plan.entries).toHaveLength(1);
+    expect(plan.entries[0]?.source).toBe("brewva.task-state");
+  });
+
+  test("recovers floor_unmet via configured floor relaxation cascade", () => {
+    const arena = new ContextArena({
+      zoneLayout: true,
+      floorUnmetPolicy: {
+        enabled: true,
+        relaxOrder: ["memory_recall"],
+        finalFallback: "critical_only",
+      },
+      zoneBudgets: {
+        identity: { min: 0, max: 320 },
+        truth: { min: 0, max: 420 },
+        task_state: { min: 0, max: 360 },
+        tool_failures: { min: 80, max: 240 },
+        memory_working: { min: 0, max: 300 },
+        memory_recall: { min: 80, max: 600 },
+        rag_external: { min: 0, max: 0 },
+      },
+    });
+    arena.append(sessionId, {
+      source: "brewva.tool-failures",
+      id: "tool-failures",
+      content: "f".repeat(500),
+      priority: "high",
+    });
+    arena.append(sessionId, {
+      source: "brewva.memory-recall",
+      id: "memory-recall",
+      content: "r".repeat(500),
+      priority: "normal",
+    });
+
+    const planned = arena.plan(sessionId, 100);
+    expect(planned.planReason).toBeUndefined();
+    expect(planned.entries.length).toBeGreaterThan(0);
+    expect(planned.planTelemetry.floorUnmet).toBe(true);
+    expect(planned.planTelemetry.appliedFloorRelaxation).toContain("memory_recall");
+  });
+
+  test("critical_only fallback keeps floor_unmet telemetry when recovery succeeds", () => {
+    const arena = new ContextArena({
+      zoneLayout: true,
+      floorUnmetPolicy: {
+        enabled: true,
+        relaxOrder: [],
+        finalFallback: "critical_only",
+      },
+      zoneBudgets: {
+        identity: { min: 0, max: 320 },
+        truth: { min: 0, max: 420 },
+        task_state: { min: 0, max: 360 },
+        tool_failures: { min: 80, max: 240 },
+        memory_working: { min: 0, max: 300 },
+        memory_recall: { min: 80, max: 600 },
+        rag_external: { min: 0, max: 0 },
+      },
+    });
+    arena.append(sessionId, {
+      source: "brewva.tool-failures",
+      id: "tool-failures",
+      content: "f".repeat(300),
+      priority: "high",
+    });
+    arena.append(sessionId, {
+      source: "brewva.truth-facts",
+      id: "truth-facts",
+      content: "truth-fact",
+      priority: "critical",
+    });
+
+    const planned = arena.plan(sessionId, 20);
+    expect(planned.planReason).toBeUndefined();
+    expect(planned.entries.some((entry) => entry.source === "brewva.truth-facts")).toBe(true);
+    expect(planned.entries.some((entry) => entry.source === "brewva.tool-failures")).toBe(false);
+    expect(planned.planTelemetry.floorUnmet).toBe(true);
+  });
+
+  test("snapshot exposes adaptive controller EMA state", () => {
+    const adaptiveSessionId = "context-arena-adaptive-snapshot";
+    const arena = new ContextArena({
+      zoneLayout: true,
+      truncationStrategy: "drop-entry",
+      zoneBudgets: {
+        identity: { min: 0, max: 320 },
+        truth: { min: 0, max: 420 },
+        task_state: { min: 0, max: 360 },
+        tool_failures: { min: 0, max: 480 },
+        memory_working: { min: 0, max: 300 },
+        memory_recall: { min: 0, max: 600 },
+        rag_external: { min: 1, max: 160 },
+      },
+      adaptiveZones: {
+        enabled: true,
+        emaAlpha: 1,
+        minTurnsBeforeAdapt: 8,
+        stepTokens: 32,
+        maxShiftPerTurn: 96,
+        upshiftTruncationRatio: 0.25,
+        downshiftIdleRatio: 0.15,
+      },
+    });
+    arena.append(adaptiveSessionId, {
+      source: "brewva.truth-facts",
+      id: "truth-facts",
+      content: "t".repeat(2_000),
+      priority: "critical",
+    });
+    arena.append(adaptiveSessionId, {
+      source: "brewva.rag-external",
+      id: "rag-external",
+      content: "r".repeat(800),
+      priority: "normal",
+    });
+
+    arena.plan(adaptiveSessionId, 421);
+    const snapshot = arena.snapshot(adaptiveSessionId);
+
+    expect(snapshot.adaptiveController).not.toBeNull();
+    expect(snapshot.adaptiveController?.turn).toBe(1);
+    expect(snapshot.adaptiveController?.emaTruncationByZone.truth).toBeGreaterThan(0);
+    expect(snapshot.adaptiveController?.emaIdleByZone.rag_external).toBeGreaterThan(0);
+    expect(snapshot.adaptiveController?.maxByZone.truth).toBe(420);
   });
 });

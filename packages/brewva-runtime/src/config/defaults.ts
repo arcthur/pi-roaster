@@ -48,6 +48,12 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       confidence: 0.2,
     },
     recallMode: "primary",
+    externalRecall: {
+      enabled: false,
+      minInternalScore: 0.62,
+      queryTopK: 5,
+      injectedConfidence: 0.6,
+    },
     evolvesMode: "shadow",
     cognitive: {
       mode: "active",
@@ -121,7 +127,29 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       truncationStrategy: "summarize",
       compactionInstructions:
         "Summarize stale tool outputs and keep only active objectives, unresolved failures, and latest verification evidence.",
+      compaction: {
+        minTurnsBetween: 2,
+        minSecondsBetween: 45,
+        pressureBypassPercent: 0.94,
+      },
+      adaptiveZones: {
+        enabled: true,
+        emaAlpha: 0.3,
+        minTurnsBeforeAdapt: 3,
+        stepTokens: 32,
+        maxShiftPerTurn: 96,
+        upshiftTruncationRatio: 0.25,
+        downshiftIdleRatio: 0.15,
+      },
+      floorUnmetPolicy: {
+        enabled: true,
+        relaxOrder: ["memory_recall", "tool_failures", "memory_working"],
+        finalFallback: "critical_only",
+        requestCompaction: true,
+      },
       arena: {
+        maxEntriesPerSession: 4096,
+        degradationPolicy: "drop_recall",
         zones: {
           identity: { min: 0, max: 320 },
           truth: { min: 0, max: 420 },
@@ -129,6 +157,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
           toolFailures: { min: 0, max: 480 },
           memoryWorking: { min: 0, max: 300 },
           memoryRecall: { min: 0, max: 600 },
+          ragExternal: { min: 0, max: 0 },
         },
       },
     },

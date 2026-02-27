@@ -128,7 +128,12 @@ function weakSemanticFloor(weights: MemoryRetrievalWeights): number {
   return Math.max(0.05, Math.min(0.2, (weights.recency + weights.confidence) * 0.35));
 }
 
-function sourceTierForSession(sessionId: string): MemorySearchHit["sourceTier"] {
+function sourceTierForSession(
+  sessionId: string,
+  metadata?: Record<string, unknown>,
+): MemorySearchHit["sourceTier"] {
+  const sourceTier = typeof metadata?.["sourceTier"] === "string" ? metadata["sourceTier"] : null;
+  if (sourceTier === "external") return "external";
   return sessionId === GLOBAL_SESSION_ID ? "global" : "session";
 }
 
@@ -196,7 +201,7 @@ function scoreUnit(
   return {
     kind: "unit",
     id: unit.id,
-    sourceTier: sourceTierForSession(unit.sessionId),
+    sourceTier: sourceTierForSession(unit.sessionId, unit.metadata),
     topic: unit.topic,
     excerpt: toExcerpt(unit.statement),
     score,
@@ -232,7 +237,7 @@ function scoreCrystal(
   return {
     kind: "crystal",
     id: crystal.id,
-    sourceTier: sourceTierForSession(crystal.sessionId),
+    sourceTier: sourceTierForSession(crystal.sessionId, crystal.metadata),
     topic: crystal.topic,
     excerpt: toExcerpt(crystal.summary),
     score,

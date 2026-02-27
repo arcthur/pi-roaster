@@ -189,7 +189,7 @@ export interface WorkingMemorySnapshot {
 export interface MemorySearchHit {
   kind: "unit" | "crystal";
   id: string;
-  sourceTier: "session" | "global";
+  sourceTier: "session" | "global" | "external";
   topic: string;
   excerpt: string;
   score: number;

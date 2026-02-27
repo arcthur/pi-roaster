@@ -69,6 +69,10 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `memory.retrievalWeights.recency`: `0.25`
 - `memory.retrievalWeights.confidence`: `0.20`
 - `memory.recallMode`: `primary`
+- `memory.externalRecall.enabled`: `false`
+- `memory.externalRecall.minInternalScore`: `0.62`
+- `memory.externalRecall.queryTopK`: `5`
+- `memory.externalRecall.injectedConfidence`: `0.6`
 - `memory.evolvesMode`: `shadow`
 - `memory.cognitive.mode`: `active`
 - `memory.cognitive.maxTokensPerTurn`: `0` (`0` means unlimited)
@@ -129,12 +133,29 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `infrastructure.contextBudget.hardLimitPercent`: `0.94`
 - `infrastructure.contextBudget.truncationStrategy`: `summarize`
 - `infrastructure.contextBudget.compactionInstructions`: default operational compaction guidance string
+- `infrastructure.contextBudget.compaction.minTurnsBetween`: `2`
+- `infrastructure.contextBudget.compaction.minSecondsBetween`: `45`
+- `infrastructure.contextBudget.compaction.pressureBypassPercent`: `0.94`
+- `infrastructure.contextBudget.adaptiveZones.enabled`: `true`
+- `infrastructure.contextBudget.adaptiveZones.emaAlpha`: `0.3`
+- `infrastructure.contextBudget.adaptiveZones.minTurnsBeforeAdapt`: `3`
+- `infrastructure.contextBudget.adaptiveZones.stepTokens`: `32`
+- `infrastructure.contextBudget.adaptiveZones.maxShiftPerTurn`: `96`
+- `infrastructure.contextBudget.adaptiveZones.upshiftTruncationRatio`: `0.25`
+- `infrastructure.contextBudget.adaptiveZones.downshiftIdleRatio`: `0.15`
+- `infrastructure.contextBudget.floorUnmetPolicy.enabled`: `true`
+- `infrastructure.contextBudget.floorUnmetPolicy.relaxOrder`: `["memory_recall", "tool_failures", "memory_working"]`
+- `infrastructure.contextBudget.floorUnmetPolicy.finalFallback`: `critical_only`
+- `infrastructure.contextBudget.floorUnmetPolicy.requestCompaction`: `true`
+- `infrastructure.contextBudget.arena.maxEntriesPerSession`: `4096`
+- `infrastructure.contextBudget.arena.degradationPolicy`: `drop_recall`
 - `infrastructure.contextBudget.arena.zones.identity`: `{ min: 0, max: 320 }`
 - `infrastructure.contextBudget.arena.zones.truth`: `{ min: 0, max: 420 }`
 - `infrastructure.contextBudget.arena.zones.taskState`: `{ min: 0, max: 360 }`
 - `infrastructure.contextBudget.arena.zones.toolFailures`: `{ min: 0, max: 480 }`
 - `infrastructure.contextBudget.arena.zones.memoryWorking`: `{ min: 0, max: 300 }`
 - `infrastructure.contextBudget.arena.zones.memoryRecall`: `{ min: 0, max: 600 }`
+- `infrastructure.contextBudget.arena.zones.ragExternal`: `{ min: 0, max: 0 }`
 - `infrastructure.toolFailureInjection.enabled`: `true`
 - `infrastructure.toolFailureInjection.maxEntries`: `3`
 - `infrastructure.toolFailureInjection.maxOutputChars`: `300`
@@ -229,17 +250,30 @@ With `infrastructure.contextBudget.enabled=true`, runtime enforces:
 - pressure thresholds (`compactionThresholdPercent`, `hardLimitPercent`)
 - truncation policy (`truncationStrategy`)
 - arena zone floor/cap allocation (`arena.zones.*`)
+- adaptive zone control loop (`adaptiveZones.*`)
+- floor-unmet recovery policy (`floorUnmetPolicy.*`)
+- session arena SLO policy (`arena.maxEntriesPerSession`, `arena.degradationPolicy`)
 
 `enabled=false` disables runtime token-budget enforcement for context injection.
 
 Arena allocation behavior:
 
 - Sources are planned by deterministic zone order:
-  `identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall`.
+  `identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall -> rag_external`.
 - `zones.<zone>.min` is a floor for demanded content; `zones.<zone>.max` is a hard cap.
-- If demanded floors exceed available injection budget, planning is rejected and
-  `context_arena_floor_unmet` is emitted.
+- If demanded floors exceed available injection budget, planner runs
+  floor-relaxation cascade (`floorUnmetPolicy.relaxOrder`), then optional
+  `critical_only` fallback before declaring unrecoverable floor unmet.
+- Floor-unmet policy can request compaction explicitly
+  (`floorUnmetPolicy.requestCompaction`), which bypasses normal cooldown.
+- Adaptive zone controller updates per-session zone `max` overrides based on
+  observed truncation/idle ratios (`adaptiveZones.*`), while allocator remains pure.
+- Arena SLO ceiling (`arena.maxEntriesPerSession`) enforces deterministic
+  degradation policy (`drop_recall | drop_low_priority | force_compact`).
 - Memory recall can be pressure-gated by `memory.recallMode="fallback"`.
+- External recall boundary is explicit and disabled by default:
+  `memory.externalRecall.enabled=true` + non-zero `arena.zones.ragExternal.max`
+  are both required for effective external injection.
 
 Normalization details from `normalizeBrewvaConfig(...)`:
 
@@ -247,7 +281,10 @@ Normalization details from `normalizeBrewvaConfig(...)`:
 - Percent-like ratios are clamped into `[0, 1]` (`alertThresholdRatio`, memory/global confidence).
 - `memory.retrievalWeights` are normalized to sum to `1` when total weight is positive; otherwise defaults are used.
 - `memory.recallMode` is normalized to `primary | fallback` (invalid values fall back to defaults).
+- `memory.externalRecall.*` is normalized to bounded numeric/boolean defaults.
 - `arena.zones.<zone>.min/max` are normalized to non-negative integers and `max >= min`.
+- `floorUnmetPolicy.relaxOrder` is normalized to valid zone names in deterministic order.
+- `adaptiveZones.*` and compaction cooldown settings are clamped to safe numeric ranges.
 - Most numeric fields are floor-normalized to positive/non-negative integers (invalid values fall back to defaults).
 
 ## Turn WAL Model
@@ -277,9 +314,6 @@ Examples:
 - `ledger.digestWindow`
 - `tape.tapePressureThresholds.*`
 - `parallel.maxTotal`
-- `infrastructure.contextBudget.minTurnsBetweenCompaction`
-- `infrastructure.contextBudget.minSecondsBetweenCompaction`
-- `infrastructure.contextBudget.pressureBypassPercent`
 - `infrastructure.costTracking.maxCostUsdPerSkill`
 
 If these keys are present in config files, schema validation emits diagnostics and runtime does not apply them.
@@ -323,4 +357,3 @@ This means malformed or removed fields are never silently applied as active runt
 
 - Startup UI config currently exposes `ui.quietStartup` only; there is no `ui.collapseChangelog` field.
 - Parallel session total-start cap is internal (`PARALLEL_MAX_TOTAL_PER_SESSION=10`) and not configurable via `BrewvaConfig`.
-- Context compaction recency window (used by compaction gate) is internal and not exposed as public config.

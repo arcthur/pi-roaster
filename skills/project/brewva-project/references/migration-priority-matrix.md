@@ -19,11 +19,11 @@ Completion criteria:
 
 ## P1 (after P0 stabilization)
 
-| Item                                                           | Risk        | Expected Outcome                                        |
-| -------------------------------------------------------------- | ----------- | ------------------------------------------------------- |
-| Move context injection to dedicated role message               | Medium-High | user-origin message remains unmodified                  |
-| Align LSP evidence quality labeling with actual tool semantics | Medium      | evidence can distinguish heuristic vs native quality    |
-| Complete memory and parallel result lifecycle                  | Medium      | cross-session memory and worker output chain are closed |
+| Item                                                                                         | Risk        | Expected Outcome                                                |
+| -------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------- |
+| Harden context arena control plane (adaptive zones, floor_unmet cascade, SLO degradation)    | Medium-High | deterministic context behavior under pressure and long sessions |
+| Align LSP evidence quality labeling with actual tool semantics                               | Medium      | evidence can distinguish heuristic vs native quality            |
+| Complete memory and parallel result lifecycle (including external recall boundary semantics) | Medium      | cross-session memory and worker output chain are closed         |
 
 Completion criteria:
 

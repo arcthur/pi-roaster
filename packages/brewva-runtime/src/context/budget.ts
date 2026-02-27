@@ -2,6 +2,7 @@ import type {
   ContextBudgetSessionState,
   ContextBudgetUsage,
   ContextCompactionDecision,
+  ContextCompactionReason,
   ContextInjectionDecision,
   BrewvaConfig,
 } from "../types.js";
@@ -12,11 +13,8 @@ interface SessionBudgetState {
   lastCompactionTurn: number;
   lastCompactionAtMs?: number;
   lastContextUsage?: ContextBudgetUsage;
+  pendingCompactionReason?: ContextCompactionReason;
 }
-
-const CONTEXT_MIN_TURNS_BETWEEN_COMPACTION = 2;
-const CONTEXT_MIN_SECONDS_BETWEEN_COMPACTION = 45;
-const CONTEXT_PRESSURE_BYPASS_PERCENT = 0.94;
 
 export class ContextBudgetManager {
   private readonly config: BrewvaConfig["infrastructure"]["contextBudget"];
@@ -115,6 +113,9 @@ export class ContextBudgetManager {
           contextWindow: usage.contextWindow,
         })
       : normalizePercent(current?.percent);
+    if (state.pendingCompactionReason) {
+      return { shouldCompact: true, reason: state.pendingCompactionReason, usage: current };
+    }
     if (usagePercent === null) {
       return { shouldCompact: false, usage: current };
     }
@@ -122,18 +123,18 @@ export class ContextBudgetManager {
     const hardLimitPercent = normalizePercent(this.config.hardLimitPercent) ?? 1;
     const compactionThresholdPercent =
       normalizePercent(this.config.compactionThresholdPercent) ?? hardLimitPercent;
-    const pressureBypassPercent = normalizePercent(CONTEXT_PRESSURE_BYPASS_PERCENT);
+    const pressureBypassPercent = normalizePercent(this.config.compaction.pressureBypassPercent);
     const bypassCooldown =
       usagePercent >= hardLimitPercent ||
       (pressureBypassPercent !== null && usagePercent >= pressureBypassPercent);
 
     if (!bypassCooldown) {
       const sinceLastCompaction = Math.max(0, state.turnIndex - state.lastCompactionTurn);
-      if (sinceLastCompaction < CONTEXT_MIN_TURNS_BETWEEN_COMPACTION) {
+      if (sinceLastCompaction < this.config.compaction.minTurnsBetween) {
         return { shouldCompact: false, usage: current };
       }
 
-      const minSecondsBetweenCompaction = CONTEXT_MIN_SECONDS_BETWEEN_COMPACTION;
+      const minSecondsBetweenCompaction = this.config.compaction.minSecondsBetween;
       const minCooldownMs = Math.floor(minSecondsBetweenCompaction * 1000);
       if (minCooldownMs > 0 && typeof state.lastCompactionAtMs === "number") {
         const elapsedMs = Math.max(0, this.now() - state.lastCompactionAtMs);
@@ -156,6 +157,18 @@ export class ContextBudgetManager {
     const state = this.getOrCreate(sessionId);
     state.lastCompactionTurn = state.turnIndex;
     state.lastCompactionAtMs = this.now();
+    state.pendingCompactionReason = undefined;
+  }
+
+  requestCompaction(sessionId: string, reason: ContextCompactionReason): void {
+    const state = this.getOrCreate(sessionId);
+    state.pendingCompactionReason = reason;
+  }
+
+  getPendingCompactionReason(sessionId: string): ContextCompactionReason | null {
+    const state = this.sessions.get(sessionId);
+    if (!state?.pendingCompactionReason) return null;
+    return state.pendingCompactionReason;
   }
 
   snapshotSession(sessionId: string): ContextBudgetSessionState | undefined {
@@ -172,6 +185,7 @@ export class ContextBudgetManager {
             percent: state.lastContextUsage.percent,
           }
         : undefined,
+      pendingCompactionReason: state.pendingCompactionReason,
     };
   }
 
@@ -192,6 +206,7 @@ export class ContextBudgetManager {
             percent: normalizePercent(snapshot.lastContextUsage.percent),
           }
         : undefined,
+      pendingCompactionReason: snapshot.pendingCompactionReason,
     });
   }
 

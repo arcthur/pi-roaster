@@ -8,6 +8,7 @@ const ZONES_CONFIG = {
   tool_failures: { min: 0, max: 240 },
   memory_working: { min: 50, max: 300 },
   memory_recall: { min: 0, max: 600 },
+  rag_external: { min: 0, max: 0 },
 } as const;
 
 describe("ZoneBudgetAllocator", () => {
@@ -37,6 +38,7 @@ describe("ZoneBudgetAllocator", () => {
       tool_failures: { min: 0, max: 100 },
       memory_working: { min: 0, max: 100 },
       memory_recall: { min: 0, max: 100 },
+      rag_external: { min: 0, max: 0 },
     });
     const result = allocator.allocate({
       totalBudget: 500,

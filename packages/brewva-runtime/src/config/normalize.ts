@@ -11,6 +11,12 @@ const VALID_MEMORY_RECALL_MODES = new Set(["primary", "fallback"]);
 const VALID_VERIFICATION_LEVELS = new Set<VerificationLevel>(["quick", "standard", "strict"]);
 const VALID_CHANNEL_SCOPE_STRATEGIES = new Set(["chat", "thread"]);
 const VALID_CHANNEL_ACL_MODES = new Set(["open", "closed"]);
+const VALID_CONTEXT_ARENA_DEGRADATION_POLICIES = new Set([
+  "drop_recall",
+  "drop_low_priority",
+  "force_compact",
+]);
+const VALID_CONTEXT_FLOOR_UNMET_FALLBACKS = new Set(["critical_only"]);
 
 type AnyRecord = Record<string, unknown>;
 
@@ -137,6 +143,30 @@ function normalizeContextArenaZone(
   };
 }
 
+function normalizeContextBudgetZoneOrder(
+  value: unknown,
+  fallback: BrewvaConfig["infrastructure"]["contextBudget"]["floorUnmetPolicy"]["relaxOrder"],
+): BrewvaConfig["infrastructure"]["contextBudget"]["floorUnmetPolicy"]["relaxOrder"] {
+  if (!Array.isArray(value)) return [...fallback];
+  const allowed = new Set([
+    "identity",
+    "truth",
+    "task_state",
+    "tool_failures",
+    "memory_working",
+    "memory_recall",
+    "rag_external",
+  ]);
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => allowed.has(entry))
+    .filter((entry, index, array) => array.indexOf(entry) === index);
+  return normalized.length > 0
+    ? (normalized as BrewvaConfig["infrastructure"]["contextBudget"]["floorUnmetPolicy"]["relaxOrder"])
+    : [...fallback];
+}
+
 export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): BrewvaConfig {
   const input = isRecord(config) ? config : {};
   const uiInput = isRecord(input.ui) ? input.ui : {};
@@ -151,6 +181,9 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
   const memoryInput = isRecord(input.memory) ? input.memory : {};
   const memoryCognitiveInput = isRecord(memoryInput.cognitive) ? memoryInput.cognitive : {};
   const memoryGlobalInput = isRecord(memoryInput.global) ? memoryInput.global : {};
+  const memoryExternalRecallInput = isRecord(memoryInput.externalRecall)
+    ? memoryInput.externalRecall
+    : {};
   const securityInput = isRecord(input.security) ? input.security : {};
   const securityExecutionInput = isRecord(securityInput.execution) ? securityInput.execution : {};
   const securityExecutionSandboxInput = isRecord(securityExecutionInput.sandbox)
@@ -175,6 +208,15 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
   const contextBudgetInput = isRecord(infrastructureInput.contextBudget)
     ? infrastructureInput.contextBudget
     : {};
+  const contextBudgetCompactionInput = isRecord(contextBudgetInput.compaction)
+    ? contextBudgetInput.compaction
+    : {};
+  const contextBudgetAdaptiveZonesInput = isRecord(contextBudgetInput.adaptiveZones)
+    ? contextBudgetInput.adaptiveZones
+    : {};
+  const contextBudgetFloorUnmetPolicyInput = isRecord(contextBudgetInput.floorUnmetPolicy)
+    ? contextBudgetInput.floorUnmetPolicy
+    : {};
   const contextBudgetArenaInput = isRecord(contextBudgetInput.arena)
     ? contextBudgetInput.arena
     : {};
@@ -194,6 +236,9 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
 
   const defaultContextBudget = defaults.infrastructure.contextBudget;
   const defaultToolFailureInjection = defaults.infrastructure.toolFailureInjection;
+  const defaultContextCompaction = defaultContextBudget.compaction;
+  const defaultContextAdaptiveZones = defaultContextBudget.adaptiveZones;
+  const defaultContextFloorUnmetPolicy = defaultContextBudget.floorUnmetPolicy;
   const defaultContextArena = defaultContextBudget.arena;
   const normalizedHardLimitPercent = normalizeUnitInterval(
     contextBudgetInput.hardLimitPercent,
@@ -308,6 +353,24 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
       recallMode: VALID_MEMORY_RECALL_MODES.has(memoryInput.recallMode as string)
         ? (memoryInput.recallMode as BrewvaConfig["memory"]["recallMode"])
         : defaults.memory.recallMode,
+      externalRecall: {
+        enabled: normalizeBoolean(
+          memoryExternalRecallInput.enabled,
+          defaults.memory.externalRecall.enabled,
+        ),
+        minInternalScore: normalizeUnitInterval(
+          memoryExternalRecallInput.minInternalScore,
+          defaults.memory.externalRecall.minInternalScore,
+        ),
+        queryTopK: normalizePositiveInteger(
+          memoryExternalRecallInput.queryTopK,
+          defaults.memory.externalRecall.queryTopK,
+        ),
+        injectedConfidence: normalizeUnitInterval(
+          memoryExternalRecallInput.injectedConfidence,
+          defaults.memory.externalRecall.injectedConfidence,
+        ),
+      },
       evolvesMode: VALID_MEMORY_EVOLVES_MODES.has(memoryInput.evolvesMode as string)
         ? (memoryInput.evolvesMode as BrewvaConfig["memory"]["evolvesMode"])
         : defaults.memory.evolvesMode,
@@ -486,7 +549,79 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
           contextBudgetInput.compactionInstructions,
           defaultContextBudget.compactionInstructions,
         ),
+        compaction: {
+          minTurnsBetween: normalizeNonNegativeInteger(
+            contextBudgetCompactionInput.minTurnsBetween,
+            defaultContextCompaction.minTurnsBetween,
+          ),
+          minSecondsBetween: normalizeNonNegativeInteger(
+            contextBudgetCompactionInput.minSecondsBetween,
+            defaultContextCompaction.minSecondsBetween,
+          ),
+          pressureBypassPercent: normalizeUnitInterval(
+            contextBudgetCompactionInput.pressureBypassPercent,
+            defaultContextCompaction.pressureBypassPercent,
+          ),
+        },
+        adaptiveZones: {
+          enabled: normalizeBoolean(
+            contextBudgetAdaptiveZonesInput.enabled,
+            defaultContextAdaptiveZones.enabled,
+          ),
+          emaAlpha: normalizeUnitInterval(
+            contextBudgetAdaptiveZonesInput.emaAlpha,
+            defaultContextAdaptiveZones.emaAlpha,
+          ),
+          minTurnsBeforeAdapt: normalizeNonNegativeInteger(
+            contextBudgetAdaptiveZonesInput.minTurnsBeforeAdapt,
+            defaultContextAdaptiveZones.minTurnsBeforeAdapt,
+          ),
+          stepTokens: normalizePositiveInteger(
+            contextBudgetAdaptiveZonesInput.stepTokens,
+            defaultContextAdaptiveZones.stepTokens,
+          ),
+          maxShiftPerTurn: normalizeNonNegativeInteger(
+            contextBudgetAdaptiveZonesInput.maxShiftPerTurn,
+            defaultContextAdaptiveZones.maxShiftPerTurn,
+          ),
+          upshiftTruncationRatio: normalizeUnitInterval(
+            contextBudgetAdaptiveZonesInput.upshiftTruncationRatio,
+            defaultContextAdaptiveZones.upshiftTruncationRatio,
+          ),
+          downshiftIdleRatio: normalizeUnitInterval(
+            contextBudgetAdaptiveZonesInput.downshiftIdleRatio,
+            defaultContextAdaptiveZones.downshiftIdleRatio,
+          ),
+        },
+        floorUnmetPolicy: {
+          enabled: normalizeBoolean(
+            contextBudgetFloorUnmetPolicyInput.enabled,
+            defaultContextFloorUnmetPolicy.enabled,
+          ),
+          relaxOrder: normalizeContextBudgetZoneOrder(
+            contextBudgetFloorUnmetPolicyInput.relaxOrder,
+            defaultContextFloorUnmetPolicy.relaxOrder,
+          ),
+          finalFallback: VALID_CONTEXT_FLOOR_UNMET_FALLBACKS.has(
+            contextBudgetFloorUnmetPolicyInput.finalFallback as string,
+          )
+            ? (contextBudgetFloorUnmetPolicyInput.finalFallback as BrewvaConfig["infrastructure"]["contextBudget"]["floorUnmetPolicy"]["finalFallback"])
+            : defaultContextFloorUnmetPolicy.finalFallback,
+          requestCompaction: normalizeBoolean(
+            contextBudgetFloorUnmetPolicyInput.requestCompaction,
+            defaultContextFloorUnmetPolicy.requestCompaction,
+          ),
+        },
         arena: {
+          maxEntriesPerSession: normalizePositiveInteger(
+            contextBudgetArenaInput.maxEntriesPerSession,
+            defaultContextArena.maxEntriesPerSession,
+          ),
+          degradationPolicy: VALID_CONTEXT_ARENA_DEGRADATION_POLICIES.has(
+            contextBudgetArenaInput.degradationPolicy as string,
+          )
+            ? (contextBudgetArenaInput.degradationPolicy as BrewvaConfig["infrastructure"]["contextBudget"]["arena"]["degradationPolicy"])
+            : defaultContextArena.degradationPolicy,
           zones: {
             identity: normalizeContextArenaZone(
               contextBudgetArenaZonesInput.identity,
@@ -511,6 +646,10 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
             memoryRecall: normalizeContextArenaZone(
               contextBudgetArenaZonesInput.memoryRecall,
               defaultContextArena.zones.memoryRecall,
+            ),
+            ragExternal: normalizeContextArenaZone(
+              contextBudgetArenaZonesInput.ragExternal,
+              defaultContextArena.zones.ragExternal,
             ),
           },
         },

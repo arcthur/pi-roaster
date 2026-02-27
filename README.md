@@ -17,7 +17,9 @@ Brewva follows six architecture drivers:
 1. **Agent autonomy with explicit pressure contracts**
    - Runtime emits pressure signals (`tape_pressure`, `context_pressure`) and context contracts.
    - Agent remains responsible for control actions (`tape_handoff`, `session_compact`).
-   - Context injection is managed as an append-only arena with deterministic zone budgeting.
+   - Context injection is managed as an append-only arena with allocator-first planning (`ZoneBudgetAllocator`) plus adaptive control (`ZoneBudgetController`).
+   - Arena memory has explicit SLO boundaries (`maxEntriesPerSession`) with deterministic degradation policy.
+   - External retrieval is treated as an explicit I/O boundary (`brewva.rag-external`) instead of a parallel prompt path.
 2. **Skill-first orchestration with dynamic loading**
    - Prompt text is treated as a dispatch signal, not the primary execution structure.
    - Executable skill contracts are activated on demand (`skill_load`) instead of eager capability preload.

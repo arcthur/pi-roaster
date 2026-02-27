@@ -41,6 +41,8 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `planSupplementalInjection(sessionId, inputText, usage?, injectionScopeId?)`
 - `commitSupplementalInjection(sessionId, finalTokens, injectionScopeId?)`
 - `shouldRequestCompaction(sessionId, usage)`
+- `requestCompaction(sessionId, reason)`
+- `getPendingCompactionReason(sessionId)`
 - `getCompactionInstructions()`
 - `getCompactionWindowTurns()`
 - `markCompacted(sessionId, input)`
@@ -155,7 +157,8 @@ Common async calls:
 
 ## Default Context Injection Semantics
 
-The default injection path is organized around seven semantic sources:
+The default injection path is organized around eight semantic sources (the
+eighth is optional and budget-gated):
 
 - `brewva.identity`
 - `brewva.truth-static`
@@ -164,6 +167,7 @@ The default injection path is organized around seven semantic sources:
 - `brewva.tool-failures`
 - `brewva.memory-working`
 - `brewva.memory-recall`
+- `brewva.rag-external`
 
 Truth split behavior:
 
@@ -178,6 +182,10 @@ Memory split behavior:
 - `brewva.memory-recall` carries retrieval hits and is registered as `normal`.
 - `memory.recallMode="primary"` always enables recall.
 - `memory.recallMode="fallback"` skips recall under `high`/`critical` context pressure.
+- `brewva.rag-external` is injected only when `memory.externalRecall.enabled=true`,
+  active skill carries tag `external-knowledge`, internal recall top score is below
+  threshold (`memory.externalRecall.minInternalScore`), provider is available, and
+  zone budget permits `rag_external`.
 
 Identity source behavior:
 
@@ -191,11 +199,19 @@ Identity source behavior:
 Arena layout and budgeting:
 
 - Planner layout follows deterministic zone order:
-  `identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall`.
+  `identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall -> rag_external`.
 - Zone floors/caps are configured via
   `infrastructure.contextBudget.arena.zones.*`.
-- If demanded floors exceed available budget, runtime emits
-  `context_arena_floor_unmet` and drops that turn's context injection.
+- `ZoneBudgetAllocator` is pure; adaptive zone control is handled by a separate
+  controller (`adaptiveZones.*`) and emitted as `context_arena_zone_adapted`.
+- Floor-unmet path is deterministic:
+  floor relax cascade -> `critical_only` fallback -> unrecoverable drop.
+  - recovered path emits `context_arena_floor_unmet_recovered`
+  - unrecoverable path emits `context_arena_floor_unmet_unrecoverable`
+- Injection telemetry (`context_injected` / `context_injection_dropped`) includes:
+  `zoneDemandTokens`, `zoneAllocatedTokens`, `zoneAcceptedTokens`,
+  `floorUnmet`, `appliedFloorRelaxation`, `degradationApplied`.
+- Arena SLO enforcement (`maxEntriesPerSession`) emits `context_arena_slo_enforced`.
 
 Execution profile note:
 
@@ -246,7 +262,6 @@ these domains.
 - `runtime.skills.complete(sessionId, output, options?)` accepts `options` at type level, but current runtime persistence/ledger flow only consumes `output`.
 - `runtime.events.query(...)` / `queryStructured(...)` only support lightweight filtering (`type`, `last`), not time-range/offset cursors.
 - `runtime.events.subscribe(listener)` is process-local and ephemeral; subscribers do not survive process restart.
-- Context compaction recency window (`runtime.context.getCompactionWindowTurns()`) is currently an internal constant (2 turns), not a public config knob.
 
 ## Type Contracts
 

@@ -146,12 +146,19 @@ async function resolveContextInjection(
   );
 }
 
-function buildCompactionGateMessage(input: { pressure: ContextPressureStatus }): string {
+function buildCompactionGateMessage(input: {
+  pressure: ContextPressureStatus;
+  reason: "hard_limit" | "floor_unmet";
+}): string {
   const usagePercent = formatPercent(input.pressure.usageRatio);
   const hardLimitPercent = formatPercent(input.pressure.hardLimitRatio);
+  const reasonLine =
+    input.reason === "floor_unmet"
+      ? "Context arena floors are unmet after planning; compaction is required to restore minimum viable context."
+      : "Context pressure is critical.";
   return [
     "[ContextCompactionGate]",
-    "Context pressure is critical.",
+    reasonLine,
     `Current usage: ${usagePercent} (hard limit: ${hardLimitPercent}).`,
     "Call tool `session_compact` immediately before any other tool call.",
   ].join("\n");
@@ -313,23 +320,13 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     runtime.context.observeUsage(sessionId, usage);
     const pressure = runtime.context.getPressureStatus(sessionId, usage);
-
-    const gateRequired =
-      runtime.config.infrastructure.contextBudget.enabled &&
-      pressure.level === "critical" &&
-      !hasRecentCompaction(runtime, state);
-    state.compactionRequired = gateRequired;
-    const systemPromptWithContract = applyContextContract(
-      (event as { systemPrompt?: unknown }).systemPrompt,
-      runtime,
-    );
-
-    if (gateRequired) {
+    const emitGateEvents = (reason: "hard_limit" | "floor_unmet"): void => {
       emitRuntimeEvent(runtime, {
         sessionId,
         turn: state.turnIndex,
         type: "context_compaction_gate_armed",
         payload: {
+          reason,
           usagePercent: pressure.usageRatio,
           hardLimitPercent: pressure.hardLimitRatio,
         },
@@ -339,13 +336,29 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
         turn: state.turnIndex,
         type: "critical_without_compact",
         payload: {
+          reason,
           usagePercent: pressure.usageRatio,
           hardLimitPercent: pressure.hardLimitRatio,
           contextPressure: pressure.level,
           requiredTool: "session_compact",
         },
       });
+    };
+
+    const pendingCompactionReasonBefore = runtime.context.getPendingCompactionReason(sessionId);
+    let gateRequired =
+      runtime.config.infrastructure.contextBudget.enabled &&
+      ((pressure.level === "critical" && !hasRecentCompaction(runtime, state)) ||
+        pendingCompactionReasonBefore === "floor_unmet");
+    let gateReason: "hard_limit" | "floor_unmet" | null = null;
+    if (gateRequired) {
+      gateReason = pendingCompactionReasonBefore === "floor_unmet" ? "floor_unmet" : "hard_limit";
+      emitGateEvents(gateReason);
     }
+    const systemPromptWithContract = applyContextContract(
+      (event as { systemPrompt?: unknown }).systemPrompt,
+      runtime,
+    );
 
     const injection = await resolveContextInjection(runtime, {
       sessionId,
@@ -353,6 +366,16 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
       usage,
       injectionScopeId,
     });
+    if (!gateRequired && runtime.config.infrastructure.contextBudget.enabled) {
+      const pendingCompactionReasonAfter = runtime.context.getPendingCompactionReason(sessionId);
+      if (pendingCompactionReasonAfter === "floor_unmet") {
+        gateRequired = true;
+        gateReason = "floor_unmet";
+        emitGateEvents(gateReason);
+      }
+    }
+    state.compactionRequired = gateRequired;
+
     const blocks: string[] = [
       buildTapeStatusBlock({
         runtime,
@@ -366,6 +389,7 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
       blocks.push(
         buildCompactionGateMessage({
           pressure,
+          reason: gateReason === "floor_unmet" ? "floor_unmet" : "hard_limit",
         }),
       );
     }

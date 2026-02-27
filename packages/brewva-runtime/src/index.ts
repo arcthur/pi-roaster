@@ -24,6 +24,7 @@ export * from "./context/injection.js";
 export * from "./context/injection-orchestrator.js";
 export * from "./context/zones.js";
 export * from "./context/zone-budget.js";
+export * from "./context/zone-budget-controller.js";
 export * from "./context/identity.js";
 export * from "./context/tool-failures.js";
 export * from "./context/usage.js";

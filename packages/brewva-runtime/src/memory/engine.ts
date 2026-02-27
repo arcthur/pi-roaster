@@ -666,6 +666,73 @@ export class MemoryEngine {
     return lines.join("\n");
   }
 
+  ingestExternalRecall(input: {
+    sessionId: string;
+    query: string;
+    defaultConfidence: number;
+    hits: Array<{
+      topic: string;
+      excerpt: string;
+      score: number;
+      confidence?: number;
+      metadata?: Record<string, unknown>;
+    }>;
+  }): { upserted: number } {
+    if (!this.enabled) return { upserted: 0 };
+    const store = this.getStore();
+    const now = Date.now();
+    const defaultConfidence = clampProbability(input.defaultConfidence, 0.6);
+    let upserted = 0;
+    const dirtyTopics: string[] = [];
+    input.hits.forEach((hit, index) => {
+      const topic = hit.topic.trim();
+      const statement = hit.excerpt.trim();
+      if (!topic || !statement) return;
+      const confidence = clampProbability(hit.confidence ?? defaultConfidence, defaultConfidence);
+      const result = store.upsertUnit({
+        sessionId: input.sessionId,
+        type: "fact",
+        status: "active",
+        topic,
+        statement,
+        confidence,
+        metadata: {
+          sourceTier: "external",
+          externalQuery: input.query,
+          externalScore: sanitizeRankScore(hit.score),
+          ...hit.metadata,
+        },
+        sourceRefs: [
+          {
+            eventId: `external-recall:${now}:${index}`,
+            eventType: "context_external_recall",
+            sessionId: input.sessionId,
+            timestamp: now,
+          },
+        ],
+      });
+      dirtyTopics.push(result.unit.topic);
+      upserted += 1;
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "memory_unit_upserted",
+        payload: {
+          unitId: result.unit.id,
+          topic: result.unit.topic,
+          unitType: result.unit.type,
+          created: result.created,
+          confidence: result.unit.confidence,
+          sourceTier: "external",
+          unit: result.unit as unknown as Record<string, unknown>,
+        },
+      });
+    });
+    if (dirtyTopics.length > 0) {
+      store.mergeDirtyTopics(dirtyTopics);
+    }
+    return { upserted };
+  }
+
   dismissInsight(sessionId: string, insightId: string): boolean {
     if (!this.enabled) return false;
     const dismissedInsight = this.getStore().dismissInsight(insightId);

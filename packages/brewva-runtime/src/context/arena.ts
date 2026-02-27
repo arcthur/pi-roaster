@@ -1,17 +1,31 @@
+import type { ContextArenaDegradationPolicy } from "../types.js";
 import { estimateTokenCount, truncateTextToTokenBudget } from "../utils/token.js";
 import type {
   ContextInjectionEntry,
   ContextInjectionPlanResult,
   ContextInjectionPriority,
+  ContextInjectionRegisterResult,
   ContextInjectionTruncationStrategy,
   RegisterContextInjectionInput,
 } from "./injection.js";
+import {
+  ZoneBudgetController,
+  type ZoneBudgetAdaptiveConfig,
+  type ZoneBudgetControllerAdjustment,
+  type ZoneBudgetControllerSnapshot,
+  type ZoneBudgetPlanTelemetry,
+} from "./zone-budget-controller.js";
 import {
   ZoneBudgetAllocator,
   type ZoneBudgetAllocationResult,
   type ZoneBudgetConfig,
 } from "./zone-budget.js";
-import { zoneForSource, zoneOrderIndex, type ContextZone } from "./zones.js";
+import {
+  createZeroZoneTokenMap,
+  zoneForSource,
+  zoneOrderIndex,
+  type ContextZone,
+} from "./zones.js";
 
 const ENTRY_SEPARATOR = "\n\n";
 const ARENA_TRIM_MIN_ENTRIES = 2_048;
@@ -25,6 +39,8 @@ const PRIORITY_ORDER: Record<ContextInjectionPriority, number> = {
   low: 3,
 };
 
+const CRITICAL_ONLY_ZONES = new Set<ContextZone>(["identity", "truth", "task_state"]);
+
 interface ArenaEntry extends ContextInjectionEntry {
   key: string;
   index: number;
@@ -35,25 +51,68 @@ interface ArenaSessionState {
   entries: ArenaEntry[];
   latestIndexByKey: Map<string, number>;
   onceKeys: Set<string>;
+  lastDegradationPolicy: ContextArenaDegradationPolicy | null;
 }
 
 type ZoneTokenMap = Record<ContextZone, number>;
+
 type ZonePlanState =
-  | { kind: "disabled" }
-  | { kind: "floor_unmet" }
-  | { kind: "ready"; remaining: ZoneTokenMap };
+  | {
+      kind: "disabled";
+      floorUnmet: boolean;
+      appliedFloorRelaxation: ContextZone[];
+      allocated: ZoneTokenMap;
+    }
+  | {
+      kind: "floor_unmet";
+      floorUnmet: true;
+      appliedFloorRelaxation: ContextZone[];
+      allocated: ZoneTokenMap;
+    }
+  | {
+      kind: "ready";
+      floorUnmet: boolean;
+      appliedFloorRelaxation: ContextZone[];
+      allocated: ZoneTokenMap;
+      remaining: ZoneTokenMap;
+    };
+
+interface FloorUnmetPolicy {
+  enabled: boolean;
+  relaxOrder: ContextZone[];
+  finalFallback: "critical_only";
+}
+
+interface ArenaCapacityDecision {
+  allow: boolean;
+  entriesBefore: number;
+  entriesAfter: number;
+  policyApplied?: ContextArenaDegradationPolicy;
+  dropped: boolean;
+}
 
 export interface ArenaSnapshot {
   totalAppended: number;
   activeKeys: number;
   onceKeys: number;
+  adaptiveController: ZoneBudgetControllerSnapshot | null;
 }
+
+const DEFAULT_FLOOR_UNMET_POLICY: FloorUnmetPolicy = {
+  enabled: false,
+  relaxOrder: ["memory_recall", "tool_failures", "memory_working"],
+  finalFallback: "critical_only",
+};
 
 export class ContextArena {
   private readonly sourceTokenLimits: Record<string, number>;
   private readonly truncationStrategy: ContextInjectionTruncationStrategy;
   private readonly zoneLayout: boolean;
-  private readonly zoneBudgetAllocator: ZoneBudgetAllocator | null;
+  private readonly baseZoneBudgets: ZoneBudgetConfig | null;
+  private readonly adaptiveController: ZoneBudgetController | null;
+  private readonly maxEntriesPerSession: number;
+  private readonly degradationPolicy: ContextArenaDegradationPolicy;
+  private readonly floorUnmetPolicy: FloorUnmetPolicy;
   private readonly sessions = new Map<string, ArenaSessionState>();
 
   constructor(
@@ -62,29 +121,45 @@ export class ContextArena {
       truncationStrategy?: ContextInjectionTruncationStrategy;
       zoneLayout?: boolean;
       zoneBudgets?: ZoneBudgetConfig;
+      adaptiveZones?: ZoneBudgetAdaptiveConfig;
+      maxEntriesPerSession?: number;
+      degradationPolicy?: ContextArenaDegradationPolicy;
+      floorUnmetPolicy?: Partial<FloorUnmetPolicy>;
     } = {},
   ) {
     this.sourceTokenLimits = options.sourceTokenLimits ? { ...options.sourceTokenLimits } : {};
     this.truncationStrategy = options.truncationStrategy ?? "summarize";
     this.zoneLayout = options.zoneLayout === true;
-    this.zoneBudgetAllocator = options.zoneBudgets
-      ? new ZoneBudgetAllocator(options.zoneBudgets)
-      : null;
+    this.baseZoneBudgets = options.zoneBudgets ? { ...options.zoneBudgets } : null;
+    this.adaptiveController =
+      options.zoneBudgets && options.adaptiveZones
+        ? new ZoneBudgetController(options.zoneBudgets, options.adaptiveZones)
+        : null;
+    this.maxEntriesPerSession = Math.max(1, Math.floor(options.maxEntriesPerSession ?? 4096));
+    this.degradationPolicy = options.degradationPolicy ?? "drop_recall";
+    this.floorUnmetPolicy = {
+      enabled: options.floorUnmetPolicy?.enabled === true,
+      relaxOrder: options.floorUnmetPolicy?.relaxOrder
+        ? [...options.floorUnmetPolicy.relaxOrder]
+        : [...DEFAULT_FLOOR_UNMET_POLICY.relaxOrder],
+      finalFallback:
+        options.floorUnmetPolicy?.finalFallback ?? DEFAULT_FLOOR_UNMET_POLICY.finalFallback,
+    };
   }
 
-  append(sessionId: string, input: RegisterContextInjectionInput): void {
+  append(sessionId: string, input: RegisterContextInjectionInput): ContextInjectionRegisterResult {
     const source = input.source.trim();
     const id = input.id.trim();
-    if (!sessionId || !source || !id) return;
+    if (!sessionId || !source || !id) return { accepted: false };
 
     const content = input.content.trim();
-    if (!content) return;
+    if (!content) return { accepted: false };
 
     const key = `${source}:${id}`;
     const oncePerSession = input.oncePerSession === true;
     const state = this.getOrCreateSession(sessionId);
     if (oncePerSession && state.onceKeys.has(key)) {
-      return;
+      return { accepted: false };
     }
 
     let entry: ContextInjectionEntry = {
@@ -101,11 +176,26 @@ export class ContextArena {
     const sourceLimit = this.resolveSourceLimit(source);
     if (Number.isFinite(sourceLimit) && entry.estimatedTokens > sourceLimit) {
       const fitted = this.fitEntryToBudget(entry, sourceLimit);
-      if (!fitted) return;
+      if (!fitted) return { accepted: false };
       entry = fitted;
     }
 
-    if (entry.estimatedTokens <= 0) return;
+    if (entry.estimatedTokens <= 0) return { accepted: false };
+
+    const capacity = this.ensureAppendCapacity(state, entry);
+    if (!capacity.allow) {
+      return {
+        accepted: false,
+        sloEnforced: capacity.policyApplied
+          ? {
+              policy: capacity.policyApplied,
+              entriesBefore: capacity.entriesBefore,
+              entriesAfter: capacity.entriesAfter,
+              dropped: capacity.dropped,
+            }
+          : undefined,
+      };
+    }
 
     const arenaEntry: ArenaEntry = {
       ...entry,
@@ -116,42 +206,116 @@ export class ContextArena {
     state.entries.push(arenaEntry);
     state.latestIndexByKey.set(key, arenaEntry.index);
     this.maybeTrimSupersededEntries(state);
+
+    return {
+      accepted: true,
+      sloEnforced: capacity.policyApplied
+        ? {
+            policy: capacity.policyApplied,
+            entriesBefore: capacity.entriesBefore,
+            entriesAfter: capacity.entriesAfter,
+            dropped: capacity.dropped,
+          }
+        : undefined,
+    };
   }
 
   plan(sessionId: string, totalTokenBudget: number): ContextInjectionPlanResult {
     const state = this.sessions.get(sessionId);
     if (!state || state.latestIndexByKey.size === 0) {
-      return { text: "", entries: [], estimatedTokens: 0, truncated: false, consumedKeys: [] };
+      return {
+        text: "",
+        entries: [],
+        estimatedTokens: 0,
+        truncated: false,
+        consumedKeys: [],
+        planTelemetry: this.emptyPlanTelemetry(),
+      };
     }
 
-    const candidates: ArenaEntry[] = [];
+    const allCandidates: ArenaEntry[] = [];
     for (const index of state.latestIndexByKey.values()) {
       const entry = state.entries[index];
       if (!entry || entry.presented) continue;
-      candidates.push(entry);
+      allCandidates.push(entry);
     }
-    if (candidates.length === 0) {
-      return { text: "", entries: [], estimatedTokens: 0, truncated: false, consumedKeys: [] };
+    if (allCandidates.length === 0) {
+      return {
+        text: "",
+        entries: [],
+        estimatedTokens: 0,
+        truncated: false,
+        consumedKeys: [],
+        planTelemetry: this.consumePlanTelemetry(state, this.emptyPlanTelemetry()),
+      };
     }
 
-    candidates.sort((left, right) => {
-      if (this.zoneLayout) {
-        const leftZone = zoneOrderIndex(zoneForSource(left.source));
-        const rightZone = zoneOrderIndex(zoneForSource(right.source));
-        if (leftZone !== rightZone) return leftZone - rightZone;
+    const sortEntries = (entries: ArenaEntry[]): ArenaEntry[] => {
+      entries.sort((left, right) => {
+        if (this.zoneLayout) {
+          const leftZone = zoneOrderIndex(zoneForSource(left.source));
+          const rightZone = zoneOrderIndex(zoneForSource(right.source));
+          if (leftZone !== rightZone) return leftZone - rightZone;
+        }
+        const byPriority = PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
+        if (byPriority !== 0) return byPriority;
+        return left.timestamp - right.timestamp;
+      });
+      return entries;
+    };
+
+    let candidates = sortEntries([...allCandidates]);
+    let zoneDemands = this.buildZoneDemands(candidates);
+    let zonePlan = this.buildZonePlan(
+      sessionId,
+      candidates,
+      Math.max(0, Math.floor(totalTokenBudget)),
+      [],
+    );
+    let floorUnmetEncountered = zonePlan.kind === "floor_unmet";
+    let telemetryFloorRelaxation = [...zonePlan.appliedFloorRelaxation];
+
+    if (zonePlan.kind === "floor_unmet" && this.floorUnmetPolicy.enabled) {
+      const appliedRelaxation: ContextZone[] = [];
+      for (const zone of this.floorUnmetPolicy.relaxOrder) {
+        appliedRelaxation.push(zone);
+        zonePlan = this.buildZonePlan(
+          sessionId,
+          candidates,
+          Math.max(0, Math.floor(totalTokenBudget)),
+          appliedRelaxation,
+        );
+        floorUnmetEncountered = true;
+        telemetryFloorRelaxation = [...appliedRelaxation];
+        if (zonePlan.kind !== "floor_unmet") {
+          break;
+        }
       }
-      const byPriority = PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
-      if (byPriority !== 0) return byPriority;
-      return left.timestamp - right.timestamp;
-    });
 
-    const separatorTokens = estimateTokenCount(ENTRY_SEPARATOR);
-    let remainingTokens = Math.max(0, Math.floor(totalTokenBudget));
-    let truncated = false;
-    const consumedKeys: string[] = [];
-    const accepted: ContextInjectionEntry[] = [];
-    const zonePlan = this.buildZoneRemaining(candidates, remainingTokens);
+      if (
+        zonePlan.kind === "floor_unmet" &&
+        this.floorUnmetPolicy.finalFallback === "critical_only"
+      ) {
+        floorUnmetEncountered = true;
+        candidates = sortEntries(
+          candidates.filter((entry) => CRITICAL_ONLY_ZONES.has(zoneForSource(entry.source))),
+        );
+        zoneDemands = this.buildZoneDemands(candidates);
+        zonePlan = this.buildZonePlan(
+          sessionId,
+          candidates,
+          Math.max(0, Math.floor(totalTokenBudget)),
+          [],
+        );
+      }
+    }
+
     if (zonePlan.kind === "floor_unmet") {
+      const adaptation = this.observeAdaptiveTelemetry(sessionId, {
+        zoneDemandTokens: zoneDemands,
+        zoneAllocatedTokens: createZeroZoneTokenMap(),
+        zoneAcceptedTokens: createZeroZoneTokenMap(),
+      });
       return {
         text: "",
         entries: [],
@@ -159,8 +323,24 @@ export class ContextArena {
         truncated: false,
         consumedKeys: [],
         planReason: "floor_unmet",
+        planTelemetry: this.consumePlanTelemetry(state, {
+          zoneDemandTokens: zoneDemands,
+          zoneAllocatedTokens: createZeroZoneTokenMap(),
+          zoneAcceptedTokens: createZeroZoneTokenMap(),
+          floorUnmet: true,
+          appliedFloorRelaxation: telemetryFloorRelaxation,
+          degradationApplied: null,
+          zoneAdaptation: adaptation,
+        }),
       };
     }
+
+    const separatorTokens = estimateTokenCount(ENTRY_SEPARATOR);
+    let remainingTokens = Math.max(0, Math.floor(totalTokenBudget));
+    let truncated = false;
+    const consumedKeys: string[] = [];
+    const accepted: ContextInjectionEntry[] = [];
+    const acceptedByZone = createZeroZoneTokenMap();
 
     for (const entry of candidates) {
       const separatorCost = accepted.length > 0 ? separatorTokens : 0;
@@ -170,8 +350,6 @@ export class ContextArena {
       }
 
       const zone = zoneForSource(entry.source);
-      // Zone allocations are content-only by design; separator tokens are charged
-      // only against the global budget to avoid over-coupling zone math to join costs.
       const globalEntryBudget = Math.max(0, remainingTokens - separatorCost);
       const zoneBudget = zonePlan.kind === "ready" ? zonePlan.remaining[zone] : globalEntryBudget;
       const entryBudget = Math.max(0, Math.min(globalEntryBudget, zoneBudget));
@@ -182,6 +360,7 @@ export class ContextArena {
       if (entry.estimatedTokens <= entryBudget) {
         consumedKeys.push(entry.key);
         accepted.push(this.toPublicEntry(entry));
+        acceptedByZone[zone] += entry.estimatedTokens;
         remainingTokens = Math.max(0, remainingTokens - separatorCost - entry.estimatedTokens);
         if (zonePlan.kind === "ready") {
           zonePlan.remaining[zone] = Math.max(0, zonePlan.remaining[zone] - entry.estimatedTokens);
@@ -194,6 +373,7 @@ export class ContextArena {
       if (fitted) {
         consumedKeys.push(entry.key);
         accepted.push(fitted);
+        acceptedByZone[zone] += fitted.estimatedTokens;
         remainingTokens = Math.max(0, remainingTokens - separatorCost - fitted.estimatedTokens);
         if (zonePlan.kind === "ready") {
           zonePlan.remaining[zone] = Math.max(0, zonePlan.remaining[zone] - fitted.estimatedTokens);
@@ -212,12 +392,28 @@ export class ContextArena {
     }
 
     const text = accepted.map((entry) => entry.content).join(ENTRY_SEPARATOR);
+    const adaptation = this.observeAdaptiveTelemetry(sessionId, {
+      zoneDemandTokens: zoneDemands,
+      zoneAllocatedTokens: zonePlan.allocated,
+      zoneAcceptedTokens: acceptedByZone,
+    });
     return {
       text,
       entries: accepted,
       estimatedTokens: estimateTokenCount(text),
       truncated,
       consumedKeys,
+      planTelemetry: this.consumePlanTelemetry(state, {
+        zoneDemandTokens: zoneDemands,
+        zoneAllocatedTokens: zonePlan.allocated,
+        zoneAcceptedTokens: acceptedByZone,
+        floorUnmet: floorUnmetEncountered || zonePlan.floorUnmet,
+        appliedFloorRelaxation: floorUnmetEncountered
+          ? telemetryFloorRelaxation
+          : zonePlan.appliedFloorRelaxation,
+        degradationApplied: null,
+        zoneAdaptation: adaptation,
+      }),
     };
   }
 
@@ -253,10 +449,12 @@ export class ContextArena {
 
   resetEpoch(sessionId: string): void {
     this.sessions.delete(sessionId);
+    this.adaptiveController?.resetEpoch(sessionId);
   }
 
   clearSession(sessionId: string): void {
     this.sessions.delete(sessionId);
+    this.adaptiveController?.clearSession(sessionId);
   }
 
   snapshot(sessionId: string): ArenaSnapshot {
@@ -266,12 +464,14 @@ export class ContextArena {
         totalAppended: 0,
         activeKeys: 0,
         onceKeys: 0,
+        adaptiveController: null,
       };
     }
     return {
       totalAppended: state.entries.length,
       activeKeys: state.latestIndexByKey.size,
       onceKeys: state.onceKeys.size,
+      adaptiveController: this.adaptiveController?.snapshot(sessionId) ?? null,
     };
   }
 
@@ -337,6 +537,7 @@ export class ContextArena {
       entries: [],
       latestIndexByKey: new Map(),
       onceKeys: new Set(),
+      lastDegradationPolicy: null,
     };
     this.sessions.set(sessionId, state);
     return state;
@@ -355,46 +556,220 @@ export class ContextArena {
     };
   }
 
-  private buildZoneRemaining(candidates: ArenaEntry[], totalBudget: number): ZonePlanState {
-    if (!this.zoneLayout || !this.zoneBudgetAllocator) {
-      return { kind: "disabled" };
-    }
-
-    const zoneDemands: ZoneTokenMap = {
-      identity: 0,
-      truth: 0,
-      task_state: 0,
-      tool_failures: 0,
-      memory_working: 0,
-      memory_recall: 0,
-    };
+  private buildZoneDemands(candidates: ArenaEntry[]): ZoneTokenMap {
+    const zoneDemands = createZeroZoneTokenMap();
     for (const candidate of candidates) {
       const zone = zoneForSource(candidate.source);
       zoneDemands[zone] += candidate.estimatedTokens;
     }
+    return zoneDemands;
+  }
 
-    const allocation = this.zoneBudgetAllocator.allocate({
+  private resolveZoneBudgetConfig(sessionId: string): ZoneBudgetConfig | null {
+    if (!this.baseZoneBudgets) return null;
+    if (!this.adaptiveController) return this.baseZoneBudgets;
+    return this.adaptiveController.resolveZoneBudgetConfig(sessionId);
+  }
+
+  private buildZonePlan(
+    sessionId: string,
+    candidates: ArenaEntry[],
+    totalBudget: number,
+    floorRelaxation: ContextZone[],
+  ): ZonePlanState {
+    if (!this.zoneLayout || !this.baseZoneBudgets) {
+      return {
+        kind: "disabled",
+        floorUnmet: false,
+        appliedFloorRelaxation: [],
+        allocated: this.buildZoneDemands(candidates),
+      };
+    }
+
+    const zoneDemands = this.buildZoneDemands(candidates);
+    const effectiveBudgetConfig = this.resolveZoneBudgetConfig(sessionId);
+    if (!effectiveBudgetConfig) {
+      return {
+        kind: "disabled",
+        floorUnmet: false,
+        appliedFloorRelaxation: [],
+        allocated: zoneDemands,
+      };
+    }
+
+    const adjustedZoneBudgetConfig = { ...effectiveBudgetConfig };
+    for (const zone of floorRelaxation) {
+      adjustedZoneBudgetConfig[zone] = {
+        min: 0,
+        max: adjustedZoneBudgetConfig[zone].max,
+      };
+    }
+
+    const allocation = new ZoneBudgetAllocator(adjustedZoneBudgetConfig).allocate({
       totalBudget,
       zoneDemands,
     });
     if (!allocation.accepted) {
-      return { kind: "floor_unmet" };
+      return {
+        kind: "floor_unmet",
+        floorUnmet: true,
+        appliedFloorRelaxation: [...floorRelaxation],
+        allocated: createZeroZoneTokenMap(),
+      };
     }
+
+    const allocated = this.toZoneMap(allocation);
     return {
       kind: "ready",
-      remaining: this.toZoneRemaining(allocation),
+      floorUnmet: floorRelaxation.length > 0,
+      appliedFloorRelaxation: [...floorRelaxation],
+      allocated,
+      remaining: { ...allocated },
     };
   }
 
-  private maybeTrimSupersededEntries(state: ArenaSessionState): void {
-    const totalEntries = state.entries.length;
-    if (totalEntries < ARENA_TRIM_MIN_ENTRIES) return;
+  private ensureAppendCapacity(
+    state: ArenaSessionState,
+    entry: ContextInjectionEntry,
+  ): ArenaCapacityDecision {
+    const before = state.entries.length;
+    if (before < this.maxEntriesPerSession) {
+      return {
+        allow: true,
+        entriesBefore: before,
+        entriesAfter: before,
+        dropped: false,
+      };
+    }
 
+    this.compactToLatest(state);
+    if (state.entries.length < this.maxEntriesPerSession) {
+      return {
+        allow: true,
+        entriesBefore: before,
+        entriesAfter: state.entries.length,
+        dropped: false,
+      };
+    }
+
+    const incomingZone = zoneForSource(entry.source);
+    if (this.degradationPolicy === "force_compact") {
+      state.entries = [];
+      state.latestIndexByKey.clear();
+      state.lastDegradationPolicy = this.degradationPolicy;
+      return {
+        allow: true,
+        entriesBefore: before,
+        entriesAfter: 0,
+        policyApplied: this.degradationPolicy,
+        dropped: false,
+      };
+    }
+
+    if (this.degradationPolicy === "drop_recall") {
+      if (incomingZone === "memory_recall" || incomingZone === "rag_external") {
+        state.lastDegradationPolicy = this.degradationPolicy;
+        return {
+          allow: false,
+          entriesBefore: before,
+          entriesAfter: state.entries.length,
+          policyApplied: this.degradationPolicy,
+          dropped: true,
+        };
+      }
+
+      const evicted = this.evictActiveEntry(state, (candidate) => {
+        const zone = zoneForSource(candidate.source);
+        return zone === "memory_recall" || zone === "rag_external";
+      });
+      if (!evicted) {
+        state.lastDegradationPolicy = this.degradationPolicy;
+        return {
+          allow: false,
+          entriesBefore: before,
+          entriesAfter: state.entries.length,
+          policyApplied: this.degradationPolicy,
+          dropped: true,
+        };
+      }
+
+      state.lastDegradationPolicy = this.degradationPolicy;
+      return {
+        allow: true,
+        entriesBefore: before,
+        entriesAfter: state.entries.length,
+        policyApplied: this.degradationPolicy,
+        dropped: false,
+      };
+    }
+
+    if (this.degradationPolicy === "drop_low_priority") {
+      const incomingPriority = entry.priority;
+      if (incomingPriority === "low" || incomingPriority === "normal") {
+        state.lastDegradationPolicy = this.degradationPolicy;
+        return {
+          allow: false,
+          entriesBefore: before,
+          entriesAfter: state.entries.length,
+          policyApplied: this.degradationPolicy,
+          dropped: true,
+        };
+      }
+
+      const evicted = this.evictActiveEntry(
+        state,
+        (candidate) => candidate.priority === "low" || candidate.priority === "normal",
+      );
+      if (evicted) {
+        state.lastDegradationPolicy = this.degradationPolicy;
+        return {
+          allow: true,
+          entriesBefore: before,
+          entriesAfter: state.entries.length,
+          policyApplied: this.degradationPolicy,
+          dropped: false,
+        };
+      }
+
+      state.lastDegradationPolicy = this.degradationPolicy;
+      return {
+        allow: false,
+        entriesBefore: before,
+        entriesAfter: state.entries.length,
+        policyApplied: this.degradationPolicy,
+        dropped: true,
+      };
+    }
+
+    return {
+      allow: false,
+      entriesBefore: before,
+      entriesAfter: state.entries.length,
+      dropped: true,
+    };
+  }
+
+  private evictActiveEntry(
+    state: ArenaSessionState,
+    predicate: (entry: ArenaEntry) => boolean,
+  ): boolean {
+    const activeEntries: ArenaEntry[] = [];
+    for (const index of state.latestIndexByKey.values()) {
+      const entry = state.entries[index];
+      if (!entry) continue;
+      activeEntries.push(entry);
+    }
+    const candidate = activeEntries
+      .filter((entry) => predicate(entry))
+      .toSorted((left, right) => left.timestamp - right.timestamp)[0];
+    if (!candidate) return false;
+    state.latestIndexByKey.delete(candidate.key);
+    this.compactToLatest(state);
+    return true;
+  }
+
+  private compactToLatest(state: ArenaSessionState): void {
     const latestIndices = new Set(state.latestIndexByKey.values());
-    const supersededCount = totalEntries - latestIndices.size;
-    if (supersededCount < ARENA_TRIM_MIN_SUPERSEDED) return;
-    if (supersededCount / totalEntries < ARENA_TRIM_MIN_SUPERSEDED_RATIO) return;
-
     const compactedEntries: ArenaEntry[] = [];
     const nextLatestIndexByKey = new Map<string, number>();
 
@@ -412,7 +787,19 @@ export class ContextArena {
     state.latestIndexByKey = nextLatestIndexByKey;
   }
 
-  private toZoneRemaining(allocation: ZoneBudgetAllocationResult): ZoneTokenMap {
+  private maybeTrimSupersededEntries(state: ArenaSessionState): void {
+    const totalEntries = state.entries.length;
+    if (totalEntries < ARENA_TRIM_MIN_ENTRIES) return;
+
+    const latestIndices = new Set(state.latestIndexByKey.values());
+    const supersededCount = totalEntries - latestIndices.size;
+    if (supersededCount < ARENA_TRIM_MIN_SUPERSEDED) return;
+    if (supersededCount / totalEntries < ARENA_TRIM_MIN_SUPERSEDED_RATIO) return;
+
+    this.compactToLatest(state);
+  }
+
+  private toZoneMap(allocation: ZoneBudgetAllocationResult): ZoneTokenMap {
     return {
       identity: allocation.identity,
       truth: allocation.truth,
@@ -420,6 +807,39 @@ export class ContextArena {
       tool_failures: allocation.tool_failures,
       memory_working: allocation.memory_working,
       memory_recall: allocation.memory_recall,
+      rag_external: allocation.rag_external,
+    };
+  }
+
+  private observeAdaptiveTelemetry(
+    sessionId: string,
+    telemetry: ZoneBudgetPlanTelemetry,
+  ): ZoneBudgetControllerAdjustment | null {
+    if (!this.adaptiveController) return null;
+    return this.adaptiveController.observe(sessionId, telemetry);
+  }
+
+  private emptyPlanTelemetry(): ContextInjectionPlanResult["planTelemetry"] {
+    return {
+      zoneDemandTokens: createZeroZoneTokenMap(),
+      zoneAllocatedTokens: createZeroZoneTokenMap(),
+      zoneAcceptedTokens: createZeroZoneTokenMap(),
+      floorUnmet: false,
+      appliedFloorRelaxation: [],
+      degradationApplied: null,
+      zoneAdaptation: null,
+    };
+  }
+
+  private consumePlanTelemetry(
+    state: ArenaSessionState,
+    telemetry: ContextInjectionPlanResult["planTelemetry"],
+  ): ContextInjectionPlanResult["planTelemetry"] {
+    const degradationApplied = state.lastDegradationPolicy;
+    state.lastDegradationPolicy = null;
+    return {
+      ...telemetry,
+      degradationApplied: degradationApplied ?? telemetry.degradationApplied,
     };
   }
 }

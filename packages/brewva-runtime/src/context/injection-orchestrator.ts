@@ -63,6 +63,8 @@ export interface ContextInjectionOrchestratorDeps {
   setReservedTokens(scopeKey: string, tokens: number): void;
   getLastInjectedFingerprint(scopeKey: string): string | undefined;
   setLastInjectedFingerprint(scopeKey: string, fingerprint: string): void;
+  shouldRequestCompactionOnFloorUnmet(): boolean;
+  requestCompaction(sessionId: string, reason: "floor_unmet"): void;
 }
 
 export function buildContextInjection(
@@ -140,12 +142,37 @@ export function buildContextInjection(
     input.sessionId,
     deps.isContextBudgetEnabled() ? deps.maxInjectionTokens : Number.MAX_SAFE_INTEGER,
   );
+  if (merged.planTelemetry.zoneAdaptation && merged.planTelemetry.zoneAdaptation.movedTokens > 0) {
+    deps.recordEvent({
+      sessionId: input.sessionId,
+      type: "context_arena_zone_adapted",
+      payload: {
+        movedTokens: merged.planTelemetry.zoneAdaptation.movedTokens,
+        turn: merged.planTelemetry.zoneAdaptation.turn,
+        shifts: merged.planTelemetry.zoneAdaptation.shifts,
+        maxByZone: merged.planTelemetry.zoneAdaptation.maxByZone,
+      },
+    });
+  }
   if (merged.planReason === "floor_unmet") {
     deps.recordEvent({
       sessionId: input.sessionId,
-      type: "context_arena_floor_unmet",
+      type: "context_arena_floor_unmet_unrecoverable",
       payload: {
         reason: "insufficient_budget_for_zone_floors",
+        appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
+      },
+    });
+    if (deps.shouldRequestCompactionOnFloorUnmet()) {
+      deps.requestCompaction(input.sessionId, "floor_unmet");
+    }
+  } else if (merged.planTelemetry.floorUnmet) {
+    deps.recordEvent({
+      sessionId: input.sessionId,
+      type: "context_arena_floor_unmet_recovered",
+      payload: {
+        reason: "insufficient_budget_for_zone_floors",
+        appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
       },
     });
   }
@@ -189,6 +216,12 @@ export function buildContextInjection(
         usagePercent: input.usage?.percent ?? null,
         sourceCount: merged.entries.length,
         sourceTokens: merged.estimatedTokens,
+        zoneDemandTokens: merged.planTelemetry.zoneDemandTokens,
+        zoneAllocatedTokens: merged.planTelemetry.zoneAllocatedTokens,
+        zoneAcceptedTokens: merged.planTelemetry.zoneAcceptedTokens,
+        floorUnmet: merged.planTelemetry.floorUnmet,
+        appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
+        degradationApplied: merged.planTelemetry.degradationApplied,
       },
     });
     return {
@@ -203,14 +236,19 @@ export function buildContextInjection(
   const rejectedScopeKey = deps.buildInjectionScopeKey(input.sessionId, input.injectionScopeId);
   deps.setReservedTokens(rejectedScopeKey, 0);
   const droppedReason =
-    decision.droppedReason ??
-    (merged.planReason === "floor_unmet" ? "budget_exhausted" : "unknown");
+    decision.droppedReason ?? (merged.planReason === "floor_unmet" ? "floor_unmet" : "unknown");
   deps.recordEvent({
     sessionId: input.sessionId,
     type: "context_injection_dropped",
     payload: {
       reason: droppedReason,
       originalTokens: decision.originalTokens,
+      zoneDemandTokens: merged.planTelemetry.zoneDemandTokens,
+      zoneAllocatedTokens: merged.planTelemetry.zoneAllocatedTokens,
+      zoneAcceptedTokens: merged.planTelemetry.zoneAcceptedTokens,
+      floorUnmet: merged.planTelemetry.floorUnmet,
+      appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
+      degradationApplied: merged.planTelemetry.degradationApplied,
     },
   });
   return {

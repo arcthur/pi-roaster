@@ -10,6 +10,7 @@ describe("context zones", () => {
     expect(zoneForSource("brewva.tool-failures")).toBe("tool_failures");
     expect(zoneForSource("brewva.memory-working")).toBe("memory_working");
     expect(zoneForSource("brewva.memory-recall")).toBe("memory_recall");
+    expect(zoneForSource("brewva.rag-external")).toBe("rag_external");
   });
 
   test("falls back unknown sources to memory_recall zone", () => {
@@ -21,5 +22,12 @@ describe("context zones", () => {
     const taskIndex = ZONE_ORDER.indexOf("task_state");
     expect(Math.abs(truthIndex - taskIndex)).toBe(1);
     expect(ZONE_ORDER[0]).toBe("identity");
+  });
+
+  test("places rag_external after memory_recall", () => {
+    const recallIndex = ZONE_ORDER.indexOf("memory_recall");
+    const ragIndex = ZONE_ORDER.indexOf("rag_external");
+    expect(recallIndex).toBeGreaterThanOrEqual(0);
+    expect(ragIndex).toBe(recallIndex + 1);
   });
 });

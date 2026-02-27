@@ -647,4 +647,66 @@ describe("Extension gaps: context transform", () => {
     expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
   });
+
+  test("given floor_unmet appears during injection planning, when before_agent_start runs, then gate is armed in the same turn", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const gateReasons: string[] = [];
+    let pendingReasonCalls = 0;
+
+    const runtime = createRuntimeFixture({
+      context: {
+        onTurnStart: () => undefined,
+        observeUsage: () => undefined,
+        shouldRequestCompaction: () => false,
+        markCompacted: () => undefined,
+        getPendingCompactionReason: () => {
+          pendingReasonCalls += 1;
+          return pendingReasonCalls >= 2 ? "floor_unmet" : null;
+        },
+        buildInjection: async () => ({
+          text: "",
+          accepted: false,
+          originalTokens: 0,
+          finalTokens: 0,
+          truncated: false,
+        }),
+      },
+      events: {
+        record: (input: { type: string; payload?: { reason?: string } }) => {
+          if (input.type === "context_compaction_gate_armed" && input.payload?.reason) {
+            gateReasons.push(input.payload.reason);
+          }
+          return undefined;
+        },
+      },
+    });
+
+    registerContextTransform(api, runtime);
+
+    invokeHandler(
+      handlers,
+      "turn_start",
+      { turnIndex: 1 },
+      { sessionManager: { getSessionId: () => "s-floor" } },
+    );
+
+    const before = await invokeHandlerAsync<{ message?: { content?: string } }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "floor-unmet-trigger",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-floor",
+        },
+        getContextUsage: () => ({ tokens: 300, contextWindow: 1000, percent: 0.3 }),
+      },
+    );
+
+    expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(true);
+    expect(gateReasons).toContain("floor_unmet");
+  });
 });

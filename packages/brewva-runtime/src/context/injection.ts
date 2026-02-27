@@ -1,5 +1,8 @@
+import type { ContextArenaDegradationPolicy } from "../types.js";
 import { ContextArena } from "./arena.js";
+import type { ZoneBudgetAdaptiveConfig } from "./zone-budget-controller.js";
 import type { ZoneBudgetConfig } from "./zone-budget.js";
+import type { ContextZone } from "./zones.js";
 
 export type ContextInjectionPriority = "critical" | "high" | "normal" | "low";
 export type ContextInjectionTruncationStrategy = "drop-entry" | "summarize" | "tail";
@@ -31,9 +34,35 @@ export interface ContextInjectionConsumeResult {
   truncated: boolean;
 }
 
+export interface ContextInjectionPlanTelemetry {
+  zoneDemandTokens: Record<ContextZone, number>;
+  zoneAllocatedTokens: Record<ContextZone, number>;
+  zoneAcceptedTokens: Record<ContextZone, number>;
+  floorUnmet: boolean;
+  appliedFloorRelaxation: ContextZone[];
+  degradationApplied: ContextArenaDegradationPolicy | null;
+  zoneAdaptation: {
+    movedTokens: number;
+    maxByZone: Record<ContextZone, number>;
+    shifts: Array<{ from: ContextZone; to: ContextZone; tokens: number }>;
+    turn: number;
+  } | null;
+}
+
 export interface ContextInjectionPlanResult extends ContextInjectionConsumeResult {
   consumedKeys: string[];
   planReason?: "floor_unmet";
+  planTelemetry: ContextInjectionPlanTelemetry;
+}
+
+export interface ContextInjectionRegisterResult {
+  accepted: boolean;
+  sloEnforced?: {
+    policy: ContextArenaDegradationPolicy;
+    entriesBefore: number;
+    entriesAfter: number;
+    dropped: boolean;
+  };
 }
 
 export class ContextInjectionCollector {
@@ -44,6 +73,14 @@ export class ContextInjectionCollector {
       sourceTokenLimits?: Record<string, number>;
       truncationStrategy?: ContextInjectionTruncationStrategy;
       zoneBudgets?: ZoneBudgetConfig;
+      adaptiveZones?: ZoneBudgetAdaptiveConfig;
+      maxEntriesPerSession?: number;
+      degradationPolicy?: ContextArenaDegradationPolicy;
+      floorUnmetPolicy?: {
+        enabled?: boolean;
+        relaxOrder?: ContextZone[];
+        finalFallback?: "critical_only";
+      };
     } = {},
   ) {
     this.arena = new ContextArena({
@@ -51,11 +88,18 @@ export class ContextInjectionCollector {
       truncationStrategy: options.truncationStrategy,
       zoneLayout: true,
       zoneBudgets: options.zoneBudgets,
+      adaptiveZones: options.adaptiveZones,
+      maxEntriesPerSession: options.maxEntriesPerSession,
+      degradationPolicy: options.degradationPolicy,
+      floorUnmetPolicy: options.floorUnmetPolicy,
     });
   }
 
-  register(sessionId: string, input: RegisterContextInjectionInput): void {
-    this.arena.append(sessionId, input);
+  register(
+    sessionId: string,
+    input: RegisterContextInjectionInput,
+  ): ContextInjectionRegisterResult {
+    return this.arena.append(sessionId, input);
   }
 
   plan(sessionId: string, totalTokenBudget: number): ContextInjectionPlanResult {

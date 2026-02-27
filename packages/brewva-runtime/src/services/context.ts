@@ -1,7 +1,11 @@
 import { ContextBudgetManager } from "../context/budget.js";
 import { readIdentityProfile } from "../context/identity.js";
 import { buildContextInjection as buildContextInjectionOrchestrated } from "../context/injection-orchestrator.js";
-import { ContextInjectionCollector, type ContextInjectionPriority } from "../context/injection.js";
+import {
+  ContextInjectionCollector,
+  type ContextInjectionPriority,
+  type ContextInjectionRegisterResult,
+} from "../context/injection.js";
 import type { ToolFailureEntry } from "../context/tool-failures.js";
 import { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { MemoryEngine } from "../memory/engine.js";
@@ -11,6 +15,7 @@ import type {
   BrewvaEventQuery,
   BrewvaEventRecord,
   ContextBudgetUsage,
+  ContextCompactionReason,
   ContextCompactionGateStatus,
   ContextPressureLevel,
   ContextPressureStatus,
@@ -25,7 +30,26 @@ import type { RuntimeCallback } from "./callback.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 
 const OUTPUT_HEALTH_GUARD_LOOKBACK_EVENTS = 32;
-const RECENT_COMPACTION_WINDOW_TURNS = 2;
+
+export interface ExternalRecallHit {
+  topic: string;
+  excerpt: string;
+  score?: number;
+  confidence?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExternalRecallPort {
+  search(input: { sessionId: string; query: string; limit: number }): Promise<ExternalRecallHit[]>;
+}
+
+interface ExternalRecallInjectionOutcome {
+  query: string;
+  hitCount: number;
+  internalTopScore: number | null;
+  threshold: number;
+  writebackUnits: number;
+}
 
 export interface ContextServiceOptions {
   cwd: string;
@@ -35,6 +59,7 @@ export interface ContextServiceOptions {
   contextBudget: ContextBudgetManager;
   contextInjection: ContextInjectionCollector;
   memory: MemoryEngine;
+  externalRecallPort?: ExternalRecallPort;
   fileChanges: FileChangeTracker;
   ledger: EvidenceLedger;
   sessionState: RuntimeSessionStateStore;
@@ -82,6 +107,7 @@ export class ContextService {
   private readonly contextBudget: ContextBudgetManager;
   private readonly contextInjection: ContextInjectionCollector;
   private readonly memory: MemoryEngine;
+  private readonly externalRecallPort?: ExternalRecallPort;
   private readonly fileChanges: FileChangeTracker;
   private readonly ledger: EvidenceLedger;
   private readonly sessionState: RuntimeSessionStateStore;
@@ -110,6 +136,7 @@ export class ContextService {
     this.contextBudget = options.contextBudget;
     this.contextInjection = options.contextInjection;
     this.memory = options.memory;
+    this.externalRecallPort = options.externalRecallPort;
     this.fileChanges = options.fileChanges;
     this.ledger = options.ledger;
     this.sessionState = options.sessionState;
@@ -231,7 +258,7 @@ export class ContextService {
   }
 
   private resolveRecentCompactionWindowTurns(): number {
-    return RECENT_COMPACTION_WINDOW_TURNS;
+    return Math.max(1, this.config.infrastructure.contextBudget.compaction.minTurnsBetween);
   }
 
   getRecentCompactionWindowTurns(): number {
@@ -258,13 +285,17 @@ export class ContextService {
       turnsSinceCompaction !== null && Number.isFinite(turnsSinceCompaction)
         ? turnsSinceCompaction < windowTurns
         : false;
+    const pendingReason = this.getPendingCompactionReason(sessionId);
     const required =
       this.config.infrastructure.contextBudget.enabled &&
-      pressure.level === "critical" &&
-      !recentCompaction;
+      ((pressure.level === "critical" && !recentCompaction) || pendingReason === "floor_unmet");
+    const reason: ContextCompactionReason | null = required
+      ? (pendingReason ?? (pressure.level === "critical" ? "hard_limit" : "usage_threshold"))
+      : null;
 
     return {
       required,
+      reason,
       pressure,
       recentCompaction,
       windowTurns,
@@ -289,14 +320,19 @@ export class ContextService {
     }
 
     const reason =
-      "Context usage is critical. Call tool 'session_compact' first, then continue with other tools.";
+      gate.reason === "floor_unmet"
+        ? "Context floor requirements are unmet. Call tool 'session_compact' first, then continue with other tools."
+        : "Context usage is critical. Call tool 'session_compact' first, then continue with other tools.";
     this.recordEvent({
       sessionId,
       type: "context_compaction_gate_blocked_tool",
       turn: this.getCurrentTurn(sessionId),
       payload: {
         blockedTool: toolName,
-        reason: "critical_context_pressure_without_compaction",
+        reason:
+          gate.reason === "floor_unmet"
+            ? "context_floor_unmet_without_compaction"
+            : "critical_context_pressure_without_compaction",
         usagePercent: gate.pressure.usageRatio,
         hardLimitPercent: gate.pressure.hardLimitRatio,
       },
@@ -341,6 +377,32 @@ export class ContextService {
     }));
   }
 
+  private buildExternalRecallBlock(query: string, hits: ExternalRecallHit[]): string {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return "";
+    const lines: string[] = ["[ExternalRecall]", `query: ${trimmedQuery}`];
+    const normalizedHits = hits
+      .map((hit) => ({
+        topic: this.sanitizeInput(hit.topic).trim(),
+        excerpt: this.sanitizeInput(hit.excerpt).trim(),
+        score: typeof hit.score === "number" && Number.isFinite(hit.score) ? hit.score : null,
+        confidence:
+          typeof hit.confidence === "number" && Number.isFinite(hit.confidence)
+            ? hit.confidence
+            : null,
+      }))
+      .filter((hit) => hit.topic.length > 0 && hit.excerpt.length > 0)
+      .slice(0, 8);
+    if (normalizedHits.length === 0) return "";
+    normalizedHits.forEach((hit, index) => {
+      const score = hit.score !== null ? ` score=${hit.score.toFixed(3)}` : "";
+      const confidence = hit.confidence !== null ? ` conf=${hit.confidence.toFixed(3)}` : "";
+      lines.push(`${index + 1}. ${hit.topic}${score}${confidence}`);
+      lines.push(`   ${hit.excerpt}`);
+    });
+    return lines.join("\n");
+  }
+
   async buildContextInjection(
     sessionId: string,
     prompt: string,
@@ -354,8 +416,42 @@ export class ContextService {
     truncated: boolean;
   }> {
     this.registerIdentityContextInjection(sessionId);
-    await this.registerMemoryContextInjection(sessionId, prompt, usage);
-    return this.finalizeContextInjection(sessionId, prompt, usage, injectionScopeId);
+    const externalRecallOutcome = await this.registerMemoryContextInjection(
+      sessionId,
+      prompt,
+      usage,
+    );
+    const finalized = this.finalizeContextInjection(sessionId, prompt, usage, injectionScopeId);
+
+    if (externalRecallOutcome) {
+      if (finalized.text.includes("[ExternalRecall]")) {
+        this.recordEvent({
+          sessionId,
+          type: "context_external_recall_injected",
+          payload: {
+            query: externalRecallOutcome.query,
+            hitCount: externalRecallOutcome.hitCount,
+            internalTopScore: externalRecallOutcome.internalTopScore,
+            threshold: externalRecallOutcome.threshold,
+            writebackUnits: externalRecallOutcome.writebackUnits,
+          },
+        });
+      } else {
+        this.recordEvent({
+          sessionId,
+          type: "context_external_recall_skipped",
+          payload: {
+            reason: "filtered_out",
+            query: externalRecallOutcome.query,
+            hitCount: externalRecallOutcome.hitCount,
+            internalTopScore: externalRecallOutcome.internalTopScore,
+            threshold: externalRecallOutcome.threshold,
+          },
+        });
+      }
+    }
+
+    return finalized;
   }
 
   private registerIdentityContextInjection(sessionId: string): void {
@@ -428,6 +524,9 @@ export class ContextService {
           this.sessionState.lastInjectedContextFingerprintBySession.get(scopeKey),
         setLastInjectedFingerprint: (scopeKey, fingerprint) =>
           this.sessionState.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint),
+        shouldRequestCompactionOnFloorUnmet: () =>
+          this.config.infrastructure.contextBudget.floorUnmetPolicy.requestCompaction,
+        requestCompaction: (id, reason) => this.requestCompaction(id, reason),
       },
       {
         sessionId,
@@ -442,8 +541,8 @@ export class ContextService {
     sessionId: string,
     prompt: string,
     usage?: ContextBudgetUsage,
-  ): Promise<void> {
-    if (!this.config.memory.enabled) return;
+  ): Promise<ExternalRecallInjectionOutcome | null> {
+    if (!this.config.memory.enabled) return null;
     const taskGoal = this.getTaskState(sessionId).spec?.goal;
     this.memory.refreshIfNeeded({ sessionId });
 
@@ -467,9 +566,9 @@ export class ContextService {
       }
     }
 
+    const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
     let recallContent = "";
     if (shouldIncludeRecall) {
-      const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
       const recall = await this.memory.buildRecallBlock({
         sessionId,
         query: recallQuery,
@@ -486,6 +585,114 @@ export class ContextService {
         content: recallContent,
       });
     }
+
+    const externalRecallConfig = this.config.memory.externalRecall;
+    const activeSkill = this.getActiveSkill(sessionId);
+    const isExternalKnowledgeSkill =
+      activeSkill?.contract.tags.some((tag) => tag === "external-knowledge") === true;
+    if (!externalRecallConfig.enabled || !isExternalKnowledgeSkill) {
+      return null;
+    }
+
+    const probe = await this.memory.search(sessionId, {
+      query: recallQuery,
+      limit: 1,
+    });
+    const internalTopScore = probe.hits[0]?.score ?? null;
+    const triggerExternalRecall =
+      internalTopScore === null || internalTopScore < externalRecallConfig.minInternalScore;
+    if (!triggerExternalRecall) {
+      return null;
+    }
+
+    if (!this.externalRecallPort) {
+      this.recordEvent({
+        sessionId,
+        type: "context_external_recall_skipped",
+        payload: {
+          reason: "provider_unavailable",
+          query: recallQuery,
+          internalTopScore,
+          threshold: externalRecallConfig.minInternalScore,
+        },
+      });
+      return null;
+    }
+
+    const externalHits = await this.externalRecallPort.search({
+      sessionId,
+      query: recallQuery,
+      limit: externalRecallConfig.queryTopK,
+    });
+    if (!externalHits.length) {
+      this.recordEvent({
+        sessionId,
+        type: "context_external_recall_skipped",
+        payload: {
+          reason: "no_hits",
+          query: recallQuery,
+          internalTopScore,
+          threshold: externalRecallConfig.minInternalScore,
+        },
+      });
+      return null;
+    }
+
+    const externalBlock = this.buildExternalRecallBlock(recallQuery, externalHits);
+    if (!externalBlock) {
+      this.recordEvent({
+        sessionId,
+        type: "context_external_recall_skipped",
+        payload: {
+          reason: "empty_block",
+          query: recallQuery,
+          hitCount: externalHits.length,
+        },
+      });
+      return null;
+    }
+
+    const externalRegistration = this.registerContextInjection(sessionId, {
+      source: "brewva.rag-external",
+      id: "rag-external",
+      priority: "normal",
+      content: externalBlock,
+    });
+    if (!externalRegistration.accepted) {
+      this.recordEvent({
+        sessionId,
+        type: "context_external_recall_skipped",
+        payload: {
+          reason: "arena_rejected",
+          query: recallQuery,
+          hitCount: externalHits.length,
+          internalTopScore,
+          threshold: externalRecallConfig.minInternalScore,
+          degradationPolicy: externalRegistration.sloEnforced?.policy ?? null,
+        },
+      });
+      return null;
+    }
+
+    const writeback = this.memory.ingestExternalRecall({
+      sessionId,
+      query: recallQuery,
+      defaultConfidence: externalRecallConfig.injectedConfidence,
+      hits: externalHits.map((hit) => ({
+        topic: hit.topic,
+        excerpt: hit.excerpt,
+        score: typeof hit.score === "number" ? hit.score : 0,
+        confidence: hit.confidence,
+        metadata: hit.metadata,
+      })),
+    });
+    return {
+      query: recallQuery,
+      hitCount: externalHits.length,
+      internalTopScore,
+      threshold: externalRecallConfig.minInternalScore,
+      writebackUnits: writeback.upserted,
+    };
   }
 
   planSupplementalContextInjection(
@@ -597,16 +804,33 @@ export class ContextService {
   shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean {
     const decision = this.contextBudget.shouldRequestCompaction(sessionId, usage);
     if (!decision.shouldCompact) return false;
+    this.requestCompaction(sessionId, decision.reason ?? "usage_threshold", decision.usage);
+    return true;
+  }
+
+  requestCompaction(
+    sessionId: string,
+    reason: ContextCompactionReason,
+    usage?: ContextBudgetUsage,
+  ): void {
+    const pendingReason = this.contextBudget.getPendingCompactionReason(sessionId);
+    if (pendingReason === reason) {
+      return;
+    }
+    this.contextBudget.requestCompaction(sessionId, reason);
     this.recordEvent({
       sessionId,
       type: "context_compaction_requested",
       payload: {
-        reason: decision.reason ?? "usage_threshold",
-        usagePercent: decision.usage?.percent ?? null,
-        tokens: decision.usage?.tokens ?? null,
+        reason,
+        usagePercent: usage?.percent ?? null,
+        tokens: usage?.tokens ?? null,
       },
     });
-    return true;
+  }
+
+  getPendingCompactionReason(sessionId: string): ContextCompactionReason | null {
+    return this.contextBudget.getPendingCompactionReason(sessionId);
   }
 
   getCompactionInstructions(): string {
@@ -681,8 +905,22 @@ export class ContextService {
       estimatedTokens?: number;
       oncePerSession?: boolean;
     },
-  ): void {
-    this.contextInjection.register(sessionId, input);
+  ): ContextInjectionRegisterResult {
+    const result = this.contextInjection.register(sessionId, input);
+    if (result.sloEnforced) {
+      this.recordEvent({
+        sessionId,
+        type: "context_arena_slo_enforced",
+        payload: {
+          policy: result.sloEnforced.policy,
+          entriesBefore: result.sloEnforced.entriesBefore,
+          entriesAfter: result.sloEnforced.entriesAfter,
+          dropped: result.sloEnforced.dropped,
+          source: input.source,
+        },
+      });
+    }
+    return result;
   }
 
   isContextBudgetEnabled(): boolean {

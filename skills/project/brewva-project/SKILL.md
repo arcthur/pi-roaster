@@ -1,10 +1,10 @@
 ---
 name: brewva-project
-description: Project orchestration skill for Brewva source analysis, runtime evidence diagnosis, and issue/PR delivery.
-version: 1.3.0
+description: Project orchestration skill for Brewva source analysis, allocator-first runtime diagnosis, and issue/PR delivery.
+version: 1.4.0
 stability: stable
 tier: project
-tags: [project, migration, runtime, diagnostics, verification, delivery]
+tags: [project, migration, runtime, diagnostics, verification, delivery, context-arena]
 anti_tags: []
 tools:
   required: [read, grep]
@@ -84,7 +84,8 @@ Use this skill when requests involve:
 - Prefer migration of proven behavior over greenfield reinvention.
 - Keep runtime contracts explicit and verifiable (tool policy, budgets, outputs).
 - Any high-risk change must include rollback strategy and validation matrix.
-- Preserve compatibility path with upstream `pi-coding-agent`.
+- Prefer allocator-first context design over retrieval-first prompt patching.
+- Avoid compatibility-only branches unless explicitly required by task scope.
 - Source evidence and process evidence must converge before issue/PR escalation.
 
 ## Mode Detection (mandatory first output)
@@ -160,7 +161,7 @@ Limitation:
 Default priority order:
 
 1. P0 (real command-backed verification, enforced contract outputs)
-2. P1 (context injection model, evidence quality semantics, memory/parallel completeness)
+2. P1 (allocator-first context control plane, evidence quality semantics, memory/parallel completeness)
 3. P2 (checkpointing, skill test harness, security sanitization hardening)
 
 If user direction conflicts with this order, proceed only after explicitly stating risk trade-offs.
@@ -237,6 +238,7 @@ That skill provides:
 
 - artifact location and field reference for all `.orchestrator` JSONL artifacts
 - ready-made `jq`/`rg` recipes for event timeline, cost, ledger, memory, and tape queries
+- context arena telemetry recipes (`context_injected`, `context_arena_*`, `context_external_recall_*`)
 - hash chain integrity verification procedure
 - replay engine guidance (`TurnReplayEngine`)
 
@@ -413,7 +415,7 @@ Expected flow:
 1. Output `PROJECT_SCOPE_ALIGNMENT` (mode: `RUNTIME_DIAGNOSIS`).
 2. Output `IMPACT_MAP` (at minimum covering runtime + extensions).
 3. Output `WORKSTREAM_DECISION` — activate both Source and Process lanes.
-4. **Process Lane**: verify ledger hash chain, filter `cost_update` events for budget spikes, correlate `verdict: "fail"` rows with `sessionId:turn`, optionally replay to the failing turn via `TurnReplayEngine`.
+4. **Process Lane**: verify ledger hash chain, filter `cost_update` events for budget spikes, inspect `context_arena_*` and `context_external_recall_*` transitions for control-path anomalies, correlate `verdict: "fail"` rows with `sessionId:turn`, optionally replay to the failing turn via `TurnReplayEngine`.
 5. **Source Lane**: trace the code path from the identified tool call to the budget enforcement gate.
 6. Converge into `MIGRATION_PLAN` with `selected_path: implement-now | issue-first | blocked`.
 7. Execute minimal, reviewable increments and output `VERIFICATION_MATRIX` and `DELIVERY_REPORT`.
@@ -423,14 +425,14 @@ Expected flow:
 Input:
 
 ```text
-"Migrate the context injection model from pi-coding-agent into Brewva runtime, preserving behavior parity."
+"Harden the context arena control plane (adaptive zones + floor_unmet recovery + SLO enforcement) and close any event/doc mismatch."
 ```
 
 Expected flow:
 
 1. Output `PROJECT_SCOPE_ALIGNMENT` (mode: `MIGRATION_IMPLEMENTATION`).
 2. Output `IMPACT_MAP` (runtime + extensions + cli).
-3. Output `WORKSTREAM_DECISION` — Source Lane required, Process Lane optional (activate if upstream behavioral logs are available).
-4. **Source Lane**: map upstream entrypoints, identify contract differences, determine minimal change boundary.
+3. Output `WORKSTREAM_DECISION` — Source Lane required, Process Lane required (control-plane changes need runtime evidence confirmation).
+4. **Source Lane**: map arena/controller/orchestrator entrypoints, identify contract differences, determine minimal change boundary.
 5. Converge into `MIGRATION_PLAN` with increments sequenced as type prerequisites → runtime logic → integration → tests.
 6. Output `VERIFICATION_MATRIX` and `DELIVERY_REPORT`.
