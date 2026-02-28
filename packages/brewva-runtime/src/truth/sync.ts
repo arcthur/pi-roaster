@@ -36,6 +36,131 @@ function extractShellCommandFromArgs(args: Record<string, unknown>): string | un
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+const COMMAND_PREFIX_TOKENS = new Set(["sudo", "command", "time"]);
+const GIT_GLOBAL_OPTIONS_WITH_VALUE = new Set([
+  "-c",
+  "-C",
+  "--config-env",
+  "--exec-path",
+  "--git-dir",
+  "--namespace",
+  "--super-prefix",
+  "--work-tree",
+]);
+const GIT_GLOBAL_OPTIONS_WITH_VALUE_PREFIXES = [
+  "--config-env=",
+  "--exec-path=",
+  "--git-dir=",
+  "--namespace=",
+  "--super-prefix=",
+  "--work-tree=",
+];
+
+function normalizeCommandToken(token: string): string {
+  const trimmed = token.trim().replace(/^['"]+|['"]+$/g, "");
+  if (!trimmed) return "";
+  const withoutWindowsPrefix = trimmed.replace(/^[A-Za-z]:\\/u, "");
+  const segments = withoutWindowsPrefix.split(/[\\/]/u).filter((segment) => segment.length > 0);
+  return (segments[segments.length - 1] ?? "").toLowerCase();
+}
+
+function resolveGitSubcommand(tokens: string[], primaryIndex: number): string | undefined {
+  for (let index = primaryIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token === "--") {
+      const next = tokens[index + 1];
+      return next ? normalizeCommandToken(next) : undefined;
+    }
+
+    if (token.startsWith("-")) {
+      if (GIT_GLOBAL_OPTIONS_WITH_VALUE_PREFIXES.some((prefix) => token.startsWith(prefix))) {
+        continue;
+      }
+
+      if (GIT_GLOBAL_OPTIONS_WITH_VALUE.has(token)) {
+        index += 1;
+      }
+      continue;
+    }
+
+    return normalizeCommandToken(token);
+  }
+
+  return undefined;
+}
+
+function resolvePrimaryCommand(command: string): { command: string; subcommand?: string } | null {
+  const tokens = command
+    .trim()
+    .split(/\s+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+
+  let primaryIndex = -1;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=.*/u.test(token)) continue;
+
+    const normalized = normalizeCommandToken(token);
+    if (!normalized) continue;
+    if (normalized === "env") continue;
+    if (COMMAND_PREFIX_TOKENS.has(normalized)) continue;
+    primaryIndex = index;
+    break;
+  }
+
+  if (primaryIndex < 0) return null;
+  const primary = normalizeCommandToken(tokens[primaryIndex]!);
+  if (!primary) return null;
+
+  if (primary === "git") {
+    const subcommand = resolveGitSubcommand(tokens, primaryIndex);
+    return subcommand ? { command: primary, subcommand } : { command: primary };
+  }
+
+  for (let index = primaryIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token.startsWith("-")) continue;
+    const subcommand = normalizeCommandToken(token);
+    if (!subcommand) continue;
+    return { command: primary, subcommand };
+  }
+
+  return { command: primary };
+}
+
+function extractExitCodeFromOutput(outputText: string): number | null {
+  const match = /process exited with code\s+(-?\d+)\.?/i.exec(outputText);
+  if (!match) return null;
+  const exitCode = Number(match[1]);
+  return Number.isFinite(exitCode) ? exitCode : null;
+}
+
+function isBenignSearchNoMatchFailure(input: {
+  command: string;
+  exitCode: number | null;
+}): boolean {
+  if (input.exitCode !== 1) return false;
+  const resolved = resolvePrimaryCommand(input.command);
+  if (!resolved) return false;
+
+  const isSearchCommand =
+    resolved.command === "rg" ||
+    resolved.command === "grep" ||
+    resolved.command === "findstr" ||
+    (resolved.command === "git" && resolved.subcommand === "grep");
+  return isSearchCommand;
+}
+
+function resolveCommandFailureFact(ctx: TruthSyncContext, sessionId: string, factId: string): void {
+  const truthState = ctx.getTruthState(sessionId);
+  const active = truthState.facts.find((fact) => fact.id === factId && fact.status === "active");
+  if (active) {
+    ctx.resolveTruthFact(sessionId, factId);
+  }
+  resolveTruthBackedBlocker(ctx, sessionId, factId);
+}
+
 function truthFactIdForCommand(command: string): string {
   const normalized = redactSecrets(command).trim().toLowerCase();
   const digest = sha256(normalized).slice(0, 16);
@@ -202,19 +327,27 @@ function syncExecTruth(
   const factId = truthFactIdForCommand(command);
 
   if (input.success) {
-    const truthState = ctx.getTruthState(input.sessionId);
-    const active = truthState.facts.find((fact) => fact.id === factId && fact.status === "active");
-    if (active) {
-      ctx.resolveTruthFact(input.sessionId, factId);
-    }
-    resolveTruthBackedBlocker(ctx, input.sessionId, factId);
+    resolveCommandFailureFact(ctx, input.sessionId, factId);
     return;
   }
 
   const failure = artifacts.find((artifact) => artifact.kind === "command_failure");
   const exitCodeRaw = failure?.exitCode;
-  const exitCode =
+  const artifactExitCode =
     typeof exitCodeRaw === "number" && Number.isFinite(exitCodeRaw) ? exitCodeRaw : null;
+  const outputExitCode = extractExitCodeFromOutput(input.outputText);
+  const exitCode = artifactExitCode ?? outputExitCode;
+
+  if (
+    isBenignSearchNoMatchFailure({
+      command,
+      exitCode,
+    })
+  ) {
+    resolveCommandFailureFact(ctx, input.sessionId, factId);
+    return;
+  }
+
   const summary =
     exitCode === null
       ? `command failed: ${commandSummary}`

@@ -68,4 +68,104 @@ describe("Truth extraction from evidence artifacts", () => {
     const task2 = runtime.task.getState(sessionId);
     expect(task2.blockers.some((blocker) => blocker.id === fact1?.id)).toBe(false);
   });
+
+  test("does not create blockers for search no-match exit code", () => {
+    const workspace = createWorkspace("truth-from-artifacts-nomatch");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-artifacts-2";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: 'rg "needle" src' },
+      outputText: "(no output)\n\nProcess exited with code 1.",
+      success: false,
+      metadata: {
+        details: { result: { exitCode: 1 } },
+      },
+    });
+
+    const truth = runtime.truth.getState(sessionId);
+    expect(
+      truth.facts.some((fact) => fact.kind === "command_failure" && fact.status === "active"),
+    ).toBe(false);
+
+    const task = runtime.task.getState(sessionId);
+    expect(task.blockers.length).toBe(0);
+  });
+
+  test("does not create blockers for grep -c no-match exit code", () => {
+    const workspace = createWorkspace("truth-from-artifacts-grep-count");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-artifacts-3";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: 'grep -c "needle" src/file.ts' },
+      outputText: "0\n\nProcess exited with code 1.",
+      success: false,
+      metadata: {
+        details: { result: { exitCode: 1 } },
+      },
+    });
+
+    const truth = runtime.truth.getState(sessionId);
+    expect(
+      truth.facts.some((fact) => fact.kind === "command_failure" && fact.status === "active"),
+    ).toBe(false);
+
+    const task = runtime.task.getState(sessionId);
+    expect(task.blockers.length).toBe(0);
+  });
+
+  test("does not create blockers for git -C grep no-match exit code", () => {
+    const workspace = createWorkspace("truth-from-artifacts-git-c-grep");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-artifacts-4";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: 'git -C repo grep "needle" src' },
+      outputText: "(no output)\n\nProcess exited with code 1.",
+      success: false,
+      metadata: {
+        details: { result: { exitCode: 1 } },
+      },
+    });
+
+    const truth = runtime.truth.getState(sessionId);
+    expect(
+      truth.facts.some((fact) => fact.kind === "command_failure" && fact.status === "active"),
+    ).toBe(false);
+
+    const task = runtime.task.getState(sessionId);
+    expect(task.blockers.length).toBe(0);
+  });
+
+  test("does not create blockers when exitCode is parsed from output (CRLF)", () => {
+    const workspace = createWorkspace("truth-from-artifacts-exitcode-output");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-artifacts-5";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: 'rg "needle" src' },
+      outputText: "(no output)\r\n\r\nProcess exited with code 1.",
+      success: false,
+      metadata: {
+        details: {},
+      },
+    });
+
+    const truth = runtime.truth.getState(sessionId);
+    expect(
+      truth.facts.some((fact) => fact.kind === "command_failure" && fact.status === "active"),
+    ).toBe(false);
+
+    const task = runtime.task.getState(sessionId);
+    expect(task.blockers.length).toBe(0);
+  });
 });
