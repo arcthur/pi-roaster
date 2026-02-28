@@ -1,4 +1,5 @@
 import { ContextBudgetManager } from "../context/budget.js";
+import { ContextEvolutionManager } from "../context/evolution-manager.js";
 import { readIdentityProfile } from "../context/identity.js";
 import { buildContextInjection as buildContextInjectionOrchestrated } from "../context/injection-orchestrator.js";
 import {
@@ -6,6 +7,7 @@ import {
   type ContextInjectionPriority,
   type ContextInjectionRegisterResult,
 } from "../context/injection.js";
+import { ContextStabilityMonitor } from "../context/stability-monitor.js";
 import type { ToolFailureEntry } from "../context/tool-failures.js";
 import { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { MemoryEngine } from "../memory/engine.js";
@@ -13,12 +15,13 @@ import { FileChangeTracker } from "../state/file-change-tracker.js";
 import type {
   BrewvaConfig,
   BrewvaEventQuery,
-  BrewvaEventRecord,
   ContextBudgetUsage,
   ContextCompactionReason,
   ContextCompactionGateStatus,
+  BrewvaEventRecord,
   ContextPressureLevel,
   ContextPressureStatus,
+  SessionCostSummary,
   SkillDocument,
   SkillSelection,
   TaskState,
@@ -58,14 +61,18 @@ export interface ContextServiceOptions {
   config: BrewvaConfig;
   contextBudget: ContextBudgetManager;
   contextInjection: ContextInjectionCollector;
+  stabilityMonitor: ContextStabilityMonitor;
   memory: MemoryEngine;
   externalRecallPort?: ExternalRecallPort;
   fileChanges: FileChangeTracker;
   ledger: EvidenceLedger;
   sessionState: RuntimeSessionStateStore;
   queryEvents: RuntimeCallback<[sessionId: string, query?: BrewvaEventQuery], BrewvaEventRecord[]>;
+  listSessionIds: RuntimeCallback<[], string[]>;
+  listEvents: RuntimeCallback<[sessionId: string, query?: BrewvaEventQuery], BrewvaEventRecord[]>;
   getTaskState: RuntimeCallback<[sessionId: string], TaskState>;
   getTruthState: RuntimeCallback<[sessionId: string], TruthState>;
+  getCostSummary: RuntimeCallback<[sessionId: string], SessionCostSummary>;
   selectSkills: RuntimeCallback<[message: string], SkillSelection[]>;
   buildSkillCandidateBlock: RuntimeCallback<[selected: SkillSelection[]], string>;
   buildTaskStateBlock: RuntimeCallback<[state: TaskState], string>;
@@ -106,6 +113,7 @@ export class ContextService {
   private readonly config: BrewvaConfig;
   private readonly contextBudget: ContextBudgetManager;
   private readonly contextInjection: ContextInjectionCollector;
+  private readonly stabilityMonitor: ContextStabilityMonitor;
   private readonly memory: MemoryEngine;
   private readonly externalRecallPort?: ExternalRecallPort;
   private readonly fileChanges: FileChangeTracker;
@@ -115,8 +123,11 @@ export class ContextService {
     sessionId: string,
     query?: BrewvaEventQuery,
   ) => BrewvaEventRecord[];
+  private readonly listSessionIds: () => string[];
+  private readonly listEvents: (sessionId: string, query?: BrewvaEventQuery) => BrewvaEventRecord[];
   private readonly getTaskState: (sessionId: string) => TaskState;
   private readonly getTruthState: (sessionId: string) => TruthState;
+  private readonly getCostSummary: (sessionId: string) => SessionCostSummary;
   private readonly selectSkills: (message: string) => SkillSelection[];
   private readonly buildSkillCandidateBlock: (selected: SkillSelection[]) => string;
   private readonly buildTaskStateBlock: (state: TaskState) => string;
@@ -127,6 +138,8 @@ export class ContextService {
   private readonly sanitizeInput: (text: string) => string;
   private readonly getFoldedToolFailures: (sessionId: string) => ToolFailureEntry[];
   private readonly recordEvent: ContextServiceOptions["recordEvent"];
+  private readonly contextEvolution: ContextEvolutionManager;
+  private readonly lastStrategyFingerprintBySession = new Map<string, string>();
 
   constructor(options: ContextServiceOptions) {
     this.cwd = options.cwd;
@@ -135,14 +148,18 @@ export class ContextService {
     this.config = options.config;
     this.contextBudget = options.contextBudget;
     this.contextInjection = options.contextInjection;
+    this.stabilityMonitor = options.stabilityMonitor;
     this.memory = options.memory;
     this.externalRecallPort = options.externalRecallPort;
     this.fileChanges = options.fileChanges;
     this.ledger = options.ledger;
     this.sessionState = options.sessionState;
     this.queryEvents = options.queryEvents;
+    this.listSessionIds = options.listSessionIds;
+    this.listEvents = options.listEvents;
     this.getTaskState = options.getTaskState;
     this.getTruthState = options.getTruthState;
+    this.getCostSummary = options.getCostSummary;
     this.selectSkills = options.selectSkills;
     this.buildSkillCandidateBlock = options.buildSkillCandidateBlock;
     this.buildTaskStateBlock = options.buildTaskStateBlock;
@@ -153,6 +170,12 @@ export class ContextService {
     this.sanitizeInput = options.sanitizeInput;
     this.getFoldedToolFailures = options.getFoldedToolFailures;
     this.recordEvent = options.recordEvent;
+    this.contextEvolution = new ContextEvolutionManager({
+      config: this.config.infrastructure.contextBudget,
+      workspaceRoot: this.workspaceRoot,
+      listSessionIds: () => this.listSessionIds(),
+      listEvents: (sessionId) => this.listEvents(sessionId),
+    });
   }
 
   observeContextUsage(sessionId: string, usage: ContextBudgetUsage | undefined): void {
@@ -497,6 +520,66 @@ export class ContextService {
     finalTokens: number;
     truncated: boolean;
   } {
+    const strategyDecision = this.contextEvolution.resolve({
+      sessionId,
+      model: this.resolveSessionModel(sessionId),
+      taskClass: this.resolveTaskClass(sessionId),
+      contextWindow:
+        typeof usage?.contextWindow === "number" && Number.isFinite(usage.contextWindow)
+          ? usage.contextWindow
+          : null,
+    });
+    if (!strategyDecision.stabilityMonitorEnabled) {
+      // Prevent stale stabilized state from leaking across strategy/retirement transitions.
+      this.stabilityMonitor.clearSession(sessionId);
+    }
+    const turn = this.getCurrentTurn(sessionId);
+    for (const transition of strategyDecision.transitions) {
+      this.recordEvent({
+        sessionId,
+        turn,
+        type: transition.toEnabled
+          ? "context_evolution_feature_reenabled"
+          : "context_evolution_feature_disabled",
+        payload: {
+          feature: transition.feature,
+          metricKey: transition.metricKey,
+          metricValue: transition.metricValue,
+          sampleSize: transition.sampleSize,
+          model: strategyDecision.model,
+          taskClass: strategyDecision.taskClass,
+        },
+      });
+    }
+    const strategyFingerprint = [
+      turn,
+      strategyDecision.arm,
+      strategyDecision.armSource,
+      strategyDecision.armOverrideId ?? "",
+      strategyDecision.adaptiveZonesEnabled ? "1" : "0",
+      strategyDecision.stabilityMonitorEnabled ? "1" : "0",
+      strategyDecision.model,
+      strategyDecision.taskClass,
+    ].join("|");
+    const previousStrategyFingerprint = this.lastStrategyFingerprintBySession.get(sessionId);
+    if (previousStrategyFingerprint !== strategyFingerprint) {
+      this.lastStrategyFingerprintBySession.set(sessionId, strategyFingerprint);
+      this.recordEvent({
+        sessionId,
+        turn,
+        type: "context_strategy_selected",
+        payload: {
+          arm: strategyDecision.arm,
+          source: strategyDecision.armSource,
+          overrideId: strategyDecision.armOverrideId ?? null,
+          adaptiveZonesEnabled: strategyDecision.adaptiveZonesEnabled,
+          stabilityMonitorEnabled: strategyDecision.stabilityMonitorEnabled,
+          model: strategyDecision.model,
+          taskClass: strategyDecision.taskClass,
+        },
+      });
+    }
+
     return buildContextInjectionOrchestrated(
       {
         cwd: this.cwd,
@@ -512,11 +595,12 @@ export class ContextService {
         registerContextInjection: (id, registerInput) =>
           this.registerContextInjection(id, registerInput),
         recordEvent: (eventInput) => this.recordEvent(eventInput),
-        planContextInjection: (id, tokenBudget) => this.contextInjection.plan(id, tokenBudget),
+        planContextInjection: (id, tokenBudget, planOptions) =>
+          this.contextInjection.plan(id, tokenBudget, planOptions),
         commitContextInjection: (id, consumedKeys) =>
           this.contextInjection.commit(id, consumedKeys),
-        planBudgetInjection: (id, inputText, budgetUsage) =>
-          this.contextBudget.planInjection(id, inputText, budgetUsage),
+        planBudgetInjection: (id, inputText, budgetUsage, budgetOptions) =>
+          this.contextBudget.planInjection(id, inputText, budgetUsage, budgetOptions),
         buildInjectionScopeKey: (id, scopeId) => this.buildInjectionScopeKey(id, scopeId),
         setReservedTokens: (scopeKey, tokens) =>
           this.sessionState.reservedContextInjectionTokensByScope.set(scopeKey, tokens),
@@ -524,6 +608,13 @@ export class ContextService {
           this.sessionState.lastInjectedContextFingerprintBySession.get(scopeKey),
         setLastInjectedFingerprint: (scopeKey, fingerprint) =>
           this.sessionState.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint),
+        getCurrentTurn: (id) => this.getCurrentTurn(id),
+        shouldForceCriticalOnly: (id, decisionTurn) =>
+          this.stabilityMonitor.shouldForceCriticalOnly(id, decisionTurn),
+        recordStabilityDegraded: (id, decisionTurn) =>
+          this.stabilityMonitor.recordDegraded(id, decisionTurn),
+        recordStabilityNormal: (id, monitorOptions) =>
+          this.stabilityMonitor.recordNormal(id, monitorOptions),
         shouldRequestCompactionOnFloorUnmet: () =>
           this.config.infrastructure.contextBudget.floorUnmetPolicy.requestCompaction,
         requestCompaction: (id, reason) => this.requestCompaction(id, reason),
@@ -533,6 +624,9 @@ export class ContextService {
         prompt,
         usage,
         injectionScopeId,
+        strategyArm: strategyDecision.arm,
+        adaptiveZonesEnabled: strategyDecision.adaptiveZonesEnabled,
+        stabilityMonitorEnabled: strategyDecision.stabilityMonitorEnabled,
       },
     );
   }
@@ -895,6 +989,18 @@ export class ContextService {
     });
   }
 
+  private resolveSessionModel(sessionId: string): string {
+    const summary = this.getCostSummary(sessionId);
+    const modelRows = Object.entries(summary.models);
+    if (modelRows.length === 0) return "(unknown)";
+    const top = modelRows.toSorted((left, right) => right[1].totalTokens - left[1].totalTokens)[0];
+    return top?.[0] ?? "(unknown)";
+  }
+
+  private resolveTaskClass(sessionId: string): string {
+    return this.getActiveSkill(sessionId)?.name ?? "(none)";
+  }
+
   private registerContextInjection(
     sessionId: string,
     input: {
@@ -937,5 +1043,10 @@ export class ContextService {
 
   clearReservedInjectionTokensForSession(sessionId: string): void {
     this.sessionState.clearReservedInjectionTokensForSession(sessionId);
+  }
+
+  clearStabilityMonitorSession(sessionId: string): void {
+    this.stabilityMonitor.clearSession(sessionId);
+    this.lastStrategyFingerprintBySession.delete(sessionId);
   }
 }

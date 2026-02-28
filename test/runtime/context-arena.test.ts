@@ -171,6 +171,123 @@ describe("ContextArena", () => {
     expect(planned.planReason).toBe("floor_unmet");
   });
 
+  test("forceCriticalOnly filters to identity/truth/task_state zones", () => {
+    const arena = new ContextArena();
+    arena.append(sessionId, {
+      source: "brewva.identity",
+      id: "identity-1",
+      content: "identity",
+      priority: "critical",
+    });
+    arena.append(sessionId, {
+      source: "brewva.memory-working",
+      id: "memory-working",
+      content: "working",
+      priority: "normal",
+    });
+    arena.append(sessionId, {
+      source: "brewva.tool-failures",
+      id: "tool-failures",
+      content: "failure",
+      priority: "high",
+    });
+
+    const normal = arena.plan(sessionId, 10_000);
+    expect(normal.entries).toHaveLength(3);
+    expect(normal.planTelemetry.stabilityForced).toBe(false);
+
+    arena.clearPending(sessionId);
+    const forced = arena.plan(sessionId, 10_000, { forceCriticalOnly: true });
+    expect(forced.entries).toHaveLength(1);
+    expect(forced.entries[0]?.source).toBe("brewva.identity");
+    expect(forced.planTelemetry.stabilityForced).toBe(true);
+  });
+
+  test("forceCriticalOnly bypasses floor_unmet even when critical floors exceed budget", () => {
+    const arena = new ContextArena({
+      zoneLayout: true,
+      floorUnmetPolicy: {
+        enabled: false,
+        relaxOrder: [],
+        finalFallback: "critical_only",
+      },
+      zoneBudgets: {
+        identity: { min: 0, max: 320 },
+        truth: { min: 96, max: 420 },
+        task_state: { min: 32, max: 360 },
+        tool_failures: { min: 0, max: 240 },
+        memory_working: { min: 0, max: 300 },
+        memory_recall: { min: 0, max: 600 },
+        rag_external: { min: 0, max: 0 },
+      },
+    });
+    arena.append(sessionId, {
+      source: "brewva.truth-facts",
+      id: "truth-facts",
+      content: "t".repeat(1_000),
+      priority: "critical",
+    });
+    arena.append(sessionId, {
+      source: "brewva.task-state",
+      id: "task-state",
+      content: "task ".repeat(400),
+      priority: "critical",
+    });
+
+    const normal = arena.plan(sessionId, 100);
+    expect(normal.planReason).toBe("floor_unmet");
+
+    arena.clearPending(sessionId);
+    const forced = arena.plan(sessionId, 100, { forceCriticalOnly: true });
+    expect(forced.planReason).toBeUndefined();
+    expect(forced.entries.length).toBeGreaterThan(0);
+    expect(forced.planTelemetry.stabilityForced).toBe(true);
+    expect(forced.planTelemetry.floorUnmet).toBe(false);
+  });
+
+  test("hybrid strategy bypasses floor_unmet while preserving global token budget", () => {
+    const arena = new ContextArena({
+      zoneLayout: true,
+      floorUnmetPolicy: {
+        enabled: false,
+        relaxOrder: [],
+        finalFallback: "critical_only",
+      },
+      zoneBudgets: {
+        identity: { min: 0, max: 320 },
+        truth: { min: 96, max: 420 },
+        task_state: { min: 96, max: 360 },
+        tool_failures: { min: 0, max: 240 },
+        memory_working: { min: 0, max: 300 },
+        memory_recall: { min: 0, max: 600 },
+        rag_external: { min: 0, max: 0 },
+      },
+    });
+    arena.append(sessionId, {
+      source: "brewva.truth-facts",
+      id: "truth-facts",
+      content: "t".repeat(2_000),
+      priority: "critical",
+    });
+    arena.append(sessionId, {
+      source: "brewva.task-state",
+      id: "task-state",
+      content: "task ".repeat(300),
+      priority: "critical",
+    });
+
+    const managed = arena.plan(sessionId, 120);
+    expect(managed.planReason).toBe("floor_unmet");
+
+    arena.clearPending(sessionId);
+    const hybrid = arena.plan(sessionId, 120, { strategyArm: "hybrid" });
+    expect(hybrid.planReason).toBeUndefined();
+    expect(hybrid.entries.length).toBeGreaterThan(0);
+    expect(hybrid.estimatedTokens).toBeLessThanOrEqual(120);
+    expect(hybrid.planTelemetry.strategyArm).toBe("hybrid");
+    expect(hybrid.planTelemetry.adaptiveZonesDisabled).toBe(true);
+  });
+
   test("trims superseded history under long-session append pressure", () => {
     const arena = new ContextArena();
     const hotSession = "context-arena-hot-session";

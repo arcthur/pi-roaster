@@ -51,6 +51,7 @@ export class ContextBudgetManager {
     sessionId: string,
     inputText: string,
     usage?: ContextBudgetUsage,
+    options: { bypassMaxInjectionTokens?: boolean } = {},
   ): ContextInjectionDecision {
     if (!this.config.enabled) {
       const tokens = estimateTokenCount(inputText);
@@ -84,7 +85,9 @@ export class ContextBudgetManager {
       };
     }
 
-    const tokenBudget = Math.max(32, this.config.maxInjectionTokens);
+    const tokenBudget = options.bypassMaxInjectionTokens
+      ? Number.MAX_SAFE_INTEGER
+      : Math.max(32, this.config.maxInjectionTokens);
     const finalText = truncateTextToTokenBudget(inputText, tokenBudget);
     const finalTokens = estimateTokenCount(finalText);
     return {

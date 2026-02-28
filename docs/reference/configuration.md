@@ -143,10 +143,29 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `infrastructure.contextBudget.adaptiveZones.maxShiftPerTurn`: `96`
 - `infrastructure.contextBudget.adaptiveZones.upshiftTruncationRatio`: `0.25`
 - `infrastructure.contextBudget.adaptiveZones.downshiftIdleRatio`: `0.15`
+- `infrastructure.contextBudget.adaptiveZones.retirement.enabled`: `false`
+- `infrastructure.contextBudget.adaptiveZones.retirement.metricKey`: `zone_adaptation_benefit_7d`
+- `infrastructure.contextBudget.adaptiveZones.retirement.disableBelow`: `0.02`
+- `infrastructure.contextBudget.adaptiveZones.retirement.reenableAbove`: `0.05`
+- `infrastructure.contextBudget.adaptiveZones.retirement.checkIntervalHours`: `168`
+- `infrastructure.contextBudget.adaptiveZones.retirement.minSamples`: `50`
 - `infrastructure.contextBudget.floorUnmetPolicy.enabled`: `true`
 - `infrastructure.contextBudget.floorUnmetPolicy.relaxOrder`: `["memory_recall", "tool_failures", "memory_working"]`
 - `infrastructure.contextBudget.floorUnmetPolicy.finalFallback`: `critical_only`
 - `infrastructure.contextBudget.floorUnmetPolicy.requestCompaction`: `true`
+- `infrastructure.contextBudget.stabilityMonitor.enabled`: `true`
+- `infrastructure.contextBudget.stabilityMonitor.consecutiveThreshold`: `3`
+- `infrastructure.contextBudget.stabilityMonitor.retirement.enabled`: `false`
+- `infrastructure.contextBudget.stabilityMonitor.retirement.metricKey`: `floor_unmet_rate_7d`
+- `infrastructure.contextBudget.stabilityMonitor.retirement.disableBelow`: `0.01`
+- `infrastructure.contextBudget.stabilityMonitor.retirement.reenableAbove`: `0.03`
+- `infrastructure.contextBudget.stabilityMonitor.retirement.checkIntervalHours`: `168`
+- `infrastructure.contextBudget.stabilityMonitor.retirement.minSamples`: `50`
+- `infrastructure.contextBudget.strategy.defaultArm`: `managed`
+- `infrastructure.contextBudget.strategy.enableAutoByContextWindow`: `true`
+- `infrastructure.contextBudget.strategy.hybridContextWindowMin`: `256000`
+- `infrastructure.contextBudget.strategy.passthroughContextWindowMin`: `1000000`
+- `infrastructure.contextBudget.strategy.overridesPath`: `.brewva/strategy/context-strategy.json`
 - `infrastructure.contextBudget.arena.maxEntriesPerSession`: `4096`
 - `infrastructure.contextBudget.arena.degradationPolicy`: `drop_recall`
 - `infrastructure.contextBudget.arena.zones.identity`: `{ min: 0, max: 320 }`
@@ -252,6 +271,7 @@ With `infrastructure.contextBudget.enabled=true`, runtime enforces:
 - arena zone floor/cap allocation (`arena.zones.*`)
 - adaptive zone control loop (`adaptiveZones.*`)
 - floor-unmet recovery policy (`floorUnmetPolicy.*`)
+- strategy arm routing (`strategy.*`: `managed | hybrid | passthrough`)
 - session arena SLO policy (`arena.maxEntriesPerSession`, `arena.degradationPolicy`)
 
 `enabled=false` disables runtime token-budget enforcement for context injection.
@@ -268,6 +288,17 @@ Arena allocation behavior:
   (`floorUnmetPolicy.requestCompaction`), which bypasses normal cooldown.
 - Adaptive zone controller updates per-session zone `max` overrides based on
   observed truncation/idle ratios (`adaptiveZones.*`), while allocator remains pure.
+- Strategy arm behavior:
+  - `managed`: full arena zone control (floors/caps/cascade/adaptive).
+  - `hybrid`: keep global context budget cap, bypass zone floor/cascade/adaptive loops.
+  - `passthrough`: bypass both zone control and primary `maxInjectionTokens` cap
+    (hard-limit safety still applies if provided usage exceeds `hardLimitPercent`).
+- Retirement policy (`adaptiveZones.retirement`, `stabilityMonitor.retirement`) can
+  auto-disable mechanisms when 7-day effectiveness metrics stay below thresholds, and
+  auto-reenable once metrics recover above `reenableAbove`.
+  - Performance note: retirement metric evaluation scans session event history when
+    checks are due (`checkIntervalHours`). Keep retirement disabled unless needed,
+    and prefer larger check intervals in large workspaces with high event volume.
 - Arena SLO ceiling (`arena.maxEntriesPerSession`) enforces deterministic
   degradation policy (`drop_recall | drop_low_priority | force_compact`).
 - Memory recall can be pressure-gated by `memory.recallMode="fallback"`.
@@ -285,6 +316,9 @@ Normalization details from `normalizeBrewvaConfig(...)`:
 - `arena.zones.<zone>.min/max` are normalized to non-negative integers and `max >= min`.
 - `floorUnmetPolicy.relaxOrder` is normalized to valid zone names in deterministic order.
 - `adaptiveZones.*` and compaction cooldown settings are clamped to safe numeric ranges.
+- `adaptiveZones.retirement.*` and `stabilityMonitor.retirement.*` are normalized to bounded
+  ratios/positive integers, and `reenableAbove` is clamped to `>= disableBelow`.
+- `strategy.defaultArm` is normalized to `managed | hybrid | passthrough`.
 - Most numeric fields are floor-normalized to positive/non-negative integers (invalid values fall back to defaults).
 
 ## Turn WAL Model

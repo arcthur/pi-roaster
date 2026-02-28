@@ -468,12 +468,25 @@ export interface BrewvaConfig {
         maxShiftPerTurn: number;
         upshiftTruncationRatio: number;
         downshiftIdleRatio: number;
+        retirement: ContextRetirementPolicy;
       };
       floorUnmetPolicy: {
         enabled: boolean;
         relaxOrder: ContextBudgetZone[];
         finalFallback: "critical_only";
         requestCompaction: boolean;
+      };
+      stabilityMonitor: {
+        enabled: boolean;
+        consecutiveThreshold: number;
+        retirement: ContextRetirementPolicy;
+      };
+      strategy: {
+        defaultArm: ContextStrategyArm;
+        enableAutoByContextWindow: boolean;
+        hybridContextWindowMin: number;
+        passthroughContextWindowMin: number;
+        overridesPath: string;
       };
       arena: {
         maxEntriesPerSession: number;
@@ -731,6 +744,17 @@ export type ContextBudgetZone =
   | "rag_external";
 
 export type ContextArenaDegradationPolicy = "drop_recall" | "drop_low_priority" | "force_compact";
+export type ContextStrategyArm = "managed" | "hybrid" | "passthrough";
+export type ContextRetirementMetricKey = "floor_unmet_rate_7d" | "zone_adaptation_benefit_7d";
+
+export interface ContextRetirementPolicy {
+  enabled: boolean;
+  metricKey: ContextRetirementMetricKey;
+  disableBelow: number;
+  reenableAbove: number;
+  checkIntervalHours: number;
+  minSamples: number;
+}
 
 export type ContextCompactionReason = "usage_threshold" | "hard_limit" | "floor_unmet";
 

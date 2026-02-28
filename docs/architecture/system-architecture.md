@@ -5,70 +5,57 @@ current package dependencies and runtime wiring.
 
 ## Design Principles And Drivers
 
-### 1) Agent Autonomy With Explicit Pressure Contracts
+Principles are organized by permanence. Durable principles are
+model-capability-independent and will not simplify as models improve.
+Adaptive principles explicitly anticipate that their mechanisms may retire
+as the environment changes. The governing meta-principle binds all adaptive
+mechanisms to observable exit conditions.
 
-The runtime exposes four orthogonal control loops and keeps control actions in
-the agent loop:
+### Durable Principles
 
-| Pipeline                    | Resource                                                                                  | Pressure Signal                                     | Agent/Runtime Action                                                        |
-| --------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------- |
-| **State Tape**              | Append-only operational state (task/truth/verification/cost)                              | `tape_pressure`                                     | `tape_handoff` marks semantic phase boundaries                              |
-| **Message Buffer**          | LLM context window (user/assistant/tool messages)                                         | `context_pressure`                                  | `session_compact` compacts conversation history                             |
-| **Context Injection Arena** | Append-only semantic arena (identity/truth/task/tool-failures/memory + optional external) | zone floors/caps + arena SLO + global injection cap | allocator-first planning + adaptive zone controller + deterministic degrade |
-| **Cognitive Inference**     | Runtime cognition budget for semantic relation/ranking/lessons                            | cognitive budget status (calls + tokens)            | `CognitivePort` path or deterministic fallback under budget pressure        |
+#### 1) Tape-First Recovery And Replay
 
-In extension-enabled execution, runtime injects context policy as explicit
-contract text and pressure state, but does not silently compact on behalf of
-the agent. Memory/context surfaces are explicit and traceable via
-`brewva.identity`, `brewva.truth-static`, `brewva.truth-facts`,
-`brewva.task-state`, `brewva.tool-failures`, `brewva.memory-working`,
-`brewva.memory-recall`, and optional `brewva.rag-external`.
+Runtime state is recovered from append-only tape events instead of opaque
+process-local blobs:
 
-Context injection follows allocator-first constraints:
-
-- Context injection storage is append-only per session epoch (`ContextArena`):
-  writes append, planning reads latest-by-key, and lifecycle reset is explicit
-  (`markCompacted -> onCompaction -> resetEpoch`).
-- Planning order is deterministic by semantic zone locality first
-  (`identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall -> rag_external`),
-  then by source priority/timestamp within a zone.
-- Allocation and control are split by design:
-  - `ZoneBudgetAllocator` stays pure (`totalBudget + demand + config -> allocation`).
-  - `ZoneBudgetController` is the closed-loop control plane (EMA-based utilization/truncation feedback) that mutates next-turn zone caps and emits `context_arena_zone_adapted`.
-- Budgeting is bidirectional (Goldilocks): per-zone floor+cap allocation and
-  global injection cap are enforced together.
-  - Floor unmet path is deterministic: floor relaxation cascade (`floorUnmetPolicy.relaxOrder`) -> `critical_only` fallback -> explicit `context_arena_floor_unmet_unrecoverable`.
-  - Recoverable floor unmet emits `context_arena_floor_unmet_recovered`.
-- Arena memory has explicit SLO boundaries (`arena.maxEntriesPerSession`):
-  deterministic degradation policy (`drop_recall` / `drop_low_priority` / `force_compact`) with `context_arena_slo_enforced` telemetry.
-- Memory recall loading is dynamic: `memory.recallMode="fallback"` skips
-  `brewva.memory-recall` under high/critical context pressure.
-- External retrieval is an explicit I/O boundary, not a parallel prompt path:
-  `brewva.rag-external` is injected only when skill tag `external-knowledge`
-  is active, internal recall score is below threshold, and an external provider
-  is available (`context_external_recall_skipped` / `context_external_recall_injected`).
-
-Cognitive behavior follows a dual-path model:
-
-- `memory.cognitive.mode="off"`: deterministic mode only.
-- `memory.cognitive.mode="shadow"`: cognition runs and is audited but cannot
-  mutate runtime decisions.
-- `memory.cognitive.mode="active"`: cognition can influence decisions within
-  budget, with deterministic fallback on error/exhaustion.
+- Per turn: replay from checkpoints + deltas reconstructs task/truth/cost and
+  related runtime state.
+- On startup: session hydration rebuilds counters, warning dedupe sets, and
+  budget states from persisted tape/events.
+- For memory artifacts: missing projection files can be rebuilt from
+  `memory_*` snapshot semantics and extraction fallback.
+- Checkpoints optimize replay speed; anchors remain semantic phase markers
+  controlled by the agent.
 
 Implementation anchors:
 
-- `packages/brewva-runtime/src/runtime.ts`
-- `packages/brewva-runtime/src/context/budget.ts`
-- `packages/brewva-runtime/src/context/arena.ts`
-- `packages/brewva-runtime/src/context/zone-budget.ts`
-- `packages/brewva-runtime/src/context/zone-budget-controller.ts`
-- `packages/brewva-runtime/src/context/zones.ts`
-- `packages/brewva-runtime/src/context/injection-orchestrator.ts`
-- `packages/brewva-extensions/src/context-transform.ts`
-- `packages/brewva-cli/src/session.ts`
+- `packages/brewva-runtime/src/tape/replay-engine.ts`
+- `packages/brewva-runtime/src/channels/turn-wal.ts`
+- `packages/brewva-runtime/src/events/store.ts`
+- `packages/brewva-cli/src/index.ts`
 
-### 2) Skill-First Orchestration With Dynamic Loading
+#### 2) Contract-Driven Execution Boundaries
+
+Execution is constrained by explicit contracts at each layer:
+
+- Skill contracts define allowed tools, budget envelope, and required outputs.
+- Verification gates (`quick` / `standard` / `strict`) block completion until
+  required evidence is recorded.
+- Fail-closed context handling blocks unsafe continuation when context pressure
+  is critical and compaction contract is not satisfied.
+- Evidence ledger is append-only; missing evidence is treated as a hard
+  completion blocker.
+- Budget policies constrain context injection, session cost, and parallel
+  runtime behavior.
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/security/tool-policy.ts`
+- `packages/brewva-runtime/src/ledger/evidence-ledger.ts`
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-tools/src/skill-complete.ts`
+
+#### 3) Skill-First Orchestration With Dynamic Loading
 
 Execution is skill-first and prompt-triggered, not prompt-first:
 
@@ -93,49 +80,7 @@ Implementation anchors:
 - `packages/brewva-tools/src/skill-load.ts`
 - `packages/brewva-tools/src/skill-complete.ts`
 
-### 3) Tape-First Recovery And Replay
-
-Runtime state is recovered from append-only tape events instead of opaque
-process-local blobs:
-
-- Per turn: replay from checkpoints + deltas reconstructs task/truth/cost and
-  related runtime state.
-- On startup: session hydration rebuilds counters, warning dedupe sets, and
-  budget states from persisted tape/events.
-- For memory artifacts: missing projection files can be rebuilt from
-  `memory_*` snapshot semantics and extraction fallback.
-- Checkpoints optimize replay speed; anchors remain semantic phase markers
-  controlled by the agent.
-
-Implementation anchors:
-
-- `packages/brewva-runtime/src/tape/replay-engine.ts`
-- `packages/brewva-runtime/src/channels/turn-wal.ts`
-- `packages/brewva-runtime/src/events/store.ts`
-- `packages/brewva-cli/src/index.ts`
-
-### 4) Contract-Driven Execution Boundaries
-
-Execution is constrained by explicit contracts at each layer:
-
-- Skill contracts define allowed tools, budget envelope, and required outputs.
-- Verification gates (`quick` / `standard` / `strict`) block completion until
-  required evidence is recorded.
-- Fail-closed context handling blocks unsafe continuation when context pressure
-  is critical and compaction contract is not satisfied.
-- Evidence ledger is append-only; missing evidence is treated as a hard
-  completion blocker.
-- Budget policies constrain context injection, session cost, and parallel
-  runtime behavior.
-
-Implementation anchors:
-
-- `packages/brewva-runtime/src/security/tool-policy.ts`
-- `packages/brewva-runtime/src/ledger/evidence-ledger.ts`
-- `packages/brewva-runtime/src/runtime.ts`
-- `packages/brewva-tools/src/skill-complete.ts`
-
-### 5) Projection-Based Memory (Derived, Traceable, Reviewable)
+#### 4) Projection-Based Memory (Derived, Traceable, Reviewable)
 
 Memory is a projection layer derived from event tape semantics:
 
@@ -163,7 +108,7 @@ Implementation anchors:
 - `packages/brewva-runtime/src/cost/tracker.ts`
 - `packages/brewva-extensions/src/event-stream.ts`
 
-### 6) Workspace-First Orchestration
+#### 5) Workspace-First Orchestration
 
 Orchestration is modeled as workspace state first, process memory second:
 
@@ -180,6 +125,136 @@ Implementation anchors:
 - `packages/brewva-ingress/src/telegram-ingress.ts`
 - `packages/brewva-ingress/src/telegram-webhook-worker.ts`
 - `packages/brewva-runtime/src/runtime.ts`
+
+### Governing Meta-Principle
+
+#### 6) Mechanism Metabolism
+
+Every optimization mechanism in the runtime must carry its own exit condition.
+A mechanism that cannot demonstrate measurable benefit should degrade to a
+no-op or be retired, without affecting system correctness.
+
+This principle exists because context management complexity tends to
+self-reproduce: each mechanism introduces failure modes that motivate further
+mechanisms. Left unchecked, the optimization layer becomes a permanent
+dependency rather than an optional accelerator.
+
+Concrete enforcement:
+
+- **Retirement policies** (`ContextRetirementPolicy`): each transitional
+  mechanism (adaptive zones, stability monitor) declares a metric key, a
+  disable-below threshold, a re-enable-above threshold, a check interval, and
+  a minimum sample size. The `ContextEvolutionManager` evaluates these from
+  7-day event windows and emits `context_evolution_feature_disabled` /
+  `context_evolution_feature_reenabled` on transitions.
+- **Passthrough default**: the context strategy must be able to degrade to
+  `passthrough` (no zone budgets, no injection token cap, no adaptive loop)
+  at any time. Correctness does not depend on the optimization layer.
+- **TTL-scoped overrides**: strategy overrides written by the tuner skill
+  carry an `expiresAt` timestamp. Expired overrides are silently ignored.
+  No override can persist without explicit renewal.
+- **Durable principles are exempt**: tape, contracts, ledger, and skill
+  orchestration do not carry retirement policies because they serve system
+  integrity, not model-capability compensation.
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/context/evolution-manager.ts`
+- `packages/brewva-runtime/src/types.ts` (`ContextRetirementPolicy`)
+- `packages/brewva-runtime/src/config/defaults.ts` (retirement defaults)
+- `skills/project/brewva-self-improve/SKILL.md` (observer/tuner cadence)
+
+### Capability-Adaptive Principles
+
+The following principles describe mechanisms that compensate for current model
+limitations (bounded context windows, quality degradation under long context).
+As models improve and costs decrease, these mechanisms are expected to
+progressively simplify toward passthrough. Their design anticipates this
+trajectory.
+
+#### 7) Agent Autonomy With Pressure Transparency
+
+The runtime exposes resource pressure to the agent as explicit contract text
+rather than silently managing it. The agent decides how to respond.
+
+Four orthogonal pressure surfaces:
+
+| Pipeline                    | Resource                      | Pressure Signal                | Agent Action                              |
+| --------------------------- | ----------------------------- | ------------------------------ | ----------------------------------------- |
+| **State Tape**              | Append-only operational state | `tape_pressure`                | `tape_handoff` marks phase boundaries     |
+| **Message Buffer**          | LLM context window            | `context_pressure`             | `session_compact` compacts history        |
+| **Context Injection Arena** | Semantic injection budget     | zone/arena SLO + injection cap | strategy-dependent (see Principle 8)      |
+| **Cognitive Inference**     | Runtime cognition budget      | cognitive budget status        | `CognitivePort` or deterministic fallback |
+
+Context injection zones (`brewva.identity`, `brewva.truth-static`,
+`brewva.truth-facts`, `brewva.task-state`, `brewva.tool-failures`,
+`brewva.memory-working`, `brewva.memory-recall`, `brewva.rag-external`) remain
+explicit and traceable regardless of which strategy arm is active.
+
+Cognitive behavior follows a dual-path model:
+
+- `memory.cognitive.mode="off"`: deterministic mode only.
+- `memory.cognitive.mode="shadow"`: cognition runs and is audited but cannot
+  mutate runtime decisions.
+- `memory.cognitive.mode="active"`: cognition can influence decisions within
+  budget, with deterministic fallback on error/exhaustion.
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/runtime.ts`
+- `packages/brewva-runtime/src/context/budget.ts`
+- `packages/brewva-runtime/src/context/zones.ts`
+- `packages/brewva-extensions/src/context-transform.ts`
+- `packages/brewva-cli/src/session.ts`
+
+#### 8) Adaptive Context Strategy
+
+Context injection is governed by a strategy arm selected per session.
+The strategy determines how much management overhead the runtime applies.
+As model context windows grow and quality-under-length improves, the expected
+trajectory is `managed → hybrid → passthrough`.
+
+| Arm             | Zone Budgets | Adaptive Controller | Injection Token Cap | Stability Monitor | When                        |
+| --------------- | ------------ | ------------------- | ------------------- | ----------------- | --------------------------- |
+| **managed**     | enforced     | active              | enforced            | active            | small context windows       |
+| **hybrid**      | bypassed     | bypassed            | enforced            | bypassed          | medium context windows      |
+| **passthrough** | bypassed     | bypassed            | bypassed            | bypassed          | large context windows (1M+) |
+
+Strategy arm resolution (`ContextEvolutionManager.resolve()`):
+
+1. TTL-scoped override match (model + task class) from
+   `.brewva/strategy/context-strategy.json`.
+2. Auto-select by `contextWindow` size if `strategy.enableAutoByContextWindow`
+   is enabled (default thresholds: hybrid ≥ 256K, passthrough ≥ 1M).
+3. Fall back to `strategy.defaultArm` (default: `managed`).
+
+Within the `managed` arm, the following transitional mechanisms apply. Each
+is governed by Principle 6 (Mechanism Metabolism) and may be independently
+retired:
+
+- **Zone budget allocation** (`ZoneBudgetAllocator`): pure function
+  (`totalBudget + demand + config → allocation`).
+- **Adaptive zone controller** (`ZoneBudgetController`): EMA-based
+  utilization/truncation feedback that shifts zone caps between turns.
+  Subject to `adaptiveZones.retirement`.
+- **Floor-unmet cascade**: deterministic relaxation
+  (`floorUnmetPolicy.relaxOrder`) → `critical_only` fallback →
+  `context_arena_floor_unmet_unrecoverable`.
+- **Stability monitor** (`ContextStabilityMonitor`): cross-turn circuit
+  breaker. After `consecutiveThreshold` consecutive floor-unmet turns,
+  forces `critical_only` planning with periodic recovery probes.
+  Subject to `stabilityMonitor.retirement`.
+- **Arena SLO** (`arena.maxEntriesPerSession`): deterministic degradation
+  (`drop_recall` / `drop_low_priority` / `force_compact`).
+
+Implementation anchors:
+
+- `packages/brewva-runtime/src/context/evolution-manager.ts`
+- `packages/brewva-runtime/src/context/arena.ts`
+- `packages/brewva-runtime/src/context/stability-monitor.ts`
+- `packages/brewva-runtime/src/context/zone-budget.ts`
+- `packages/brewva-runtime/src/context/zone-budget-controller.ts`
+- `packages/brewva-runtime/src/context/injection-orchestrator.ts`
 
 ## Package Dependency Graph
 

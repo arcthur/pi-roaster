@@ -81,12 +81,20 @@ describe("Context injection orchestrator characterization", () => {
     const injectedEvent = runtime.events.query(sessionId, { type: "context_injected", last: 1 })[0];
     expect(injectedEvent).toBeDefined();
     const payload = injectedEvent?.payload as
-      | { sourceCount?: number; finalTokens?: number; originalTokens?: number }
+      | {
+          sourceCount?: number;
+          finalTokens?: number;
+          originalTokens?: number;
+          strategyArm?: string;
+          stabilityForced?: boolean;
+        }
       | undefined;
     expect(typeof payload?.sourceCount).toBe("number");
     expect((payload?.sourceCount ?? 0) >= 5).toBe(true);
     expect((payload?.finalTokens ?? 0) > 0).toBe(true);
     expect((payload?.originalTokens ?? 0) >= (payload?.finalTokens ?? 0)).toBe(true);
+    expect(payload?.strategyArm).toBe("managed");
+    expect(payload?.stabilityForced).toBe(false);
   });
 
   test("drops duplicate fingerprint in same scope and emits context_injection_dropped", async () => {

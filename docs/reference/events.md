@@ -131,6 +131,11 @@ This list is intentionally non-exhaustive. Unknown event types/fields should be 
 - `context_arena_slo_enforced`
 - `context_arena_floor_unmet_recovered`
 - `context_arena_floor_unmet_unrecoverable`
+- `context_stability_monitor_tripped`
+- `context_stability_monitor_reset`
+- `context_strategy_selected`
+- `context_evolution_feature_disabled`
+- `context_evolution_feature_reenabled`
 - `context_injection_dropped`
 - `context_external_recall_skipped`
 - `context_external_recall_injected`
