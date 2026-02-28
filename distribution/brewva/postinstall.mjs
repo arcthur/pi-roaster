@@ -54,22 +54,25 @@ assertSupportedNodeRuntime();
 
 const require = createRequire(import.meta.url);
 
-const DEFAULT_GLOBAL_BREWVA_CONFIG = {
-  ui: {
-    quietStartup: true,
-    collapseChangelog: true,
-  },
-  skills: {
-    roots: [],
-    packs: ["typescript", "react", "bun"],
-    disabled: [],
-    overrides: {},
-    selector: {
-      k: 4,
-      maxDigestTokens: 1200,
+const FALLBACK_DEFAULT_PACKS = ["skill-creator", "telegram-interactive-components"];
+
+function buildDefaultGlobalBrewvaConfig(bundledPacks = []) {
+  const packs = bundledPacks.length > 0 ? bundledPacks : FALLBACK_DEFAULT_PACKS;
+  return {
+    ui: {
+      quietStartup: true,
     },
-  },
-};
+    skills: {
+      roots: [],
+      packs: [...packs],
+      disabled: [],
+      overrides: {},
+      selector: {
+        k: 4,
+      },
+    },
+  };
+}
 
 function getLibcFamily() {
   if (process.platform !== "linux") {
@@ -138,12 +141,12 @@ function deepMerge(base, override) {
   return result;
 }
 
-function seedGlobalConfig(globalRoot) {
+function seedGlobalConfig(globalRoot, defaultConfig) {
   mkdirSync(globalRoot, { recursive: true });
   const configPath = join(globalRoot, "brewva.json");
 
   if (!existsSync(configPath)) {
-    writeFileSync(configPath, `${JSON.stringify(DEFAULT_GLOBAL_BREWVA_CONFIG, null, 2)}\n`, "utf8");
+    writeFileSync(configPath, `${JSON.stringify(defaultConfig, null, 2)}\n`, "utf8");
     console.log(`brewva: created global config at ${configPath}`);
     return;
   }
@@ -154,7 +157,7 @@ function seedGlobalConfig(globalRoot) {
       console.warn(`brewva: skipped renewing config (not an object): ${configPath}`);
       return;
     }
-    const merged = deepMerge(DEFAULT_GLOBAL_BREWVA_CONFIG, existing);
+    const merged = deepMerge(defaultConfig, existing);
     writeFileSync(configPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
     console.log(`brewva: renewed global config at ${configPath}`);
   } catch {
@@ -194,6 +197,16 @@ function listBundledSkillFiles(sourceSkillsDir) {
   };
   walk(sourceSkillsDir);
   return out.toSorted((a, b) => a.localeCompare(b));
+}
+
+function listBundledPackNames(sourceSkillsDir) {
+  const packsDir = join(sourceSkillsDir, "packs");
+  if (!existsSync(packsDir)) return [];
+  const entries = readdirSync(packsDir, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => entry.name)
+    .toSorted((a, b) => a.localeCompare(b));
 }
 
 function readSkillsManifest(manifestPath) {
@@ -245,24 +258,39 @@ function main() {
   const { platform, arch } = process;
   const libcFamily = getLibcFamily();
   const globalRoot = resolveGlobalBrewvaRootDir(process.env);
+  let runtimeBinaryPath;
 
   try {
-    seedGlobalConfig(globalRoot);
+    const pkg = getPlatformPackage({ platform, arch, libcFamily });
+    const binPath = getBinaryPath(pkg, platform);
+    runtimeBinaryPath = require.resolve(binPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`brewva: ${message}`);
+    console.warn("brewva: platform binary is unavailable on this system.");
+  }
+
+  const bundledPacks = runtimeBinaryPath
+    ? listBundledPackNames(join(dirname(runtimeBinaryPath), "skills"))
+    : [];
+
+  try {
+    seedGlobalConfig(globalRoot, buildDefaultGlobalBrewvaConfig(bundledPacks));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`brewva: failed to seed global config: ${message}`);
   }
 
+  if (!runtimeBinaryPath) {
+    return;
+  }
+
   try {
-    const pkg = getPlatformPackage({ platform, arch, libcFamily });
-    const binPath = getBinaryPath(pkg, platform);
-    const runtimeBinaryPath = require.resolve(binPath);
     seedGlobalSkills(globalRoot, runtimeBinaryPath);
     console.log(`brewva: installed platform binary for ${platform}-${arch}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`brewva: ${message}`);
-    console.warn("brewva: platform binary is unavailable on this system.");
+    console.warn(`brewva: failed to seed global skills: ${message}`);
   }
 }
 
