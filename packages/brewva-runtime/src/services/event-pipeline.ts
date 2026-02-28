@@ -41,9 +41,6 @@ const DEBUG_EVENT_TYPES = new Set<string>([
   "cognitive_relation_inference",
   "cognitive_relation_inference_skipped",
   "cognitive_relation_inference_failed",
-  "cognitive_relevance_ranking",
-  "cognitive_relevance_ranking_skipped",
-  "cognitive_relevance_ranking_failed",
   "cognitive_outcome_reflection",
   "cognitive_outcome_reflection_skipped",
   "cognitive_outcome_reflection_failed",
@@ -128,6 +125,7 @@ export class EventPipelineService {
   }
 
   private classifyEventLevel(type: string): "audit" | "ops" | "debug" {
+    if (type.startsWith("cognitive_relevance_ranking")) return "ops";
     if (AUDIT_EVENT_TYPES.has(type)) return "audit";
     if (DEBUG_EVENT_TYPES.has(type)) return "debug";
     if (TURN_WAL_EVENT_TYPES.has(type)) return "ops";

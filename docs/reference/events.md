@@ -155,6 +155,7 @@ This list is intentionally non-exhaustive. Unknown event types/fields should be 
 - `memory_unit_superseded`
 - `memory_crystal_compiled`
 - `memory_working_published`
+- `memory_recall_query_expanded`
 - `memory_insight_recorded`
 - `memory_insight_dismissed`
 - `memory_evolves_edge_reviewed`
@@ -315,13 +316,16 @@ injection plan. Common payload fields include:
 
 ### `context_external_recall_skipped`
 
-Emitted when external recall trigger conditions are met but boundary conditions
-block injection. Common payload fields include:
+Emitted when external recall gating is evaluated but injection does not happen.
+Common payload fields include:
 
-- `reason` (`provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
+- `reason` (`skill_tag_missing | internal_score_sufficient | provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
 - `query`
 - `internalTopScore`
 - `threshold`
+
+Note: `reason="filtered_out"` indicates external recall was accepted into the arena but removed by
+final injection planning; write-back does not occur.
 
 ### `context_external_recall_injected`
 
@@ -333,6 +337,14 @@ Common payload fields include:
 - `internalTopScore`
 - `threshold`
 - `writebackUnits`
+
+### `memory_recall_query_expanded`
+
+Emitted when open memory insights contribute extra terms to recall query
+construction. Common payload fields include:
+
+- `terms`
+- `termsCount`
 
 ### `memory_global_sync`
 
@@ -429,6 +441,7 @@ Startup recovery aggregate with totals and per-source counters:
 ### `viewport_*` and `cognitive_*`
 
 These are debug diagnostics by default classification and are primarily intended for deep incident analysis.
+Exception: `cognitive_relevance_ranking*` is classified as ops-level for rerank observability.
 
 ## Replay and Query
 

@@ -15,6 +15,7 @@ import {
 } from "../cognitive/usage.js";
 import type { BrewvaEventRecord } from "../types.js";
 import { writeFileAtomic } from "../utils/fs.js";
+import { normalizeJsonRecord } from "../utils/json.js";
 import { compileCrystalDrafts } from "./crystal.js";
 import { extractMemoryFromEvent } from "./extractor.js";
 import {
@@ -285,7 +286,8 @@ export class MemoryEngine {
     }
 
     const store = this.getStore();
-    const dirtyTopics: string[] = [];
+    const dirtyTopicsFromUnits: string[] = [];
+    const dirtyTopicsFromResolves: string[] = [];
     for (const candidate of extraction.upserts) {
       const result = store.upsertUnit(candidate);
       const taskKind =
@@ -295,7 +297,7 @@ export class MemoryEngine {
           ? result.unit.metadata.memorySignal
           : null;
       if (taskKind !== "status_set" || memorySignal === "verification") {
-        dirtyTopics.push(result.unit.topic);
+        dirtyTopicsFromUnits.push(result.unit.topic);
       }
       this.recordEvent?.({
         sessionId: event.sessionId,
@@ -314,11 +316,14 @@ export class MemoryEngine {
     for (const directive of extraction.resolves) {
       const resolvedCount = store.resolveUnits(directive);
       if (resolvedCount > 0) {
-        dirtyTopics.push(`${directive.sourceType}:${directive.sourceId}`);
+        dirtyTopicsFromResolves.push(`${directive.sourceType}:${directive.sourceId}`);
       }
     }
-    if (dirtyTopics.length > 0) {
-      store.mergeDirtyTopics(dirtyTopics);
+    if (dirtyTopicsFromUnits.length > 0) {
+      store.mergeDirtyTopics(dirtyTopicsFromUnits, { reason: "new_unit" });
+    }
+    if (dirtyTopicsFromResolves.length > 0) {
+      store.mergeDirtyTopics(dirtyTopicsFromResolves, { reason: "resolve_directive" });
     }
   }
 
@@ -330,7 +335,7 @@ export class MemoryEngine {
     const today = toDayKey(now);
     const crossedDailyHour = getHours(now) >= this.dailyRefreshHourLocal;
     const needsDailyRefresh = crossedDailyHour && state.lastPublishedDayKey !== today;
-    const needsEventRefresh = state.dirtyTopics.length > 0;
+    const needsEventRefresh = state.dirtyEntries.length > 0;
     const needsRefresh = needsDailyRefresh || needsEventRefresh;
 
     if (!needsRefresh) {
@@ -341,7 +346,7 @@ export class MemoryEngine {
     const refreshResult = store.withRefreshLock(() => {
       const rechecked = store.getState();
       const stillNeedsDailyRefresh = crossedDailyHour && rechecked.lastPublishedDayKey !== today;
-      const stillNeedsEventRefresh = rechecked.dirtyTopics.length > 0;
+      const stillNeedsEventRefresh = rechecked.dirtyEntries.length > 0;
       if (!stillNeedsDailyRefresh && !stillNeedsEventRefresh) {
         const cached = store.getWorkingSnapshot(input.sessionId);
         if (cached) return cached;
@@ -530,6 +535,40 @@ export class MemoryEngine {
     };
   }
 
+  getOpenInsightTerms(sessionId: string, limit = 8): string[] {
+    if (!this.enabled) return [];
+    const normalizedLimit = Math.max(1, Math.floor(limit));
+    const store = this.getStore();
+    const insights = store.listInsights(sessionId).filter((insight) => insight.status === "open");
+    if (insights.length === 0) return [];
+    const relatedUnitIds = new Set<string>();
+    for (const insight of insights) {
+      for (const unitId of insight.relatedUnitIds) {
+        const normalized = unitId.trim();
+        if (!normalized) continue;
+        relatedUnitIds.add(normalized);
+      }
+    }
+    if (relatedUnitIds.size === 0) return [];
+
+    const terms: string[] = [];
+    const seen = new Set<string>();
+    for (const unitId of relatedUnitIds) {
+      const unit = store.getUnitById(unitId);
+      if (!unit) continue;
+      const topic = unit.topic.trim();
+      const candidate = topic || unit.statement.trim();
+      if (!candidate) continue;
+      const key = candidate.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const maxChars = 160;
+      terms.push(candidate.length > maxChars ? candidate.slice(0, maxChars) : candidate);
+      if (terms.length >= normalizedLimit) break;
+    }
+    return terms;
+  }
+
   private buildSearchResult(
     sessionId: string,
     input: { query: string; limit?: number },
@@ -681,27 +720,37 @@ export class MemoryEngine {
     if (!this.enabled) return { upserted: 0 };
     const store = this.getStore();
     const now = Date.now();
-    const defaultConfidence = clampProbability(input.defaultConfidence, 0.6);
+    const injectedConfidence = clampProbability(input.defaultConfidence, 0.6);
     let upserted = 0;
     const dirtyTopics: string[] = [];
     input.hits.forEach((hit, index) => {
       const topic = hit.topic.trim();
       const statement = hit.excerpt.trim();
       if (!topic || !statement) return;
-      const confidence = clampProbability(hit.confidence ?? defaultConfidence, defaultConfidence);
+      const providerConfidence =
+        typeof hit.confidence === "number" && Number.isFinite(hit.confidence)
+          ? clampProbability(hit.confidence)
+          : null;
+      const providerScore = sanitizeRankScore(hit.score);
+      const metadataInput: Record<string, unknown> = {};
+      if (hit.metadata) {
+        Object.assign(metadataInput, hit.metadata);
+      }
+      metadataInput.sourceTier = "external";
+      metadataInput.externalQuery = input.query;
+      metadataInput.externalScore = providerScore;
+      if (providerConfidence !== null) {
+        metadataInput.externalProviderConfidence = providerConfidence;
+      }
+      const metadata = normalizeJsonRecord(metadataInput);
       const result = store.upsertUnit({
         sessionId: input.sessionId,
         type: "fact",
         status: "active",
         topic,
         statement,
-        confidence,
-        metadata: {
-          sourceTier: "external",
-          externalQuery: input.query,
-          externalScore: sanitizeRankScore(hit.score),
-          ...hit.metadata,
-        },
+        confidence: injectedConfidence,
+        metadata,
         sourceRefs: [
           {
             eventId: `external-recall:${now}:${index}`,
@@ -728,7 +777,7 @@ export class MemoryEngine {
       });
     });
     if (dirtyTopics.length > 0) {
-      store.mergeDirtyTopics(dirtyTopics);
+      store.mergeDirtyTopics(dirtyTopics, { reason: "external_recall" });
     }
     return { upserted };
   }
@@ -814,7 +863,9 @@ export class MemoryEngine {
       }
     }
 
-    store.mergeDirtyTopics([`evolves_edge_reviewed:${result.edge.id}`]);
+    store.mergeDirtyTopics([`evolves_edge_reviewed:${result.edge.id}`], {
+      reason: "evolves_edge_reviewed",
+    });
     return { ok: true };
   }
 
@@ -892,7 +943,8 @@ export class MemoryEngine {
     let replayedEvents = 0;
     let upsertedUnits = 0;
     let resolvedUnits = 0;
-    const dirtyTopics: string[] = [];
+    const dirtyTopicsFromUnits: string[] = [];
+    const dirtyTopicsFromResolves: string[] = [];
 
     for (const event of events) {
       if (!event || event.sessionId !== sessionId) continue;
@@ -913,7 +965,7 @@ export class MemoryEngine {
             ? result.unit.metadata.memorySignal
             : null;
         if (taskKind !== "status_set" || memorySignal === "verification") {
-          dirtyTopics.push(result.unit.topic);
+          dirtyTopicsFromUnits.push(result.unit.topic);
         }
       }
 
@@ -921,13 +973,16 @@ export class MemoryEngine {
         const resolvedCount = store.resolveUnits(directive);
         resolvedUnits += resolvedCount;
         if (resolvedCount > 0) {
-          dirtyTopics.push(`${directive.sourceType}:${directive.sourceId}`);
+          dirtyTopicsFromResolves.push(`${directive.sourceType}:${directive.sourceId}`);
         }
       }
     }
 
-    if (dirtyTopics.length > 0) {
-      store.mergeDirtyTopics(dirtyTopics);
+    if (dirtyTopicsFromUnits.length > 0) {
+      store.mergeDirtyTopics(dirtyTopicsFromUnits, { reason: "replay_new_unit" });
+    }
+    if (dirtyTopicsFromResolves.length > 0) {
+      store.mergeDirtyTopics(dirtyTopicsFromResolves, { reason: "replay_resolve_directive" });
     }
 
     return {

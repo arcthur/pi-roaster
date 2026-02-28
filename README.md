@@ -111,6 +111,7 @@ For complete CLI modes and gateway/onboard operations:
 bun run check              # Full quality gate (format + lint + typecheck + typecheck:test)
 bun test                   # Run unit + integration tests
 bun run test:docs          # Validate documentation quality
+bun run analyze:memory-recall  # Project recall/rerank quality from tape events (offline)
 ```
 
 For distribution/release verification:

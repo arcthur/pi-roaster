@@ -68,7 +68,7 @@ on extension hooks (e.g. `agent_end`).
 **Refresh conditions:**
 
 - Daily refresh: publish once per local day after `dailyRefreshHourLocal`
-- Dirty refresh: publish after key events mark topics as dirty
+- Dirty refresh: publish after key events add reason-tagged dirty entries
 
 **Behavior:**
 
@@ -94,7 +94,8 @@ Code pointers:
 
 - Runtime registers two independent sources:
   - `brewva.memory-working` from `working.md` snapshot content
-  - `brewva.memory-recall` from task-aware recall hits derived from `{task.goal + user prompt}`
+  - `brewva.memory-recall` from task-aware recall hits derived from `{task.goal + user prompt (+ open insight terms)}`
+- Open insight terms emit `memory_recall_query_expanded` and are intentionally bounded to keep lexical recall stable.
 - `memory.recallMode="fallback"` can skip `brewva.memory-recall` under high context pressure.
 - Both sources respect global context budget policies (zone caps + truncation/drop decisions).
 
@@ -143,7 +144,7 @@ reviewed explicitly via tool/runtime API.
 - If relation is `replaces` or `challenges`, mark the older unit as `superseded`
   (emits `memory_unit_superseded`)
 - Auto-dismiss any open `conflict` insights that reference the superseded unit
-- Mark dirty topics so the next refresh updates `working.md`
+- Mark dirty entries so the next refresh updates `working.md`
 
 Code pointers:
 
@@ -159,7 +160,7 @@ Memory artifacts live under `.orchestrator/memory/`:
 
 - `units.jsonl`, `crystals.jsonl`, `insights.jsonl`, `evolves.jsonl`
 - `working.md`
-- `state.json` (publish timestamps + dirty topics)
+- `state.json` (publish timestamps + dirty entries)
 
 See `docs/reference/artifacts-and-paths.md` for the canonical list.
 
@@ -194,7 +195,7 @@ Checklist:
 
 1. Confirm new events were recorded (tape contains `task_event` / `truth_event` / `skill_completed`).
 2. Confirm memory extracted units (`memory_unit_upserted` events).
-3. Confirm dirty topics are cleared on publish (`state.json` dirty list should be empty after refresh).
+3. Confirm dirty entries are cleared on publish (`state.json` `dirtyEntries` should be empty after refresh).
 4. If an evolves edge was accepted, ensure the older unit is `superseded` and no longer appears in:
    - `[WorkingMemory]` Decisions section
    - `[MemoryRecall]` hits

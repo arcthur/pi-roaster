@@ -213,11 +213,25 @@ export interface MemorySearchResult {
   hits: MemorySearchHit[];
 }
 
+export type MemoryDirtyReason =
+  | "new_unit"
+  | "resolve_directive"
+  | "external_recall"
+  | "evolves_edge_reviewed"
+  | "replay_new_unit"
+  | "replay_resolve_directive";
+
+export interface MemoryDirtyEntry {
+  topic: string;
+  reason: MemoryDirtyReason;
+  updatedAt: number;
+}
+
 export interface MemoryStoreState {
   schemaVersion: number;
   lastPublishedAt: number | null;
   lastPublishedDayKey: string | null;
-  dirtyTopics: string[];
+  dirtyEntries: MemoryDirtyEntry[];
 }
 
 export interface MemoryUnitCandidate {

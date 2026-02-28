@@ -9,6 +9,7 @@ import {
 } from "../context/injection.js";
 import { ContextStabilityMonitor } from "../context/stability-monitor.js";
 import type { ToolFailureEntry } from "../context/tool-failures.js";
+import type { ExternalRecallHit, ExternalRecallPort } from "../external-recall/types.js";
 import { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { MemoryEngine } from "../memory/engine.js";
 import { FileChangeTracker } from "../state/file-change-tracker.js";
@@ -34,24 +35,11 @@ import { RuntimeSessionStateStore } from "./session-state.js";
 
 const OUTPUT_HEALTH_GUARD_LOOKBACK_EVENTS = 32;
 
-export interface ExternalRecallHit {
-  topic: string;
-  excerpt: string;
-  score?: number;
-  confidence?: number;
-  metadata?: Record<string, unknown>;
-}
-
-export interface ExternalRecallPort {
-  search(input: { sessionId: string; query: string; limit: number }): Promise<ExternalRecallHit[]>;
-}
-
 interface ExternalRecallInjectionOutcome {
   query: string;
-  hitCount: number;
+  hits: ExternalRecallHit[];
   internalTopScore: number | null;
   threshold: number;
-  writebackUnits: number;
 }
 
 export interface ContextServiceOptions {
@@ -448,15 +436,27 @@ export class ContextService {
 
     if (externalRecallOutcome) {
       if (finalized.text.includes("[ExternalRecall]")) {
+        const writeback = this.memory.ingestExternalRecall({
+          sessionId,
+          query: externalRecallOutcome.query,
+          defaultConfidence: this.config.memory.externalRecall.injectedConfidence,
+          hits: externalRecallOutcome.hits.map((hit) => ({
+            topic: hit.topic,
+            excerpt: hit.excerpt,
+            score: typeof hit.score === "number" ? hit.score : 0,
+            confidence: hit.confidence,
+            metadata: hit.metadata,
+          })),
+        });
         this.recordEvent({
           sessionId,
           type: "context_external_recall_injected",
           payload: {
             query: externalRecallOutcome.query,
-            hitCount: externalRecallOutcome.hitCount,
+            hitCount: externalRecallOutcome.hits.length,
             internalTopScore: externalRecallOutcome.internalTopScore,
             threshold: externalRecallOutcome.threshold,
-            writebackUnits: externalRecallOutcome.writebackUnits,
+            writebackUnits: writeback.upserted,
           },
         });
       } else {
@@ -466,7 +466,7 @@ export class ContextService {
           payload: {
             reason: "filtered_out",
             query: externalRecallOutcome.query,
-            hitCount: externalRecallOutcome.hitCount,
+            hitCount: externalRecallOutcome.hits.length,
             internalTopScore: externalRecallOutcome.internalTopScore,
             threshold: externalRecallOutcome.threshold,
           },
@@ -660,7 +660,18 @@ export class ContextService {
       }
     }
 
-    const recallQuery = [taskGoal, prompt].filter(Boolean).join("\n");
+    const openInsightTerms = this.memory.getOpenInsightTerms(sessionId, 8);
+    const recallQuery = [taskGoal, prompt, ...openInsightTerms].filter(Boolean).join("\n");
+    if (openInsightTerms.length > 0) {
+      this.recordEvent({
+        sessionId,
+        type: "memory_recall_query_expanded",
+        payload: {
+          terms: openInsightTerms,
+          termsCount: openInsightTerms.length,
+        },
+      });
+    }
     let recallContent = "";
     if (shouldIncludeRecall) {
       const recall = await this.memory.buildRecallBlock({
@@ -684,7 +695,19 @@ export class ContextService {
     const activeSkill = this.getActiveSkill(sessionId);
     const isExternalKnowledgeSkill =
       activeSkill?.contract.tags.some((tag) => tag === "external-knowledge") === true;
-    if (!externalRecallConfig.enabled || !isExternalKnowledgeSkill) {
+    if (!externalRecallConfig.enabled) {
+      return null;
+    }
+    if (!isExternalKnowledgeSkill) {
+      this.recordEvent({
+        sessionId,
+        type: "context_external_recall_skipped",
+        payload: {
+          reason: "skill_tag_missing",
+          query: recallQuery,
+          threshold: externalRecallConfig.minInternalScore,
+        },
+      });
       return null;
     }
 
@@ -696,6 +719,16 @@ export class ContextService {
     const triggerExternalRecall =
       internalTopScore === null || internalTopScore < externalRecallConfig.minInternalScore;
     if (!triggerExternalRecall) {
+      this.recordEvent({
+        sessionId,
+        type: "context_external_recall_skipped",
+        payload: {
+          reason: "internal_score_sufficient",
+          query: recallQuery,
+          internalTopScore,
+          threshold: externalRecallConfig.minInternalScore,
+        },
+      });
       return null;
     }
 
@@ -768,24 +801,11 @@ export class ContextService {
       return null;
     }
 
-    const writeback = this.memory.ingestExternalRecall({
-      sessionId,
-      query: recallQuery,
-      defaultConfidence: externalRecallConfig.injectedConfidence,
-      hits: externalHits.map((hit) => ({
-        topic: hit.topic,
-        excerpt: hit.excerpt,
-        score: typeof hit.score === "number" ? hit.score : 0,
-        confidence: hit.confidence,
-        metadata: hit.metadata,
-      })),
-    });
     return {
       query: recallQuery,
-      hitCount: externalHits.length,
+      hits: externalHits,
       internalTopScore,
       threshold: externalRecallConfig.minInternalScore,
-      writebackUnits: writeback.upserted,
     };
   }
 

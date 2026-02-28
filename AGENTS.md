@@ -90,6 +90,7 @@ brewva/
   - `security.sanitizeContext: boolean`
 - Event stream is level-based:
   - `infrastructure.events.level: audit | ops | debug` (default `ops`)
+- Exception: `cognitive_relevance_ranking*` remains `ops`-visible to support shadow-to-active rerank evaluation.
 - Context injection follows arena-allocator semantics with seven semantic zones:
   - `brewva.identity`
   - `brewva.truth-static` / `brewva.truth-facts`
@@ -101,7 +102,7 @@ brewva/
   - **Adaptive zone budget**: EMA-based utilization/truncation feedback shifts zone caps between turns (`ZoneBudgetController`).
   - **Floor-unmet cascade**: deterministic relaxation → critical-only fallback → compaction request.
   - **Arena SLO**: entry ceiling (`maxEntriesPerSession`) with degradation policy (`drop_recall | drop_low_priority | force_compact`).
-  - **External recall boundary**: triggered by low internal score + skill tag, budget-controlled by `rag_external` zone, write-back at lower confidence.
+  - **External recall boundary**: triggered by low internal score + skill tag + zone budget. Runtime queries `ExternalRecallPort`, injects `brewva.rag-external`, and writes back only if the final injection includes `[ExternalRecall]` (filtered-out results do not pollute memory). Write-back uses configured injected confidence; provider score/confidence are persisted as metadata. When enabled and no custom port is injected, runtime auto-wires a built-in `crystal-lexical` provider (feature-hashing bag-of-words + cosine similarity) over global crystal projection artifacts only.
 - Turn durability/recovery is WAL-based through `runtime.turnWal.*` and
   `infrastructure.turnWal.*` configuration.
 - Internal tuning knobs removed from public config should stay internal unless they
@@ -141,6 +142,8 @@ brewva/
 | Zone budget controller         | `packages/brewva-runtime/src/context/zone-budget-controller.ts` | EMA-based adaptive zone rebalancing             |
 | Context injection orchestrator | `packages/brewva-runtime/src/context/injection-orchestrator.ts` | floor-unmet cascade, telemetry emission         |
 | Context service                | `packages/brewva-runtime/src/services/context.ts`               | external recall boundary, SLO event emission    |
+| External recall ports/adapters | `packages/brewva-runtime/src/external-recall/*`                 | ExternalRecallPort + built-in crystal-lexical   |
+| Offline recall analysis        | `script/analyze-memory-recall.ts`                               | projects recall/rerank quality from tape events |
 | Turn WAL durability/recovery   | `packages/brewva-runtime/src/channels/turn-wal*.ts`             | append/recover/compact turn WAL rows            |
 | Tool registry                  | `packages/brewva-tools/src/index.ts`                            | assembled tool surface                          |
 | Extension composition          | `packages/brewva-extensions/src/index.ts`                       | runtime hook wiring and bridge helpers          |

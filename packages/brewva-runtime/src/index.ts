@@ -43,6 +43,8 @@ export * from "./tape/replay-engine.js";
 export * from "./truth/sync.js";
 export * from "./context/viewport-orchestrator.js";
 export * from "./utils/tool-name.js";
+export * from "./external-recall/types.js";
+export * from "./external-recall/crystal-lexical-port.js";
 export * from "./memory/types.js";
 export * from "./memory/store.js";
 export * from "./memory/extractor.js";

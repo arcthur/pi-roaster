@@ -13,6 +13,8 @@ import { ensureDir, writeFileAtomic } from "../utils/fs.js";
 import { sha256 } from "../utils/hash.js";
 import type {
   MemoryCrystal,
+  MemoryDirtyEntry,
+  MemoryDirtyReason,
   MemoryEvolvesEdge,
   MemoryEvolvesEdgeStatus,
   MemoryInsight,
@@ -24,9 +26,17 @@ import type {
 } from "./types.js";
 import { mergeSourceRefs, normalizeText } from "./utils.js";
 
-const MEMORY_STATE_SCHEMA_VERSION = 1;
+const MEMORY_STATE_SCHEMA_VERSION = 2;
 const COMPACTION_LINE_THRESHOLD = 500;
 const REFRESH_LOCK_STALE_MS = 30_000;
+const VALID_MEMORY_DIRTY_REASONS = new Set<MemoryDirtyReason>([
+  "new_unit",
+  "resolve_directive",
+  "external_recall",
+  "evolves_edge_reviewed",
+  "replay_new_unit",
+  "replay_resolve_directive",
+]);
 
 function nowId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -72,12 +82,46 @@ function isTombstoneRow(value: unknown): value is { id: string; _tombstone: true
   return row._tombstone === true && typeof row.id === "string";
 }
 
+function normalizeDirtyReason(value: unknown): MemoryDirtyReason | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim() as MemoryDirtyReason;
+  return VALID_MEMORY_DIRTY_REASONS.has(normalized) ? normalized : null;
+}
+
+function normalizeDirtyEntries(entries: MemoryDirtyEntry[]): MemoryDirtyEntry[] {
+  const latestByTopicReason = new Map<string, MemoryDirtyEntry>();
+  for (const entry of entries) {
+    const topic = entry.topic.trim();
+    if (!topic) continue;
+    const reason = normalizeDirtyReason(entry.reason);
+    if (!reason) continue;
+    const updatedAt =
+      typeof entry.updatedAt === "number" && Number.isFinite(entry.updatedAt)
+        ? entry.updatedAt
+        : Date.now();
+    const key = `${topic}\u0000${reason}`;
+    const existing = latestByTopicReason.get(key);
+    if (!existing || updatedAt >= existing.updatedAt) {
+      latestByTopicReason.set(key, {
+        topic,
+        reason,
+        updatedAt,
+      });
+    }
+  }
+  return [...latestByTopicReason.values()].toSorted((left, right) => {
+    if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
+    if (left.topic !== right.topic) return left.topic.localeCompare(right.topic);
+    return left.reason.localeCompare(right.reason);
+  });
+}
+
 function defaultState(): MemoryStoreState {
   return {
     schemaVersion: MEMORY_STATE_SCHEMA_VERSION,
     lastPublishedAt: null,
     lastPublishedDayKey: null,
-    dirtyTopics: [],
+    dirtyEntries: [],
   };
 }
 
@@ -271,6 +315,13 @@ export class MemoryStore {
     this.unitsById.set(updated.id, updated);
     this.appendJsonLine(this.unitsPath, updated);
     return { ok: true, updated: true, unit: updated };
+  }
+
+  getUnitById(unitId: string): MemoryUnit | undefined {
+    this.ensureUnitsLoaded();
+    const normalized = unitId.trim();
+    if (!normalized) return undefined;
+    return this.unitsById.get(normalized);
   }
 
   listUnits(sessionId?: string): MemoryUnit[] {
@@ -590,7 +641,7 @@ export class MemoryStore {
     this.ensureStateLoaded();
     return {
       ...this.state,
-      dirtyTopics: [...this.state.dirtyTopics],
+      dirtyEntries: this.state.dirtyEntries.map((entry) => ({ ...entry })),
     };
   }
 
@@ -599,23 +650,28 @@ export class MemoryStore {
       schemaVersion: MEMORY_STATE_SCHEMA_VERSION,
       lastPublishedAt: next.lastPublishedAt ?? null,
       lastPublishedDayKey: next.lastPublishedDayKey ?? null,
-      dirtyTopics: [...new Set(next.dirtyTopics.map((topic) => topic.trim()).filter(Boolean))],
+      dirtyEntries: normalizeDirtyEntries(next.dirtyEntries),
     };
     this.stateLoaded = true;
     writeFileAtomic(this.statePath, `${JSON.stringify(this.state, null, 2)}\n`);
   }
 
-  mergeDirtyTopics(topics: string[]): MemoryStoreState {
+  mergeDirtyTopics(topics: string[], options: { reason: MemoryDirtyReason }): MemoryStoreState {
     const current = this.getState();
-    const dirty = new Set(current.dirtyTopics);
+    const dirtyEntries = [...current.dirtyEntries];
+    const updatedAt = Date.now();
     for (const topic of topics) {
       const normalized = topic.trim();
       if (!normalized) continue;
-      dirty.add(normalized);
+      dirtyEntries.push({
+        topic: normalized,
+        reason: options.reason,
+        updatedAt,
+      });
     }
     const next: MemoryStoreState = {
       ...current,
-      dirtyTopics: [...dirty],
+      dirtyEntries,
     };
     this.setState(next);
     return this.getState();
@@ -624,14 +680,14 @@ export class MemoryStore {
   markPublished(input: {
     at: number;
     dayKey: string;
-    clearDirtyTopics?: boolean;
+    clearDirtyEntries?: boolean;
   }): MemoryStoreState {
     const current = this.getState();
     const next: MemoryStoreState = {
       ...current,
       lastPublishedAt: input.at,
       lastPublishedDayKey: input.dayKey,
-      dirtyTopics: input.clearDirtyTopics === false ? current.dirtyTopics : [],
+      dirtyEntries: input.clearDirtyEntries === false ? current.dirtyEntries : [],
     };
     this.setState(next);
     this.maybeCompactIfNeeded();
@@ -845,6 +901,25 @@ export class MemoryStore {
     }
     try {
       const raw = JSON.parse(readFileSync(this.statePath, "utf8")) as Partial<MemoryStoreState>;
+      const dirtyEntries = Array.isArray(raw.dirtyEntries)
+        ? raw.dirtyEntries
+            .map((entry) => {
+              if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+              const row = entry as Partial<MemoryDirtyEntry>;
+              const reason = normalizeDirtyReason(row.reason);
+              if (!reason) return null;
+              if (typeof row.topic !== "string") return null;
+              return {
+                topic: row.topic,
+                reason,
+                updatedAt:
+                  typeof row.updatedAt === "number" && Number.isFinite(row.updatedAt)
+                    ? row.updatedAt
+                    : Date.now(),
+              } satisfies MemoryDirtyEntry;
+            })
+            .filter((entry): entry is MemoryDirtyEntry => entry !== null)
+        : [];
       this.state = {
         schemaVersion: MEMORY_STATE_SCHEMA_VERSION,
         lastPublishedAt:
@@ -855,11 +930,7 @@ export class MemoryStore {
           typeof raw.lastPublishedDayKey === "string" && raw.lastPublishedDayKey.trim()
             ? raw.lastPublishedDayKey
             : null,
-        dirtyTopics: Array.isArray(raw.dirtyTopics)
-          ? raw.dirtyTopics
-              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-              .map((item) => item.trim())
-          : [],
+        dirtyEntries: normalizeDirtyEntries(dirtyEntries),
       };
     } catch {
       this.state = defaultState();

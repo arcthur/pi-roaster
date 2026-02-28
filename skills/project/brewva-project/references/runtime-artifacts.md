@@ -95,31 +95,39 @@ Base directory: `.orchestrator/memory/`
 
 ### 3a. Memory Units — `units.jsonl`
 
-| Field         | Type   | Description           |
-| ------------- | ------ | --------------------- |
-| `id`          | string | Unit identifier       |
-| `sessionId`   | string | Originating session   |
-| `type`        | string | Unit type             |
-| `status`      | string | Lifecycle status      |
-| `topic`       | string | Topic cluster key     |
-| `statement`   | string | Core assertion        |
-| `confidence`  | number | Confidence score      |
-| `fingerprint` | string | Dedup fingerprint     |
-| `sourceRefs`  | array  | Source references     |
-| `createdAt`   | number | Creation timestamp    |
-| `updatedAt`   | number | Last update timestamp |
+| Field          | Type    | Description                                           |
+| -------------- | ------- | ----------------------------------------------------- |
+| `id`           | string  | Unit identifier                                       |
+| `sessionId`    | string  | Originating session                                   |
+| `type`         | string  | Unit type                                             |
+| `status`       | string  | Lifecycle status                                      |
+| `topic`        | string  | Topic cluster key                                     |
+| `statement`    | string  | Core assertion                                        |
+| `confidence`   | number  | Confidence score                                      |
+| `fingerprint`  | string  | Dedup fingerprint                                     |
+| `sourceRefs`   | array   | Source references                                     |
+| `metadata`     | object? | Optional structured metadata                          |
+| `createdAt`    | number  | Creation timestamp                                    |
+| `updatedAt`    | number  | Last update timestamp                                 |
+| `firstSeenAt`  | number  | First observed timestamp                              |
+| `lastSeenAt`   | number  | Most recent observed timestamp                        |
+| `resolvedAt`   | number? | Resolved timestamp (when status becomes resolved)     |
+| `supersededAt` | number? | Superseded timestamp (when status becomes superseded) |
 
 ### 3b. Memory Crystals — `crystals.jsonl`
 
-| Field        | Type   | Description          |
-| ------------ | ------ | -------------------- |
-| `id`         | string | Crystal identifier   |
-| `sessionId`  | string | Originating session  |
-| `topic`      | string | Topic cluster key    |
-| `summary`    | string | Aggregated summary   |
-| `unitIds`    | array  | Constituent unit IDs |
-| `confidence` | number | Aggregate confidence |
-| `createdAt`  | number | Creation timestamp   |
+| Field        | Type    | Description                  |
+| ------------ | ------- | ---------------------------- |
+| `id`         | string  | Crystal identifier           |
+| `sessionId`  | string  | Originating session          |
+| `topic`      | string  | Topic cluster key            |
+| `summary`    | string  | Aggregated summary           |
+| `unitIds`    | array   | Constituent unit IDs         |
+| `confidence` | number  | Aggregate confidence         |
+| `sourceRefs` | array   | Source references            |
+| `metadata`   | object? | Optional structured metadata |
+| `createdAt`  | number  | Creation timestamp           |
+| `updatedAt`  | number  | Last update timestamp        |
 
 ### 3c. Memory Insights — `insights.jsonl`
 
@@ -133,6 +141,7 @@ Base directory: `.orchestrator/memory/`
 | `relatedUnitIds` | array   | Associated memory units        |
 | `edgeId`         | string? | Evolution edge (if applicable) |
 | `createdAt`      | number  | Creation timestamp             |
+| `updatedAt`      | number  | Last update timestamp          |
 
 ### 3d. Memory Evolution Edges — `evolves.jsonl`
 
@@ -146,19 +155,46 @@ Base directory: `.orchestrator/memory/`
 | `status`       | string | Edge status             |
 | `confidence`   | number | Edge confidence         |
 | `rationale`    | string | Justification           |
+| `createdAt`    | number | Creation timestamp      |
+| `updatedAt`    | number | Last update timestamp   |
 
 ### 3e. Memory State — `state.json`
 
-| Field                 | Type   | Description                |
-| --------------------- | ------ | -------------------------- |
-| `schemaVersion`       | number | Schema version             |
-| `lastPublishedAt`     | number | Last publish timestamp     |
-| `lastPublishedDayKey` | string | Calendar day key           |
-| `dirtyTopics`         | array  | Topics pending publication |
+| Field                 | Type   | Description                                    |
+| --------------------- | ------ | ---------------------------------------------- |
+| `schemaVersion`       | number | Schema version                                 |
+| `lastPublishedAt`     | number | Last publish timestamp                         |
+| `lastPublishedDayKey` | string | Calendar day key                               |
+| `dirtyEntries`        | array  | Dirty topic entries triggering refresh/publish |
+
+`dirtyEntries` rows have shape: `{ topic, reason, updatedAt }`.
+
+| Field       | Type   | Description                                       |
+| ----------- | ------ | ------------------------------------------------- |
+| `topic`     | string | Topic key or directive key                        |
+| `reason`    | string | Dirty reason (`new_unit`, `external_recall`, ...) |
+| `updatedAt` | number | Last time this dirty reason was observed          |
 
 ### 3f. Working Memory — `working.md`
 
 Markdown snapshot of current working memory, truncated to `maxWorkingChars` (default 2400).
+
+### 3g. Global Memory Tier (optional)
+
+When `memory.global.enabled` is on, global memory is projected into a dedicated store:
+
+- `.orchestrator/memory/global/units.jsonl`
+- `.orchestrator/memory/global/crystals.jsonl`
+- `.orchestrator/memory/global/global-working.md`
+- `.orchestrator/memory/global/global-decay.json`
+
+Global tier rows use a synthetic `sessionId` (`"__global__"`).
+
+### 3h. Global Sync Snapshots (optional)
+
+When syncing/publishing global memory across sessions, the runtime may emit snapshot files:
+
+- `.orchestrator/memory/global-sync/snapshot-*.json`
 
 ### Diagnostic Value
 

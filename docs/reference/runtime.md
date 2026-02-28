@@ -182,10 +182,13 @@ Memory split behavior:
 - `brewva.memory-recall` carries retrieval hits and is registered as `normal`.
 - `memory.recallMode="primary"` always enables recall.
 - `memory.recallMode="fallback"` skips recall under `high`/`critical` context pressure.
+- Open memory insights can expand recall query terms (`memory_recall_query_expanded` event).
 - `brewva.rag-external` is injected only when `memory.externalRecall.enabled=true`,
   active skill carries tag `external-knowledge`, internal recall top score is below
-  threshold (`memory.externalRecall.minInternalScore`), provider is available, and
-  zone budget permits `rag_external`.
+  threshold (`memory.externalRecall.minInternalScore`), and zone budget permits
+  `rag_external`.
+- If `BrewvaRuntimeOptions.externalRecallPort` is not provided, runtime uses a
+  built-in crystal-lexical provider (feature-hashing bag-of-words; zero-dependency deterministic fallback) over global crystal projection artifacts.
 
 Identity source behavior:
 
@@ -225,6 +228,7 @@ Execution profile note:
 - `audit`: replay/audit critical stream (`anchor`, `checkpoint`, `task_event`, `truth_event`, schedule lifecycle, verification outcomes, tool-result evidence)
 - `ops` (default): audit + operational transitions and warnings
 - `debug`: full stream, including high-noise diagnostics (`viewport_*`, `cognitive_*`, parallel scan detail)
+- Exception: `cognitive_relevance_ranking*` events are kept at `ops` for ranking observability.
 
 Switching level changes observability granularity, not business decisions.
 

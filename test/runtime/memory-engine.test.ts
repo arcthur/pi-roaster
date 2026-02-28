@@ -183,6 +183,36 @@ describe("memory engine", () => {
     expect(workingContent.includes("[WorkingMemory]")).toBe(true);
   });
 
+  test("persists structured dirty entries with reason labels", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-dirty-reasons-"));
+    const engine = new MemoryEngine({
+      enabled: true,
+      rootDir: workspace,
+      workingFile: "working.md",
+      maxWorkingChars: 2400,
+      dailyRefreshHourLocal: 23,
+      crystalMinUnits: 4,
+      retrievalTopK: 8,
+      evolvesMode: "off",
+    });
+
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-task-spec-dirty-reason",
+        sessionId: "memory-engine-dirty-reason-session",
+        goal: "Track dirty reason labels in memory state.",
+      }),
+    );
+
+    const state = JSON.parse(readFileSync(join(workspace, "state.json"), "utf8")) as {
+      schemaVersion: number;
+      dirtyEntries?: Array<{ topic?: string; reason?: string }>;
+    };
+    expect(state.schemaVersion).toBe(2);
+    expect(Array.isArray(state.dirtyEntries)).toBe(true);
+    expect((state.dirtyEntries ?? []).some((entry) => entry.reason === "new_unit")).toBe(true);
+  });
+
   test("refreshes by daily trigger once and then reuses published snapshot", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-daily-"));
     const previousDay = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -190,10 +220,10 @@ describe("memory engine", () => {
       join(workspace, "state.json"),
       `${JSON.stringify(
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
           lastPublishedAt: Date.now() - 24 * 60 * 60 * 1000,
           lastPublishedDayKey: dayKey(previousDay),
-          dirtyTopics: [],
+          dirtyEntries: [],
         },
         null,
         2,
@@ -227,6 +257,43 @@ describe("memory engine", () => {
     expect(first).toBeDefined();
     expect(second).toBeDefined();
     expect(publishCount).toBe(1);
+  });
+
+  test("returns open insight terms for recall query expansion", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-open-insight-terms-"));
+    const sessionId = "memory-engine-open-insight-topic-session";
+    const engine = new MemoryEngine({
+      enabled: true,
+      rootDir: workspace,
+      workingFile: "working.md",
+      maxWorkingChars: 2400,
+      dailyRefreshHourLocal: 23,
+      crystalMinUnits: 4,
+      retrievalTopK: 8,
+      evolvesMode: "off",
+    });
+
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-task-spec-insight-1",
+        sessionId,
+        goal: "Use sqlite for migration.",
+        timestamp: Date.now() - 1_000,
+      }),
+    );
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-task-spec-insight-2",
+        sessionId,
+        goal: "Use postgres for migration.",
+        timestamp: Date.now(),
+      }),
+    );
+    engine.refreshIfNeeded({ sessionId });
+
+    const terms = engine.getOpenInsightTerms(sessionId, 8);
+    expect(terms.length).toBeGreaterThan(0);
+    expect(terms.some((term) => term.toLowerCase().includes("task goal"))).toBe(true);
   });
 
   test("writes proposed evolves edges in shadow mode", async () => {

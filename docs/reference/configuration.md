@@ -74,7 +74,7 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `memory.externalRecall.queryTopK`: `5`
 - `memory.externalRecall.injectedConfidence`: `0.6`
 - `memory.evolvesMode`: `shadow`
-- `memory.cognitive.mode`: `active`
+- `memory.cognitive.mode`: `shadow`
 - `memory.cognitive.maxTokensPerTurn`: `0` (`0` means unlimited)
 - `memory.global.enabled`: `true`
 - `memory.global.minConfidence`: `0.8`
@@ -259,7 +259,8 @@ Notes:
 
 - `audit`: only replay/audit-critical events
 - `ops`: audit + operational state transitions/warnings
-- `debug`: full stream (including high-noise diagnostics such as `viewport_*` and `cognitive_*`)
+- `debug`: full stream (including high-noise diagnostics such as `viewport_*` and most `cognitive_*`)
+- `cognitive_relevance_ranking*` stays visible at `ops` for rerank evaluation.
 
 ## Context Budget Model
 
@@ -305,6 +306,9 @@ Arena allocation behavior:
 - External recall boundary is explicit and disabled by default:
   `memory.externalRecall.enabled=true` + non-zero `arena.zones.ragExternal.max`
   are both required for effective external injection.
+- Runtime auto-wires a default crystal-lexical external recall provider (feature-hashing bag-of-words; zero-dependency deterministic fallback) when
+  `memory.externalRecall.enabled=true` and no custom `externalRecallPort` is injected
+  (default provider reads global crystal projection artifacts only).
 
 Normalization details from `normalizeBrewvaConfig(...)`:
 

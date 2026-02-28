@@ -94,8 +94,22 @@ External knowledge retrieval is an explicit I/O boundary, not a parallel prompt 
    `external-knowledge` tag
 2. Budget: `rag_external` zone (default `max: 0`, disabled by default)
 3. Port: `externalRecallPort.search()` — clean abstraction over any retrieval backend
+   (runtime auto-wires a crystal-lexical default (feature-hashing bag-of-words; zero-dependency deterministic fallback) over global crystal projections when no custom port is provided)
 4. Write-back: results persisted as memory units with `sourceTier: "external"`
    and lower confidence (default `0.6`)
+
+Default provider note:
+
+- `crystal-lexical` is deterministic token feature hashing + cosine similarity. It is not a semantic embedding model.
+
+```mermaid
+flowchart LR
+  Q["Query text"] --> T["Tokenize (unicode word split)"]
+  T --> H["Feature hash (fnv1a32) -> bucket counts"]
+  H --> N["L2 normalize sparse vector"]
+  N --> C["Cosine similarity vs crystal vectors"]
+  C --> K["Top-k hits"]
+```
 
 ## Memory Injection
 

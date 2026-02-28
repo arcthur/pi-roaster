@@ -8,6 +8,7 @@
   ],
   "type": "module",
   "scripts": {
+    "analyze:memory-recall": "bun run script/analyze-memory-recall.ts",
     "build": "bun run typecheck && bun run build:binaries",
     "build:binaries": "bun run script/build-binaries.ts",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun run typecheck:test",

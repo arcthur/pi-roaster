@@ -1,7 +1,7 @@
 ---
 name: brewva-session-logs
 description: Search and analyze Brewva runtime session artifacts (event store, evidence ledger, memory, cost, tape, context arena telemetry) using jq and rg.
-version: 1.1.0
+version: 1.1.1
 stability: stable
 tier: project
 tags: [session, logs, events, ledger, memory, cost, diagnosis, jsonl, context-arena]
@@ -54,20 +54,27 @@ Use this skill when:
 
 All paths are relative to the workspace root (detected via `.brewva/` marker or git root).
 
-| Artifact            | Path                                                 | Format             |
-| ------------------- | ---------------------------------------------------- | ------------------ |
-| Event store         | `.orchestrator/events/{sessionId}.jsonl`             | JSONL              |
-| Evidence ledger     | `.orchestrator/ledger/evidence.jsonl`                | JSONL (hash chain) |
-| Memory units        | `.orchestrator/memory/units.jsonl`                   | JSONL              |
-| Memory crystals     | `.orchestrator/memory/{sessionId}.json`              | JSON               |
-| Memory state        | `.orchestrator/memory/state.json`                    | JSON               |
-| Working memory      | `.orchestrator/memory/working.md`                    | Markdown           |
-| Session state       | `.orchestrator/state/{sessionId}.json`               | JSON               |
-| Task ledger         | `.orchestrator/state/task-ledger/`                   | JSON               |
-| File snapshots      | `.orchestrator/snapshots/{sessionId}/patchsets.json` | JSON               |
-| Turn WAL            | `.orchestrator/turn-wal/`                            | JSONL              |
-| Schedule projection | `.brewva/schedule/intents.jsonl`                     | JSONL              |
-| Skills index        | `.brewva/skills_index.json`                          | JSON               |
+| Artifact              | Path                                                 | Format              |
+| --------------------- | ---------------------------------------------------- | ------------------- |
+| Event store           | `.orchestrator/events/{sessionId}.jsonl`             | JSONL               |
+| Evidence ledger       | `.orchestrator/ledger/evidence.jsonl`                | JSONL (hash chain)  |
+| Memory units          | `.orchestrator/memory/units.jsonl`                   | JSONL               |
+| Memory crystals       | `.orchestrator/memory/crystals.jsonl`                | JSONL               |
+| Memory insights       | `.orchestrator/memory/insights.jsonl`                | JSONL               |
+| Memory evolves        | `.orchestrator/memory/evolves.jsonl`                 | JSONL               |
+| Global memory units   | `.orchestrator/memory/global/units.jsonl`            | JSONL (optional)    |
+| Global crystals       | `.orchestrator/memory/global/crystals.jsonl`         | JSONL (optional)    |
+| Global working        | `.orchestrator/memory/global/global-working.md`      | Markdown (optional) |
+| Global decay state    | `.orchestrator/memory/global/global-decay.json`      | JSON (optional)     |
+| Global sync snapshots | `.orchestrator/memory/global-sync/snapshot-*.json`   | JSON (optional)     |
+| Memory state          | `.orchestrator/memory/state.json`                    | JSON                |
+| Working memory        | `.orchestrator/memory/working.md`                    | Markdown            |
+| Session state         | `.orchestrator/state/{sessionId}.json`               | JSON                |
+| Task ledger           | `.orchestrator/state/task-ledger/`                   | JSON                |
+| File snapshots        | `.orchestrator/snapshots/{sessionId}/patchsets.json` | JSON                |
+| Turn WAL              | `.orchestrator/turn-wal/`                            | JSONL               |
+| Schedule projection   | `.brewva/schedule/intents.jsonl`                     | JSONL               |
+| Skills index          | `.brewva/skills_index.json`                          | JSON                |
 
 ## Key Fields Reference
 
@@ -310,18 +317,41 @@ jq -r 'select(.status == "active") | [.id[:20], .topic, .confidence, .statement[
 ### Memory evolution: belief revisions
 
 ```bash
-for f in .orchestrator/memory/*.json; do
-  jq -r '
-    .topic // empty | . as $topic |
-    "crystal: \($topic)"
-  ' "$f" 2>/dev/null
-done
+jq -r 'select(.status == "superseded") | [.updatedAt, .id, .topic, .statement[:60]] | @tsv' \
+  .orchestrator/memory/units.jsonl | sort -n | tail -30
+```
+
+### Memory crystals (latest)
+
+```bash
+jq -r '[.updatedAt // 0, .sessionId, .topic, .confidence, (.summary // "")[:80]] | @tsv' \
+  .orchestrator/memory/crystals.jsonl | sort -n | tail -30
+```
+
+### Open insights
+
+```bash
+jq -r 'select(.status == "open") | [.createdAt, .id, .kind, .message] | @tsv' \
+  .orchestrator/memory/insights.jsonl | sort -n | tail -30
+```
+
+### Accepted evolves edges
+
+```bash
+jq -r 'select(.status == "accepted") | [.updatedAt // 0, .id, .relation, .sourceUnitId, .targetUnitId, .confidence] | @tsv' \
+  .orchestrator/memory/evolves.jsonl | sort -n | tail -30
 ```
 
 ### Memory state
 
 ```bash
 jq '.' .orchestrator/memory/state.json
+```
+
+### Dirty entries by reason (refresh triggers)
+
+```bash
+jq -r '.dirtyEntries[]?.reason // "unknown"' .orchestrator/memory/state.json | sort | uniq -c | sort -rn
 ```
 
 ## Session State Queries
@@ -371,6 +401,14 @@ jq -r 'select(.kind == "intent") | .record | [.intentId[:12], .status, .reason[:
 When full state reconstruction at a specific turn is needed, prefer `TurnReplayEngine`
 (`packages/brewva-runtime/src/tape/replay-engine.ts`) over manual JSONL parsing.
 It uses tape checkpoints for fast-forward and rebuilds `TaskState` + `TruthState`.
+
+## Offline Recall/Rerank Analysis
+
+Project recall and cognitive rerank quality directly from tape events (offline):
+
+```bash
+bun run analyze:memory-recall | jq '.ranking.promotionRecommendation, .externalRecall, .globalRecall'
+```
 
 ## Workflow
 

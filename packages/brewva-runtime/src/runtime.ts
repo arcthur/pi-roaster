@@ -16,6 +16,8 @@ import { ContextInjectionCollector } from "./context/injection.js";
 import { ContextStabilityMonitor } from "./context/stability-monitor.js";
 import { SessionCostTracker } from "./cost/tracker.js";
 import { BrewvaEventStore } from "./events/store.js";
+import { createCrystalLexicalExternalRecallPort } from "./external-recall/crystal-lexical-port.js";
+import type { ExternalRecallPort } from "./external-recall/types.js";
 import { EvidenceLedger } from "./ledger/evidence-ledger.js";
 import { MemoryEngine } from "./memory/engine.js";
 import type { MemorySearchResult, WorkingMemorySnapshot } from "./memory/types.js";
@@ -30,7 +32,7 @@ import {
 } from "./runtime-helpers.js";
 import { SchedulerService } from "./schedule/service.js";
 import { sanitizeContextText } from "./security/sanitize.js";
-import { ContextService, type ExternalRecallPort } from "./services/context.js";
+import { ContextService } from "./services/context.js";
 import { CostService } from "./services/cost.js";
 import { EventPipelineService, type RuntimeRecordEventInput } from "./services/event-pipeline.js";
 import { FileChangeService } from "./services/file-change.js";
@@ -645,6 +647,7 @@ export class BrewvaRuntime {
   }
 
   private createServiceDependencies(options: BrewvaRuntimeOptions): RuntimeServiceDependencies {
+    const externalRecallPort = this.resolveExternalRecallPort(options.externalRecallPort);
     const skillLifecycleService = new SkillLifecycleService({
       skills: this.skillRegistry,
       sessionState: this.sessionState,
@@ -725,7 +728,7 @@ export class BrewvaRuntime {
       contextInjection: this.contextInjection,
       stabilityMonitor: this.contextStabilityMonitor,
       memory: this.memoryEngine,
-      externalRecallPort: options.externalRecallPort,
+      externalRecallPort,
       fileChanges: this.fileChanges,
       ledger: this.ledger,
       sessionState: this.sessionState,
@@ -860,6 +863,18 @@ export class BrewvaRuntime {
       sessionLifecycleService,
       toolGateService,
     };
+  }
+
+  private resolveExternalRecallPort(
+    externalRecallPort: ExternalRecallPort | undefined,
+  ): ExternalRecallPort | undefined {
+    if (externalRecallPort) return externalRecallPort;
+    if (!this.config.memory.externalRecall.enabled) return undefined;
+    return createCrystalLexicalExternalRecallPort({
+      memoryRootDir: resolve(this.workspaceRoot, this.config.memory.dir),
+      includeWorkspaceCrystals: false,
+      includeGlobalCrystals: true,
+    });
   }
 
   private createDomainApis(): {

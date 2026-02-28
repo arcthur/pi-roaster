@@ -89,17 +89,31 @@ Memory is a projection layer derived from event tape semantics:
   derived artifacts under `.orchestrator/memory/`.
 - Projection snapshots (`memory_*`) keep replay/rebuild paths deterministic even
   when projection artifacts are missing.
+- Projection refresh state is reason-tagged (`dirtyEntries`) so refresh causes
+  stay explicit (`topic + reason + updatedAt`) instead of opaque dirty flags.
 - Working-memory and recall context are injected as split semantic sources
   (`brewva.memory-working` + `brewva.memory-recall`) with pressure-aware recall
   fallback and zone-aware budget/truncation behavior in extension-enabled profile.
+- Open insights may expand recall query terms before retrieval
+  (`memory_recall_query_expanded`), tightening retrieval around unresolved context.
+- External recall remains an explicit boundary (`brewva.rag-external`): trigger
+  requires skill-tag + low internal score + zone budget, and write-back stores
+  lower-confidence external units. When enabled and no custom provider is
+  injected, runtime auto-wires a built-in crystal-lexical recall adapter
+  (feature-hashing bag-of-words; zero-dependency deterministic fallback) over global crystal projection artifacts.
 - EVOLVES effects remain review-gated before mutating stable unit state.
+- Quality evaluation is also projection-based: recall/rerank quality is derived
+  offline from tape events rather than hot-path counters.
 
 Event stream visibility remains level-based via
 `infrastructure.events.level`:
 
 - `audit`: replay/audit-critical stream.
 - `ops`: audit stream + operational transitions and warnings.
-- `debug`: full diagnostic details including cognitive and scan telemetry.
+- `debug`: full diagnostic details including scan telemetry and most
+  cognitive diagnostics.
+- Exception: `cognitive_relevance_ranking*` remains `ops`-visible for
+  shadow-to-active rerank evaluation.
 
 Implementation anchors:
 
@@ -191,7 +205,7 @@ Context injection zones (`brewva.identity`, `brewva.truth-static`,
 `brewva.memory-working`, `brewva.memory-recall`, `brewva.rag-external`) remain
 explicit and traceable regardless of which strategy arm is active.
 
-Cognitive behavior follows a dual-path model:
+Cognitive behavior follows a tri-mode model:
 
 - `memory.cognitive.mode="off"`: deterministic mode only.
 - `memory.cognitive.mode="shadow"`: cognition runs and is audited but cannot
@@ -199,13 +213,20 @@ Cognitive behavior follows a dual-path model:
 - `memory.cognitive.mode="active"`: cognition can influence decisions within
   budget, with deterministic fallback on error/exhaustion.
 
+Runtime default is `shadow` for safety and observability. Promotion to
+`active` is evidence-driven: collect `cognitive_relevance_ranking*` events in
+shadow mode, compare deterministic vs cognitive ordering offline, and promote
+only when quality deltas are materially positive.
+
 Implementation anchors:
 
 - `packages/brewva-runtime/src/runtime.ts`
 - `packages/brewva-runtime/src/context/budget.ts`
 - `packages/brewva-runtime/src/context/zones.ts`
+- `packages/brewva-runtime/src/services/event-pipeline.ts`
 - `packages/brewva-extensions/src/context-transform.ts`
 - `packages/brewva-cli/src/session.ts`
+- `script/analyze-memory-recall.ts`
 
 #### 8) Adaptive Context Strategy
 
@@ -377,6 +398,16 @@ Memory is implemented as a derived projection layer over the event tape:
    review may supersede units and emit additional memory events.
 5. Working snapshot is published to `.orchestrator/memory/working.md`; runtime then
    builds split memory injection sources (`brewva.memory-working` + `brewva.memory-recall`).
+6. Open insights can expand recall query terms before retrieval
+   (`memory_recall_query_expanded`), improving unresolved-topic targeting.
+7. If external recall gating passes, runtime queries `ExternalRecallPort`,
+   injects `brewva.rag-external`, and writes accepted hits back as
+   lower-confidence external units.
+8. Projection state persists reason-tagged dirty entries in `state.json` to
+   keep refresh triggers explainable and tuneable.
+9. Offline evaluation scripts project recall/rerank quality directly from tape
+   events (`memory_global_recall`, `cognitive_relevance_ranking*`,
+   `context_external_recall_*`).
 
 This path is deterministic, auditable, and restart-safe: projection artifacts are
 persisted on disk and can also be rebuilt from tape-backed `memory_*` snapshot

@@ -14,6 +14,12 @@ Runtime artifact paths are resolved from the workspace root (`nearest .brewva/br
 - Working memory markdown: `.orchestrator/memory/working.md`
 - Memory projection state: `.orchestrator/memory/state.json`
 - Memory refresh advisory lock (ephemeral): `.orchestrator/memory/.refresh.lock`
+- Global memory projections (optional): `.orchestrator/memory/global/*`
+  - `.orchestrator/memory/global/units.jsonl`
+  - `.orchestrator/memory/global/crystals.jsonl`
+  - `.orchestrator/memory/global/global-working.md`
+  - `.orchestrator/memory/global/global-decay.json`
+- Global sync snapshots (optional): `.orchestrator/memory/global-sync/snapshot-*.json`
 - Tape checkpoints: `checkpoint` events embedded in `.orchestrator/events/<session>.jsonl`
 - Runtime recovery source: event tape replay (`checkpoint + delta`); no standalone runtime session-state snapshot file
 - Rollback snapshots: `.orchestrator/snapshots/<session>/*.snap`

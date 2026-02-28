@@ -56,7 +56,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     },
     evolvesMode: "shadow",
     cognitive: {
-      mode: "active",
+      mode: "shadow",
       maxTokensPerTurn: 0,
     },
     global: {
