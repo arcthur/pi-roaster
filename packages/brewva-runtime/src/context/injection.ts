@@ -1,4 +1,4 @@
-import type { ContextArenaDegradationPolicy } from "../types.js";
+import type { ContextArenaDegradationPolicy, ContextStrategyArm } from "../types.js";
 import { ContextArena } from "./arena.js";
 import type { ZoneBudgetAdaptiveConfig } from "./zone-budget-controller.js";
 import type { ZoneBudgetConfig } from "./zone-budget.js";
@@ -35,9 +35,12 @@ export interface ContextInjectionConsumeResult {
 }
 
 export interface ContextInjectionPlanTelemetry {
+  strategyArm: ContextStrategyArm;
   zoneDemandTokens: Record<ContextZone, number>;
   zoneAllocatedTokens: Record<ContextZone, number>;
   zoneAcceptedTokens: Record<ContextZone, number>;
+  adaptiveZonesDisabled: boolean;
+  stabilityForced: boolean;
   floorUnmet: boolean;
   appliedFloorRelaxation: ContextZone[];
   degradationApplied: ContextArenaDegradationPolicy | null;
@@ -102,8 +105,16 @@ export class ContextInjectionCollector {
     return this.arena.append(sessionId, input);
   }
 
-  plan(sessionId: string, totalTokenBudget: number): ContextInjectionPlanResult {
-    return this.arena.plan(sessionId, totalTokenBudget);
+  plan(
+    sessionId: string,
+    totalTokenBudget: number,
+    options?: {
+      forceCriticalOnly?: boolean;
+      strategyArm?: ContextStrategyArm;
+      disableAdaptiveZones?: boolean;
+    },
+  ): ContextInjectionPlanResult {
+    return this.arena.plan(sessionId, totalTokenBudget, options);
   }
 
   commit(sessionId: string, consumedKeys: string[]): void {

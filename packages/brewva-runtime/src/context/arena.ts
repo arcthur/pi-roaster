@@ -1,4 +1,4 @@
-import type { ContextArenaDegradationPolicy } from "../types.js";
+import type { ContextArenaDegradationPolicy, ContextStrategyArm } from "../types.js";
 import { estimateTokenCount, truncateTextToTokenBudget } from "../utils/token.js";
 import type {
   ContextInjectionEntry,
@@ -220,7 +220,19 @@ export class ContextArena {
     };
   }
 
-  plan(sessionId: string, totalTokenBudget: number): ContextInjectionPlanResult {
+  plan(
+    sessionId: string,
+    totalTokenBudget: number,
+    options?: {
+      forceCriticalOnly?: boolean;
+      strategyArm?: ContextStrategyArm;
+      disableAdaptiveZones?: boolean;
+    },
+  ): ContextInjectionPlanResult {
+    const strategyArm = options?.strategyArm ?? "managed";
+    const adaptiveZonesDisabled =
+      options?.disableAdaptiveZones === true || strategyArm !== "managed";
+    const stabilityForced = options?.forceCriticalOnly === true;
     const state = this.sessions.get(sessionId);
     if (!state || state.latestIndexByKey.size === 0) {
       return {
@@ -229,7 +241,7 @@ export class ContextArena {
         estimatedTokens: 0,
         truncated: false,
         consumedKeys: [],
-        planTelemetry: this.emptyPlanTelemetry(),
+        planTelemetry: this.emptyPlanTelemetry(strategyArm, adaptiveZonesDisabled, stabilityForced),
       };
     }
 
@@ -239,20 +251,26 @@ export class ContextArena {
       if (!entry || entry.presented) continue;
       allCandidates.push(entry);
     }
-    if (allCandidates.length === 0) {
+    const effectiveCandidates = stabilityForced
+      ? allCandidates.filter((entry) => CRITICAL_ONLY_ZONES.has(zoneForSource(entry.source)))
+      : allCandidates;
+    if (effectiveCandidates.length === 0) {
       return {
         text: "",
         entries: [],
         estimatedTokens: 0,
         truncated: false,
         consumedKeys: [],
-        planTelemetry: this.consumePlanTelemetry(state, this.emptyPlanTelemetry()),
+        planTelemetry: this.consumePlanTelemetry(
+          state,
+          this.emptyPlanTelemetry(strategyArm, adaptiveZonesDisabled, stabilityForced),
+        ),
       };
     }
 
     const sortEntries = (entries: ArenaEntry[]): ArenaEntry[] => {
       entries.sort((left, right) => {
-        if (this.zoneLayout) {
+        if (this.zoneLayout && strategyArm === "managed") {
           const leftZone = zoneOrderIndex(zoneForSource(left.source));
           const rightZone = zoneOrderIndex(zoneForSource(right.source));
           if (leftZone !== rightZone) return leftZone - rightZone;
@@ -264,58 +282,86 @@ export class ContextArena {
       return entries;
     };
 
-    let candidates = sortEntries([...allCandidates]);
+    let candidates = sortEntries([...effectiveCandidates]);
     let zoneDemands = this.buildZoneDemands(candidates);
-    let zonePlan = this.buildZonePlan(
-      sessionId,
-      candidates,
-      Math.max(0, Math.floor(totalTokenBudget)),
-      [],
-    );
-    let floorUnmetEncountered = zonePlan.kind === "floor_unmet";
-    let telemetryFloorRelaxation = [...zonePlan.appliedFloorRelaxation];
+    let floorUnmetEncountered = false;
+    let telemetryFloorRelaxation: ContextZone[] = [];
+    let zonePlan: ZonePlanState;
 
-    if (zonePlan.kind === "floor_unmet" && this.floorUnmetPolicy.enabled) {
-      const appliedRelaxation: ContextZone[] = [];
-      for (const zone of this.floorUnmetPolicy.relaxOrder) {
-        appliedRelaxation.push(zone);
-        zonePlan = this.buildZonePlan(
-          sessionId,
-          candidates,
-          Math.max(0, Math.floor(totalTokenBudget)),
-          appliedRelaxation,
-        );
-        floorUnmetEncountered = true;
-        telemetryFloorRelaxation = [...appliedRelaxation];
-        if (zonePlan.kind !== "floor_unmet") {
-          break;
+    if (stabilityForced) {
+      // In stabilized mode, bypass floor allocation to guarantee bounded cross-turn behavior.
+      zonePlan = {
+        kind: "disabled",
+        floorUnmet: false,
+        appliedFloorRelaxation: [],
+        allocated: createZeroZoneTokenMap(),
+      };
+    } else if (strategyArm !== "managed") {
+      zonePlan = {
+        kind: "disabled",
+        floorUnmet: false,
+        appliedFloorRelaxation: [],
+        allocated: zoneDemands,
+      };
+    } else {
+      zonePlan = this.buildZonePlan(
+        sessionId,
+        candidates,
+        Math.max(0, Math.floor(totalTokenBudget)),
+        [],
+        adaptiveZonesDisabled,
+      );
+      floorUnmetEncountered = zonePlan.kind === "floor_unmet";
+      telemetryFloorRelaxation = [...zonePlan.appliedFloorRelaxation];
+
+      if (zonePlan.kind === "floor_unmet" && this.floorUnmetPolicy.enabled) {
+        const appliedRelaxation: ContextZone[] = [];
+        for (const zone of this.floorUnmetPolicy.relaxOrder) {
+          appliedRelaxation.push(zone);
+          zonePlan = this.buildZonePlan(
+            sessionId,
+            candidates,
+            Math.max(0, Math.floor(totalTokenBudget)),
+            appliedRelaxation,
+            adaptiveZonesDisabled,
+          );
+          floorUnmetEncountered = true;
+          telemetryFloorRelaxation = [...appliedRelaxation];
+          if (zonePlan.kind !== "floor_unmet") {
+            break;
+          }
         }
-      }
 
-      if (
-        zonePlan.kind === "floor_unmet" &&
-        this.floorUnmetPolicy.finalFallback === "critical_only"
-      ) {
-        floorUnmetEncountered = true;
-        candidates = sortEntries(
-          candidates.filter((entry) => CRITICAL_ONLY_ZONES.has(zoneForSource(entry.source))),
-        );
-        zoneDemands = this.buildZoneDemands(candidates);
-        zonePlan = this.buildZonePlan(
-          sessionId,
-          candidates,
-          Math.max(0, Math.floor(totalTokenBudget)),
-          [],
-        );
+        if (
+          zonePlan.kind === "floor_unmet" &&
+          this.floorUnmetPolicy.finalFallback === "critical_only"
+        ) {
+          floorUnmetEncountered = true;
+          candidates = sortEntries(
+            candidates.filter((entry) => CRITICAL_ONLY_ZONES.has(zoneForSource(entry.source))),
+          );
+          zoneDemands = this.buildZoneDemands(candidates);
+          zonePlan = this.buildZonePlan(
+            sessionId,
+            candidates,
+            Math.max(0, Math.floor(totalTokenBudget)),
+            [],
+            adaptiveZonesDisabled,
+          );
+        }
       }
     }
 
     if (zonePlan.kind === "floor_unmet") {
-      const adaptation = this.observeAdaptiveTelemetry(sessionId, {
-        zoneDemandTokens: zoneDemands,
-        zoneAllocatedTokens: createZeroZoneTokenMap(),
-        zoneAcceptedTokens: createZeroZoneTokenMap(),
-      });
+      const adaptation = this.observeAdaptiveTelemetry(
+        sessionId,
+        {
+          zoneDemandTokens: zoneDemands,
+          zoneAllocatedTokens: createZeroZoneTokenMap(),
+          zoneAcceptedTokens: createZeroZoneTokenMap(),
+        },
+        adaptiveZonesDisabled,
+      );
       return {
         text: "",
         entries: [],
@@ -324,9 +370,12 @@ export class ContextArena {
         consumedKeys: [],
         planReason: "floor_unmet",
         planTelemetry: this.consumePlanTelemetry(state, {
+          strategyArm,
           zoneDemandTokens: zoneDemands,
           zoneAllocatedTokens: createZeroZoneTokenMap(),
           zoneAcceptedTokens: createZeroZoneTokenMap(),
+          adaptiveZonesDisabled,
+          stabilityForced,
           floorUnmet: true,
           appliedFloorRelaxation: telemetryFloorRelaxation,
           degradationApplied: null,
@@ -392,11 +441,15 @@ export class ContextArena {
     }
 
     const text = accepted.map((entry) => entry.content).join(ENTRY_SEPARATOR);
-    const adaptation = this.observeAdaptiveTelemetry(sessionId, {
-      zoneDemandTokens: zoneDemands,
-      zoneAllocatedTokens: zonePlan.allocated,
-      zoneAcceptedTokens: acceptedByZone,
-    });
+    const adaptation = this.observeAdaptiveTelemetry(
+      sessionId,
+      {
+        zoneDemandTokens: zoneDemands,
+        zoneAllocatedTokens: zonePlan.allocated,
+        zoneAcceptedTokens: acceptedByZone,
+      },
+      adaptiveZonesDisabled,
+    );
     return {
       text,
       entries: accepted,
@@ -404,9 +457,12 @@ export class ContextArena {
       truncated,
       consumedKeys,
       planTelemetry: this.consumePlanTelemetry(state, {
+        strategyArm,
         zoneDemandTokens: zoneDemands,
         zoneAllocatedTokens: zonePlan.allocated,
         zoneAcceptedTokens: acceptedByZone,
+        adaptiveZonesDisabled,
+        stabilityForced,
         floorUnmet: floorUnmetEncountered || zonePlan.floorUnmet,
         appliedFloorRelaxation: floorUnmetEncountered
           ? telemetryFloorRelaxation
@@ -565,9 +621,12 @@ export class ContextArena {
     return zoneDemands;
   }
 
-  private resolveZoneBudgetConfig(sessionId: string): ZoneBudgetConfig | null {
+  private resolveZoneBudgetConfig(
+    sessionId: string,
+    disableAdaptiveZones: boolean,
+  ): ZoneBudgetConfig | null {
     if (!this.baseZoneBudgets) return null;
-    if (!this.adaptiveController) return this.baseZoneBudgets;
+    if (disableAdaptiveZones || !this.adaptiveController) return this.baseZoneBudgets;
     return this.adaptiveController.resolveZoneBudgetConfig(sessionId);
   }
 
@@ -576,6 +635,7 @@ export class ContextArena {
     candidates: ArenaEntry[],
     totalBudget: number,
     floorRelaxation: ContextZone[],
+    disableAdaptiveZones: boolean,
   ): ZonePlanState {
     if (!this.zoneLayout || !this.baseZoneBudgets) {
       return {
@@ -587,7 +647,7 @@ export class ContextArena {
     }
 
     const zoneDemands = this.buildZoneDemands(candidates);
-    const effectiveBudgetConfig = this.resolveZoneBudgetConfig(sessionId);
+    const effectiveBudgetConfig = this.resolveZoneBudgetConfig(sessionId, disableAdaptiveZones);
     if (!effectiveBudgetConfig) {
       return {
         kind: "disabled",
@@ -814,16 +874,24 @@ export class ContextArena {
   private observeAdaptiveTelemetry(
     sessionId: string,
     telemetry: ZoneBudgetPlanTelemetry,
+    disableAdaptiveZones: boolean,
   ): ZoneBudgetControllerAdjustment | null {
-    if (!this.adaptiveController) return null;
+    if (disableAdaptiveZones || !this.adaptiveController) return null;
     return this.adaptiveController.observe(sessionId, telemetry);
   }
 
-  private emptyPlanTelemetry(): ContextInjectionPlanResult["planTelemetry"] {
+  private emptyPlanTelemetry(
+    strategyArm: ContextStrategyArm = "managed",
+    adaptiveZonesDisabled = false,
+    stabilityForced = false,
+  ): ContextInjectionPlanResult["planTelemetry"] {
     return {
+      strategyArm,
       zoneDemandTokens: createZeroZoneTokenMap(),
       zoneAllocatedTokens: createZeroZoneTokenMap(),
       zoneAcceptedTokens: createZeroZoneTokenMap(),
+      adaptiveZonesDisabled,
+      stabilityForced,
       floorUnmet: false,
       appliedFloorRelaxation: [],
       degradationApplied: null,

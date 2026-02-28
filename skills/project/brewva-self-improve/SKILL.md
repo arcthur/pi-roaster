@@ -35,6 +35,26 @@ Run `scripts/setup.sh` to initialize learnings in a new workspace.
 This skill integrates with Brewva's existing runtime artifacts (`.orchestrator/`) to
 correlate learnings with session evidence when applicable.
 
+## Context Strategy Observer/Tuner
+
+This skill also ships a lightweight context-strategy optimization loop:
+
+- `scripts/context_strategy_observer.py`
+  - reads `.orchestrator/events/*.jsonl`
+  - generates weekly metrics report under `.brewva/strategy/reports/`
+  - exports both markdown and JSON summary
+- `scripts/context_strategy_tuner.py`
+  - reads observer JSON summary
+  - proposes or applies TTL-based overrides to
+    `.brewva/strategy/context-strategy.json`
+
+Recommended cadence:
+
+1. Run observer weekly.
+2. Review report and quality proxy trends.
+3. Run tuner in dry-run mode; manually inspect proposed overrides.
+4. Apply with TTL only after verification baseline is stable.
+
 ## Trigger
 
 Use this skill when:

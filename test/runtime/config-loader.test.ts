@@ -31,6 +31,35 @@ describe("Brewva config loader normalization", () => {
           hardLimitPercent: 1.6,
           compactionThresholdPercent: 1.8,
           truncationStrategy: "invalid_strategy",
+          strategy: {
+            defaultArm: "invalid_arm",
+            enableAutoByContextWindow: "yes",
+            hybridContextWindowMin: -10,
+            passthroughContextWindowMin: -20,
+            overridesPath: "",
+          },
+          adaptiveZones: {
+            retirement: {
+              enabled: "yes",
+              metricKey: "invalid_metric",
+              disableBelow: 2,
+              reenableAbove: -1,
+              checkIntervalHours: -1,
+              minSamples: 0,
+            },
+          },
+          stabilityMonitor: {
+            enabled: "yes",
+            consecutiveThreshold: -2,
+            retirement: {
+              enabled: "yes",
+              metricKey: "invalid_metric",
+              disableBelow: 9,
+              reenableAbove: -5,
+              checkIntervalHours: 0,
+              minSamples: -3,
+            },
+          },
         },
         toolFailureInjection: {
           enabled: "yes",
@@ -85,6 +114,43 @@ describe("Brewva config loader normalization", () => {
     );
     expect(loaded.infrastructure.contextBudget.truncationStrategy).toBe(
       defaults.infrastructure.contextBudget.truncationStrategy,
+    );
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.enabled).toBe(
+      defaults.infrastructure.contextBudget.stabilityMonitor.enabled,
+    );
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.consecutiveThreshold).toBe(
+      defaults.infrastructure.contextBudget.stabilityMonitor.consecutiveThreshold,
+    );
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.retirement.enabled).toBe(
+      defaults.infrastructure.contextBudget.stabilityMonitor.retirement.enabled,
+    );
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.retirement.metricKey).toBe(
+      defaults.infrastructure.contextBudget.stabilityMonitor.retirement.metricKey,
+    );
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.retirement.disableBelow).toBe(1);
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.retirement.reenableAbove).toBe(1);
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.retirement.checkIntervalHours).toBe(
+      defaults.infrastructure.contextBudget.stabilityMonitor.retirement.checkIntervalHours,
+    );
+    expect(loaded.infrastructure.contextBudget.stabilityMonitor.retirement.minSamples).toBe(
+      defaults.infrastructure.contextBudget.stabilityMonitor.retirement.minSamples,
+    );
+    expect(loaded.infrastructure.contextBudget.adaptiveZones.retirement.enabled).toBe(
+      defaults.infrastructure.contextBudget.adaptiveZones.retirement.enabled,
+    );
+    expect(loaded.infrastructure.contextBudget.adaptiveZones.retirement.metricKey).toBe(
+      defaults.infrastructure.contextBudget.adaptiveZones.retirement.metricKey,
+    );
+    expect(loaded.infrastructure.contextBudget.adaptiveZones.retirement.disableBelow).toBe(1);
+    expect(loaded.infrastructure.contextBudget.adaptiveZones.retirement.reenableAbove).toBe(1);
+    expect(loaded.infrastructure.contextBudget.adaptiveZones.retirement.checkIntervalHours).toBe(
+      defaults.infrastructure.contextBudget.adaptiveZones.retirement.checkIntervalHours,
+    );
+    expect(loaded.infrastructure.contextBudget.adaptiveZones.retirement.minSamples).toBe(
+      defaults.infrastructure.contextBudget.adaptiveZones.retirement.minSamples,
+    );
+    expect(loaded.infrastructure.contextBudget.strategy).toEqual(
+      defaults.infrastructure.contextBudget.strategy,
     );
     expect(loaded.infrastructure.toolFailureInjection.enabled).toBe(
       defaults.infrastructure.toolFailureInjection.enabled,

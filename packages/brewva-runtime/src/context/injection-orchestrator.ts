@@ -1,6 +1,7 @@
 import type {
   ContextBudgetUsage,
   ContextInjectionDecision,
+  ContextStrategyArm,
   TaskState,
   TruthState,
 } from "../types.js";
@@ -15,6 +16,9 @@ export interface BuildContextInjectionInput {
   prompt: string;
   usage?: ContextBudgetUsage;
   injectionScopeId?: string;
+  strategyArm?: ContextStrategyArm;
+  adaptiveZonesEnabled?: boolean;
+  stabilityMonitorEnabled?: boolean;
 }
 
 export interface BuildContextInjectionResult {
@@ -52,17 +56,30 @@ export interface ContextInjectionOrchestratorDeps {
     turn?: number;
     payload?: Record<string, unknown>;
   }): void;
-  planContextInjection(sessionId: string, totalTokenBudget: number): ContextInjectionPlanResult;
+  planContextInjection(
+    sessionId: string,
+    totalTokenBudget: number,
+    options?: {
+      forceCriticalOnly?: boolean;
+      strategyArm?: ContextStrategyArm;
+      disableAdaptiveZones?: boolean;
+    },
+  ): ContextInjectionPlanResult;
   commitContextInjection(sessionId: string, consumedKeys: string[]): void;
   planBudgetInjection(
     sessionId: string,
     inputText: string,
     usage?: ContextBudgetUsage,
+    options?: { bypassMaxInjectionTokens?: boolean },
   ): ContextInjectionDecision;
   buildInjectionScopeKey(sessionId: string, injectionScopeId?: string): string;
   setReservedTokens(scopeKey: string, tokens: number): void;
   getLastInjectedFingerprint(scopeKey: string): string | undefined;
   setLastInjectedFingerprint(scopeKey: string, fingerprint: string): void;
+  getCurrentTurn(sessionId: string): number;
+  shouldForceCriticalOnly(sessionId: string, turn: number): boolean;
+  recordStabilityDegraded(sessionId: string, turn: number): boolean;
+  recordStabilityNormal(sessionId: string, options: { wasForced: boolean; turn: number }): boolean;
   shouldRequestCompactionOnFloorUnmet(): boolean;
   requestCompaction(sessionId: string, reason: "floor_unmet"): void;
 }
@@ -138,9 +155,26 @@ export function buildContextInjection(
     }
   }
 
+  const currentTurn = deps.getCurrentTurn(input.sessionId);
+  const strategyArm = input.strategyArm ?? "managed";
+  const stabilityMonitorEnabled =
+    input.stabilityMonitorEnabled !== false && strategyArm === "managed";
+  const adaptiveZonesEnabled = input.adaptiveZonesEnabled !== false && strategyArm === "managed";
+  const forceCriticalOnly = stabilityMonitorEnabled
+    ? deps.shouldForceCriticalOnly(input.sessionId, currentTurn)
+    : false;
   const merged = deps.planContextInjection(
     input.sessionId,
-    deps.isContextBudgetEnabled() ? deps.maxInjectionTokens : Number.MAX_SAFE_INTEGER,
+    strategyArm === "passthrough"
+      ? Number.MAX_SAFE_INTEGER
+      : deps.isContextBudgetEnabled()
+        ? deps.maxInjectionTokens
+        : Number.MAX_SAFE_INTEGER,
+    {
+      forceCriticalOnly,
+      strategyArm,
+      disableAdaptiveZones: !adaptiveZonesEnabled,
+    },
   );
   if (merged.planTelemetry.zoneAdaptation && merged.planTelemetry.zoneAdaptation.movedTokens > 0) {
     deps.recordEvent({
@@ -155,29 +189,64 @@ export function buildContextInjection(
     });
   }
   if (merged.planReason === "floor_unmet") {
+    if (stabilityMonitorEnabled) {
+      const tripped = deps.recordStabilityDegraded(input.sessionId, currentTurn);
+      if (tripped) {
+        deps.recordEvent({
+          sessionId: input.sessionId,
+          type: "context_stability_monitor_tripped",
+          payload: {
+            reason: "consecutive_floor_unmet",
+            strategyArm,
+          },
+        });
+      }
+    }
     deps.recordEvent({
       sessionId: input.sessionId,
       type: "context_arena_floor_unmet_unrecoverable",
       payload: {
         reason: "insufficient_budget_for_zone_floors",
+        strategyArm,
         appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
       },
     });
     if (deps.shouldRequestCompactionOnFloorUnmet()) {
       deps.requestCompaction(input.sessionId, "floor_unmet");
     }
-  } else if (merged.planTelemetry.floorUnmet) {
-    deps.recordEvent({
-      sessionId: input.sessionId,
-      type: "context_arena_floor_unmet_recovered",
-      payload: {
-        reason: "insufficient_budget_for_zone_floors",
-        appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
-      },
-    });
+  } else {
+    if (stabilityMonitorEnabled) {
+      const recovered = deps.recordStabilityNormal(input.sessionId, {
+        wasForced: forceCriticalOnly,
+        turn: currentTurn,
+      });
+      if (recovered) {
+        deps.recordEvent({
+          sessionId: input.sessionId,
+          type: "context_stability_monitor_reset",
+          payload: {
+            reason: "plan_succeeded",
+            strategyArm,
+          },
+        });
+      }
+    }
+    if (merged.planTelemetry.floorUnmet) {
+      deps.recordEvent({
+        sessionId: input.sessionId,
+        type: "context_arena_floor_unmet_recovered",
+        payload: {
+          reason: "insufficient_budget_for_zone_floors",
+          strategyArm,
+          appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
+        },
+      });
+    }
   }
 
-  const decision = deps.planBudgetInjection(input.sessionId, merged.text, input.usage);
+  const decision = deps.planBudgetInjection(input.sessionId, merged.text, input.usage, {
+    bypassMaxInjectionTokens: strategyArm === "passthrough",
+  });
   const wasTruncated = decision.truncated || merged.truncated;
   if (decision.accepted) {
     const fingerprint = sha256(decision.finalText);
@@ -216,9 +285,12 @@ export function buildContextInjection(
         usagePercent: input.usage?.percent ?? null,
         sourceCount: merged.entries.length,
         sourceTokens: merged.estimatedTokens,
+        strategyArm: merged.planTelemetry.strategyArm,
+        adaptiveZonesDisabled: merged.planTelemetry.adaptiveZonesDisabled,
         zoneDemandTokens: merged.planTelemetry.zoneDemandTokens,
         zoneAllocatedTokens: merged.planTelemetry.zoneAllocatedTokens,
         zoneAcceptedTokens: merged.planTelemetry.zoneAcceptedTokens,
+        stabilityForced: merged.planTelemetry.stabilityForced,
         floorUnmet: merged.planTelemetry.floorUnmet,
         appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
         degradationApplied: merged.planTelemetry.degradationApplied,
@@ -243,9 +315,12 @@ export function buildContextInjection(
     payload: {
       reason: droppedReason,
       originalTokens: decision.originalTokens,
+      strategyArm: merged.planTelemetry.strategyArm,
+      adaptiveZonesDisabled: merged.planTelemetry.adaptiveZonesDisabled,
       zoneDemandTokens: merged.planTelemetry.zoneDemandTokens,
       zoneAllocatedTokens: merged.planTelemetry.zoneAllocatedTokens,
       zoneAcceptedTokens: merged.planTelemetry.zoneAcceptedTokens,
+      stabilityForced: merged.planTelemetry.stabilityForced,
       floorUnmet: merged.planTelemetry.floorUnmet,
       appliedFloorRelaxation: merged.planTelemetry.appliedFloorRelaxation,
       degradationApplied: merged.planTelemetry.degradationApplied,

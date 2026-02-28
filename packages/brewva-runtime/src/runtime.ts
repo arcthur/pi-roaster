@@ -13,6 +13,7 @@ import { resolveWorkspaceRootDir } from "./config/paths.js";
 import { ContextBudgetManager } from "./context/budget.js";
 import { normalizeAgentId } from "./context/identity.js";
 import { ContextInjectionCollector } from "./context/injection.js";
+import { ContextStabilityMonitor } from "./context/stability-monitor.js";
 import { SessionCostTracker } from "./cost/tracker.js";
 import { BrewvaEventStore } from "./events/store.js";
 import { EvidenceLedger } from "./ledger/evidence-ledger.js";
@@ -121,6 +122,7 @@ type RuntimeCoreDependencies = {
   turnWalStore: TurnWALStore;
   contextBudget: ContextBudgetManager;
   contextInjection: ContextInjectionCollector;
+  stabilityMonitor: ContextStabilityMonitor;
   turnReplay: TurnReplayEngine;
   fileChanges: FileChangeTracker;
   costTracker: SessionCostTracker;
@@ -446,6 +448,7 @@ export class BrewvaRuntime {
   private readonly verificationGate: VerificationGate;
   private readonly eventStore: BrewvaEventStore;
   private readonly turnWalStore: TurnWALStore;
+  private readonly contextStabilityMonitor: ContextStabilityMonitor;
   private readonly memoryEngine: MemoryEngine;
 
   private readonly sessionState = new RuntimeSessionStateStore();
@@ -483,6 +486,7 @@ export class BrewvaRuntime {
     this.turnWalStore = coreDependencies.turnWalStore;
     this.contextBudget = coreDependencies.contextBudget;
     this.contextInjection = coreDependencies.contextInjection;
+    this.contextStabilityMonitor = coreDependencies.stabilityMonitor;
     this.turnReplay = coreDependencies.turnReplay;
     this.fileChanges = coreDependencies.fileChanges;
     this.costTracker = coreDependencies.costTracker;
@@ -564,6 +568,11 @@ export class BrewvaRuntime {
       },
     });
     const contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
+    const stabilityMonitor = new ContextStabilityMonitor({
+      consecutiveThreshold: this.config.infrastructure.contextBudget.stabilityMonitor.enabled
+        ? this.config.infrastructure.contextBudget.stabilityMonitor.consecutiveThreshold
+        : 0,
+    });
     const contextInjection = new ContextInjectionCollector({
       sourceTokenLimits: this.isContextBudgetEnabled()
         ? buildContextSourceTokenLimits(
@@ -627,6 +636,7 @@ export class BrewvaRuntime {
       turnWalStore,
       contextBudget,
       contextInjection,
+      stabilityMonitor,
       turnReplay,
       fileChanges,
       costTracker,
@@ -713,14 +723,18 @@ export class BrewvaRuntime {
       config: this.config,
       contextBudget: this.contextBudget,
       contextInjection: this.contextInjection,
+      stabilityMonitor: this.contextStabilityMonitor,
       memory: this.memoryEngine,
       externalRecallPort: options.externalRecallPort,
       fileChanges: this.fileChanges,
       ledger: this.ledger,
       sessionState: this.sessionState,
       queryEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
+      listSessionIds: () => this.eventStore.listSessionIds(),
+      listEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
+      getCostSummary: (sessionId) => this.costService.getCostSummary(sessionId),
       selectSkills: (message) => this.selectSkills(message),
       buildSkillCandidateBlock: (selected) => buildSkillCandidateBlock(selected),
       buildTaskStateBlock: (state) => buildTaskStateBlock(state),
@@ -799,6 +813,8 @@ export class BrewvaRuntime {
       contextInjection: this.contextInjection,
       clearReservedInjectionTokensForSession: (sessionId) =>
         contextService.clearReservedInjectionTokensForSession(sessionId),
+      clearContextStabilityForSession: (sessionId) =>
+        contextService.clearStabilityMonitorSession(sessionId),
       fileChanges: this.fileChanges,
       verification: this.verificationGate,
       parallel: this.parallel,

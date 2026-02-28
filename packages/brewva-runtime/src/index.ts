@@ -22,6 +22,8 @@ export * from "./context/budget.js";
 export * from "./context/arena.js";
 export * from "./context/injection.js";
 export * from "./context/injection-orchestrator.js";
+export * from "./context/evolution-manager.js";
+export * from "./context/stability-monitor.js";
 export * from "./context/zones.js";
 export * from "./context/zone-budget.js";
 export * from "./context/zone-budget-controller.js";
