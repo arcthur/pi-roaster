@@ -364,7 +364,7 @@ export class VerificationService {
     usage: CognitiveUsage | null;
   }): CognitiveTokenBudgetStatus | null {
     if (!this.recordCognitiveUsage) return this.resolveCognitiveBudgetStatus(input.sessionId);
-    const effectiveUsage: CognitiveUsage = input.usage ?? { totalTokens: 1 };
+    const effectiveUsage: CognitiveUsage = input.usage ?? { totalTokens: 0 };
     try {
       return this.recordCognitiveUsage({
         sessionId: input.sessionId,
@@ -398,6 +398,9 @@ export class VerificationService {
       return;
     }
     const tokenBudgetBefore = this.resolveCognitiveBudgetStatus(sessionId);
+    if ((tokenBudgetBefore?.maxTokensPerTurn ?? 1) <= 0) {
+      return;
+    }
     if (tokenBudgetBefore?.exhausted) {
       this.recordEvent({
         sessionId,

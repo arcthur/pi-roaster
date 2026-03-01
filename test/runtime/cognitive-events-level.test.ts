@@ -8,6 +8,7 @@ function createConfig(): BrewvaConfig {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.memory.enabled = true;
   config.memory.cognitive.mode = "shadow";
+  config.memory.cognitive.maxTokensPerTurn = 128;
   config.infrastructure.events.level = "ops";
   return config;
 }

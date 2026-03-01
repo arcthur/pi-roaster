@@ -118,6 +118,7 @@ describe("Verification blockers", () => {
             cognitive: {
               ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
               mode: "shadow",
+              maxTokensPerTurn: 128,
             },
           },
         },

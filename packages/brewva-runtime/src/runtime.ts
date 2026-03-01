@@ -581,36 +581,47 @@ export class BrewvaRuntime {
       },
     });
     const contextBudget = new ContextBudgetManager(this.config.infrastructure.contextBudget);
+    const managedContextProfile = this.config.infrastructure.contextBudget.profile === "managed";
     const stabilityMonitor = new ContextStabilityMonitor({
-      consecutiveThreshold: this.config.infrastructure.contextBudget.stabilityMonitor.enabled
-        ? this.config.infrastructure.contextBudget.stabilityMonitor.consecutiveThreshold
-        : 0,
+      consecutiveThreshold:
+        managedContextProfile && this.config.infrastructure.contextBudget.stabilityMonitor.enabled
+          ? this.config.infrastructure.contextBudget.stabilityMonitor.consecutiveThreshold
+          : 0,
     });
-    const contextInjection = new ContextInjectionCollector({
-      sourceTokenLimits: this.isContextBudgetEnabled()
-        ? buildContextSourceTokenLimits(
-            this.config.infrastructure.contextBudget.maxInjectionTokens,
-            {
-              toolFailureInjection: this.config.infrastructure.toolFailureInjection,
-            },
-          )
-        : {},
-      truncationStrategy: this.config.infrastructure.contextBudget.truncationStrategy,
-      zoneBudgets: {
-        identity: this.config.infrastructure.contextBudget.arena.zones.identity,
-        truth: this.config.infrastructure.contextBudget.arena.zones.truth,
-        skills: this.config.infrastructure.contextBudget.arena.zones.skills,
-        task_state: this.config.infrastructure.contextBudget.arena.zones.taskState,
-        tool_failures: this.config.infrastructure.contextBudget.arena.zones.toolFailures,
-        memory_working: this.config.infrastructure.contextBudget.arena.zones.memoryWorking,
-        memory_recall: this.config.infrastructure.contextBudget.arena.zones.memoryRecall,
-        rag_external: this.config.infrastructure.contextBudget.arena.zones.ragExternal,
-      },
-      adaptiveZones: this.config.infrastructure.contextBudget.adaptiveZones,
-      maxEntriesPerSession: this.config.infrastructure.contextBudget.arena.maxEntriesPerSession,
-      degradationPolicy: this.config.infrastructure.contextBudget.arena.degradationPolicy,
-      floorUnmetPolicy: this.config.infrastructure.contextBudget.floorUnmetPolicy,
-    });
+    const contextInjection = managedContextProfile
+      ? new ContextInjectionCollector({
+          sourceTokenLimits: this.isContextBudgetEnabled()
+            ? buildContextSourceTokenLimits(
+                this.config.infrastructure.contextBudget.maxInjectionTokens,
+                {
+                  toolFailureInjection: this.config.infrastructure.toolFailureInjection,
+                },
+              )
+            : {},
+          truncationStrategy: this.config.infrastructure.contextBudget.truncationStrategy,
+          zoneLayout: true,
+          zoneBudgets: {
+            identity: this.config.infrastructure.contextBudget.arena.zones.identity,
+            truth: this.config.infrastructure.contextBudget.arena.zones.truth,
+            skills: this.config.infrastructure.contextBudget.arena.zones.skills,
+            task_state: this.config.infrastructure.contextBudget.arena.zones.taskState,
+            tool_failures: this.config.infrastructure.contextBudget.arena.zones.toolFailures,
+            memory_working: this.config.infrastructure.contextBudget.arena.zones.memoryWorking,
+            memory_recall: this.config.infrastructure.contextBudget.arena.zones.memoryRecall,
+            rag_external: this.config.infrastructure.contextBudget.arena.zones.ragExternal,
+          },
+          adaptiveZones: this.config.infrastructure.contextBudget.adaptiveZones,
+          maxEntriesPerSession: this.config.infrastructure.contextBudget.arena.maxEntriesPerSession,
+          degradationPolicy: this.config.infrastructure.contextBudget.arena.degradationPolicy,
+          floorUnmetPolicy: this.config.infrastructure.contextBudget.floorUnmetPolicy,
+        })
+      : new ContextInjectionCollector({
+          sourceTokenLimits: {},
+          truncationStrategy: this.config.infrastructure.contextBudget.truncationStrategy,
+          zoneLayout: false,
+          maxEntriesPerSession: this.config.infrastructure.contextBudget.arena.maxEntriesPerSession,
+          degradationPolicy: this.config.infrastructure.contextBudget.arena.degradationPolicy,
+        });
     const turnReplay = new TurnReplayEngine({
       listEvents: (sessionId) => eventStore.list(sessionId),
       getTurn: (sessionId) => this.getCurrentTurn(sessionId),
@@ -741,12 +752,10 @@ export class BrewvaRuntime {
       stabilityMonitor: this.contextStabilityMonitor,
       memory: this.memoryEngine,
       externalRecallPort,
-      fileChanges: this.fileChanges,
       ledger: this.ledger,
       sessionState: this.sessionState,
-      queryEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
       listSessionIds: () => this.eventStore.listSessionIds(),
-      listEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
+      listEvents: (sessionId) => this.eventStore.list(sessionId),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
       getTruthState: (sessionId) => this.getTruthState(sessionId),
       getCostSummary: (sessionId) => this.costService.getCostSummary(sessionId),
@@ -755,7 +764,6 @@ export class BrewvaRuntime {
       buildSkillDispatchGateBlock: (decision) => buildSkillDispatchGateBlock(decision),
       buildTaskStateBlock: (state) => buildTaskStateBlock(state),
       maybeAlignTaskStatus: (input) => taskService.maybeAlignTaskStatus(input),
-      getLedgerDigest: (sessionId) => ledgerService.getLedgerDigest(sessionId),
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       sanitizeInput: (text) => this.sanitizeInput(text),
@@ -884,6 +892,7 @@ export class BrewvaRuntime {
   ): ExternalRecallPort | undefined {
     if (externalRecallPort) return externalRecallPort;
     if (!this.config.memory.externalRecall.enabled) return undefined;
+    if (this.config.memory.externalRecall.builtinProvider === "off") return undefined;
     return createCrystalLexicalExternalRecallPort({
       memoryRootDir: resolve(this.workspaceRoot, this.config.memory.dir),
       includeWorkspaceCrystals: false,

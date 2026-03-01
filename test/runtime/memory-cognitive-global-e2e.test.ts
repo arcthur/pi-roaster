@@ -41,7 +41,7 @@ function createConfig(input?: {
       cognitive: {
         ...DEFAULT_BREWVA_CONFIG.memory.cognitive,
         mode: cognitiveMode,
-        maxTokensPerTurn: 0,
+        maxTokensPerTurn: 256,
       },
       global: {
         ...DEFAULT_BREWVA_CONFIG.memory.global,

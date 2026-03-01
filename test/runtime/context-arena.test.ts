@@ -245,7 +245,7 @@ describe("ContextArena", () => {
     expect(forced.planTelemetry.floorUnmet).toBe(false);
   });
 
-  test("hybrid strategy bypasses floor_unmet while preserving global token budget", () => {
+  test("disableAdaptiveZones does not bypass floor_unmet planning", () => {
     const arena = new ContextArena({
       zoneLayout: true,
       floorUnmetPolicy: {
@@ -280,12 +280,11 @@ describe("ContextArena", () => {
     expect(managed.planReason).toBe("floor_unmet");
 
     arena.clearPending(sessionId);
-    const hybrid = arena.plan(sessionId, 120, { strategyArm: "hybrid" });
-    expect(hybrid.planReason).toBeUndefined();
-    expect(hybrid.entries.length).toBeGreaterThan(0);
-    expect(hybrid.estimatedTokens).toBeLessThanOrEqual(120);
-    expect(hybrid.planTelemetry.strategyArm).toBe("hybrid");
-    expect(hybrid.planTelemetry.adaptiveZonesDisabled).toBe(true);
+    const adaptiveDisabled = arena.plan(sessionId, 120, { disableAdaptiveZones: true });
+    expect(adaptiveDisabled.planReason).toBe("floor_unmet");
+    expect(adaptiveDisabled.entries).toHaveLength(0);
+    expect(adaptiveDisabled.planTelemetry.strategyArm).toBe("managed");
+    expect(adaptiveDisabled.planTelemetry.adaptiveZonesDisabled).toBe(true);
   });
 
   test("trims superseded history under long-session append pressure", () => {

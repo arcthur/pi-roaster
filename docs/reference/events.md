@@ -145,6 +145,8 @@ This list is intentionally non-exhaustive. Unknown event types/fields should be 
 - `context_strategy_selected`
 - `context_evolution_feature_disabled`
 - `context_evolution_feature_reenabled`
+- `context_profile_selected`
+- `context_profile_option_ignored`
 - `context_injection_dropped`
 - `context_external_recall_skipped`
 - `context_external_recall_injected`

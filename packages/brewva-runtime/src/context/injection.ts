@@ -75,6 +75,7 @@ export class ContextInjectionCollector {
     options: {
       sourceTokenLimits?: Record<string, number>;
       truncationStrategy?: ContextInjectionTruncationStrategy;
+      zoneLayout?: boolean;
       zoneBudgets?: ZoneBudgetConfigInput;
       adaptiveZones?: ZoneBudgetAdaptiveConfig;
       maxEntriesPerSession?: number;
@@ -89,7 +90,7 @@ export class ContextInjectionCollector {
     this.arena = new ContextArena({
       sourceTokenLimits: options.sourceTokenLimits,
       truncationStrategy: options.truncationStrategy,
-      zoneLayout: true,
+      zoneLayout: options.zoneLayout ?? true,
       zoneBudgets: options.zoneBudgets,
       adaptiveZones: options.adaptiveZones,
       maxEntriesPerSession: options.maxEntriesPerSession,
@@ -110,7 +111,6 @@ export class ContextInjectionCollector {
     totalTokenBudget: number,
     options?: {
       forceCriticalOnly?: boolean;
-      strategyArm?: ContextStrategyArm;
       disableAdaptiveZones?: boolean;
     },
   ): ContextInjectionPlanResult {

@@ -431,6 +431,7 @@ export interface BrewvaConfig {
     recallMode: "primary" | "fallback";
     externalRecall: {
       enabled: boolean;
+      builtinProvider: "off" | "crystal-lexical";
       minInternalScore: number;
       queryTopK: number;
       injectedConfidence: number;
@@ -500,6 +501,7 @@ export interface BrewvaConfig {
     };
     contextBudget: {
       enabled: boolean;
+      profile: ContextBudgetProfile;
       maxInjectionTokens: number;
       compactionThresholdPercent: number;
       hardLimitPercent: number;
@@ -530,13 +532,6 @@ export interface BrewvaConfig {
         enabled: boolean;
         consecutiveThreshold: number;
         retirement: ContextRetirementPolicy;
-      };
-      strategy: {
-        defaultArm: ContextStrategyArm;
-        enableAutoByContextWindow: boolean;
-        hybridContextWindowMin: number;
-        passthroughContextWindowMin: number;
-        overridesPath: string;
       };
       arena: {
         maxEntriesPerSession: number;
@@ -796,7 +791,8 @@ export type ContextBudgetZone =
   | "rag_external";
 
 export type ContextArenaDegradationPolicy = "drop_recall" | "drop_low_priority" | "force_compact";
-export type ContextStrategyArm = "managed" | "hybrid" | "passthrough";
+export type ContextStrategyArm = "managed";
+export type ContextBudgetProfile = "simple" | "managed";
 export type ContextRetirementMetricKey = "floor_unmet_rate_7d" | "zone_adaptation_benefit_7d";
 
 export interface ContextRetirementPolicy {

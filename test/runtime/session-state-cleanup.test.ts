@@ -2,12 +2,23 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BrewvaRuntime, buildTruthFactUpsertedEvent } from "@brewva/brewva-runtime";
+import {
+  BrewvaRuntime,
+  DEFAULT_BREWVA_CONFIG,
+  buildTruthFactUpsertedEvent,
+  type BrewvaConfig,
+} from "@brewva/brewva-runtime";
+
+function createManagedConfig(): BrewvaConfig {
+  const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+  config.infrastructure.contextBudget.profile = "managed";
+  return config;
+}
 
 describe("session state cleanup", () => {
   test("clearSessionState releases in-memory per-session caches", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-session-clean-"));
-    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const runtime = new BrewvaRuntime({ cwd: workspace, config: createManagedConfig() });
     const sessionId = "cleanup-state-1";
 
     runtime.context.onTurnStart(sessionId, 1);

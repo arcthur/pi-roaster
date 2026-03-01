@@ -74,6 +74,9 @@ export class ZoneBudgetAllocator {
     }
 
     let remaining = totalBudget - floorSum;
+    if (floorSum === 0) {
+      remaining = totalBudget;
+    }
     for (const zone of ZONE_ORDER) {
       if (remaining <= 0) break;
       const demand = demands[zone];

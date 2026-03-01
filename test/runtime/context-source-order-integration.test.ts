@@ -44,6 +44,7 @@ function createConfig(): BrewvaConfig {
   config.memory.enabled = true;
   config.memory.recallMode = "primary";
   config.infrastructure.contextBudget.enabled = true;
+  config.infrastructure.contextBudget.profile = "managed";
   config.infrastructure.contextBudget.maxInjectionTokens = 4_000;
   config.infrastructure.toolFailureInjection.enabled = true;
   return config;

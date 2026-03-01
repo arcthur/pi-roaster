@@ -1168,7 +1168,7 @@ export class MemoryEngine {
     usage: CognitiveUsage | null;
   }): CognitiveTokenBudgetStatus | null {
     if (!this.recordCognitiveUsage) return this.resolveCognitiveBudgetStatus(input.sessionId);
-    const effectiveUsage: CognitiveUsage = input.usage ?? { totalTokens: 1 };
+    const effectiveUsage: CognitiveUsage = input.usage ?? { totalTokens: 0 };
     try {
       return this.recordCognitiveUsage({
         sessionId: input.sessionId,
@@ -1207,6 +1207,9 @@ export class MemoryEngine {
       }));
     if (candidates.length <= 1) return;
     const tokenBudgetBefore = this.resolveCognitiveBudgetStatus(input.sessionId);
+    if ((tokenBudgetBefore?.maxTokensPerTurn ?? 1) <= 0) {
+      return;
+    }
     if (tokenBudgetBefore?.exhausted) {
       this.recordEvent?.({
         sessionId: input.sessionId,
@@ -1384,6 +1387,9 @@ export class MemoryEngine {
     const cognitivePort = this.cognitivePort;
     if (!cognitivePort?.inferRelation) return;
     const tokenBudgetBefore = this.resolveCognitiveBudgetStatus(input.sessionId);
+    if ((tokenBudgetBefore?.maxTokensPerTurn ?? 1) <= 0) {
+      return;
+    }
     if (tokenBudgetBefore?.exhausted) {
       this.recordEvent?.({
         sessionId: input.sessionId,

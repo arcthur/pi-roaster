@@ -1,17 +1,23 @@
 import {
   coerceContextBudgetUsage,
+  type ContextCompactionGateStatus,
   type ContextPressureStatus,
   type BrewvaRuntime,
 } from "@brewva/brewva-runtime";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import {
+  extractCompactionEntryId,
+  extractCompactionSummary,
+  formatPercent,
+  resolveInjectionScopeId,
+} from "./context-shared.js";
 
 const CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
 const CONTEXT_CONTRACT_MARKER = "[Brewva Context Contract]";
 
 interface CompactionGateState {
   turnIndex: number;
-  compactionRequired: boolean;
-  lastCompactionTurn: number | null;
+  lastRuntimeGateRequired: boolean;
 }
 
 function getOrCreateGateState(
@@ -22,8 +28,7 @@ function getOrCreateGateState(
   if (existing) return existing;
   const created: CompactionGateState = {
     turnIndex: 0,
-    compactionRequired: false,
-    lastCompactionTurn: null,
+    lastRuntimeGateRequired: false,
   };
   store.set(sessionId, created);
   return created;
@@ -44,83 +49,6 @@ function emitRuntimeEvent(
     type: input.type,
     payload: input.payload,
   });
-}
-
-function formatPercent(ratio: number | null): string {
-  if (ratio === null) return "unknown";
-  return `${(ratio * 100).toFixed(1)}%`;
-}
-
-function resolveRecentCompactionWindowTurns(runtime: BrewvaRuntime): number {
-  return runtime.context.getCompactionWindowTurns();
-}
-
-function hydrateLastCompactionTurnFromTape(
-  runtime: BrewvaRuntime,
-  sessionId: string,
-  state: CompactionGateState,
-): void {
-  if (state.lastCompactionTurn !== null) return;
-  const latest = runtime.events.query(sessionId, {
-    type: "context_compacted",
-    last: 1,
-  })[0];
-  if (!latest) return;
-  if (typeof latest.turn !== "number" || !Number.isFinite(latest.turn)) return;
-  state.lastCompactionTurn = Math.max(0, Math.floor(latest.turn));
-}
-
-function hasRecentCompaction(runtime: BrewvaRuntime, state: CompactionGateState): boolean {
-  if (state.lastCompactionTurn === null) return false;
-  const turnsSinceCompact = Math.max(0, state.turnIndex - state.lastCompactionTurn);
-  return turnsSinceCompact < resolveRecentCompactionWindowTurns(runtime);
-}
-
-function extractCompactionSummary(input: unknown): string | undefined {
-  const event = input as
-    | {
-        compactionEntry?: {
-          summary?: unknown;
-          content?: unknown;
-          text?: unknown;
-        };
-      }
-    | undefined;
-  const entry = event?.compactionEntry;
-  if (!entry) return undefined;
-
-  const candidates = [entry.summary, entry.content, entry.text];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      const normalized = candidate.trim();
-      if (normalized.length > 0) return normalized;
-    }
-  }
-  return undefined;
-}
-
-function extractCompactionEntryId(input: unknown): string | undefined {
-  const event = input as
-    | {
-        compactionEntry?: {
-          id?: unknown;
-        };
-      }
-    | undefined;
-  const id = event?.compactionEntry?.id;
-  if (typeof id !== "string") return undefined;
-  const normalized = id.trim();
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function resolveInjectionScopeId(input: unknown): string | undefined {
-  const sessionManager = input as
-    | { getLeafId?: (() => string | null | undefined) | undefined }
-    | undefined;
-  const leafId = sessionManager?.getLeafId?.();
-  if (typeof leafId !== "string") return undefined;
-  const normalized = leafId.trim();
-  return normalized.length > 0 ? normalized : undefined;
 }
 
 async function resolveContextInjection(
@@ -167,17 +95,12 @@ function buildCompactionGateMessage(input: {
 function buildTapeStatusBlock(input: {
   runtime: BrewvaRuntime;
   sessionId: string;
-  pressure: ContextPressureStatus;
-  state: CompactionGateState;
-  gateRequired: boolean;
+  gateStatus: ContextCompactionGateStatus;
 }): string {
   const tapeStatus = input.runtime.events.getTapeStatus(input.sessionId);
-  const usagePercent = formatPercent(input.pressure.usageRatio);
-  const hardLimitPercent = formatPercent(input.pressure.hardLimitRatio);
-  const windowTurns = resolveRecentCompactionWindowTurns(input.runtime);
-  const recentCompact = hasRecentCompaction(input.runtime, input.state);
-  const contextPressure = input.pressure.level;
-  const action = input.gateRequired ? "session_compact_now" : "none";
+  const usagePercent = formatPercent(input.gateStatus.pressure.usageRatio);
+  const hardLimitPercent = formatPercent(input.gateStatus.pressure.hardLimitRatio);
+  const action = input.gateStatus.required ? "session_compact_now" : "none";
   const tapePressure = tapeStatus.tapePressure;
   const totalEntries = String(tapeStatus.totalEntries);
   const entriesSinceAnchor = String(tapeStatus.entriesSinceAnchor);
@@ -193,11 +116,13 @@ function buildTapeStatusBlock(input: {
     `tape_entries_since_checkpoint: ${entriesSinceCheckpoint}`,
     `last_anchor_name: ${lastAnchorName}`,
     `last_anchor_id: ${lastAnchorId}`,
-    `context_pressure: ${contextPressure}`,
+    `context_pressure: ${input.gateStatus.pressure.level}`,
     `context_usage: ${usagePercent}`,
     `context_hard_limit: ${hardLimitPercent}`,
-    `recent_compact_performed: ${recentCompact ? "true" : "false"}`,
-    `recent_compaction_window_turns: ${windowTurns}`,
+    `compaction_gate_reason: ${input.gateStatus.reason ?? "none"}`,
+    `recent_compact_performed: ${input.gateStatus.recentCompaction ? "true" : "false"}`,
+    `turns_since_compaction: ${input.gateStatus.turnsSinceCompaction ?? "none"}`,
+    `recent_compaction_window_turns: ${input.gateStatus.windowTurns}`,
     `required_action: ${action}`,
   ].join("\n");
 }
@@ -273,9 +198,8 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
-    const wasGated = state.compactionRequired;
-    state.lastCompactionTurn = state.turnIndex;
-    state.compactionRequired = false;
+    const wasGated = state.lastRuntimeGateRequired;
+    state.lastRuntimeGateRequired = false;
 
     runtime.context.markCompacted(sessionId, {
       fromTokens: null,
@@ -315,20 +239,21 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
   pi.on("before_agent_start", async (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
-    hydrateLastCompactionTurnFromTape(runtime, sessionId, state);
     const injectionScopeId = resolveInjectionScopeId(ctx.sessionManager);
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     runtime.context.observeUsage(sessionId, usage);
-    const pressure = runtime.context.getPressureStatus(sessionId, usage);
-    const emitGateEvents = (reason: "hard_limit" | "floor_unmet"): void => {
+    const emitGateEvents = (
+      gateStatus: ContextCompactionGateStatus,
+      reason: "hard_limit" | "floor_unmet",
+    ): void => {
       emitRuntimeEvent(runtime, {
         sessionId,
         turn: state.turnIndex,
         type: "context_compaction_gate_armed",
         payload: {
           reason,
-          usagePercent: pressure.usageRatio,
-          hardLimitPercent: pressure.hardLimitRatio,
+          usagePercent: gateStatus.pressure.usageRatio,
+          hardLimitPercent: gateStatus.pressure.hardLimitRatio,
         },
       });
       emitRuntimeEvent(runtime, {
@@ -337,23 +262,23 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
         type: "critical_without_compact",
         payload: {
           reason,
-          usagePercent: pressure.usageRatio,
-          hardLimitPercent: pressure.hardLimitRatio,
-          contextPressure: pressure.level,
+          usagePercent: gateStatus.pressure.usageRatio,
+          hardLimitPercent: gateStatus.pressure.hardLimitRatio,
+          contextPressure: gateStatus.pressure.level,
           requiredTool: "session_compact",
         },
       });
     };
 
-    const pendingCompactionReasonBefore = runtime.context.getPendingCompactionReason(sessionId);
-    let gateRequired =
-      runtime.config.infrastructure.contextBudget.enabled &&
-      ((pressure.level === "critical" && !hasRecentCompaction(runtime, state)) ||
-        pendingCompactionReasonBefore === "floor_unmet");
-    let gateReason: "hard_limit" | "floor_unmet" | null = null;
-    if (gateRequired) {
-      gateReason = pendingCompactionReasonBefore === "floor_unmet" ? "floor_unmet" : "hard_limit";
-      emitGateEvents(gateReason);
+    let gateStatus = runtime.context.getCompactionGateStatus(sessionId, usage);
+    let gateReason: "hard_limit" | "floor_unmet" | null =
+      gateStatus.reason === "floor_unmet"
+        ? "floor_unmet"
+        : gateStatus.required
+          ? "hard_limit"
+          : null;
+    if (gateStatus.required && gateReason) {
+      emitGateEvents(gateStatus, gateReason);
     }
     const systemPromptWithContract = applyContextContract(
       (event as { systemPrompt?: unknown }).systemPrompt,
@@ -366,29 +291,32 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
       usage,
       injectionScopeId,
     });
-    if (!gateRequired && runtime.config.infrastructure.contextBudget.enabled) {
-      const pendingCompactionReasonAfter = runtime.context.getPendingCompactionReason(sessionId);
-      if (pendingCompactionReasonAfter === "floor_unmet") {
-        gateRequired = true;
-        gateReason = "floor_unmet";
-        emitGateEvents(gateReason);
-      }
+    const gateStatusAfterInjection = runtime.context.getCompactionGateStatus(sessionId, usage);
+    if (!gateStatus.required && gateStatusAfterInjection.required) {
+      const postInjectionReason =
+        gateStatusAfterInjection.reason === "floor_unmet" ? "floor_unmet" : "hard_limit";
+      emitGateEvents(gateStatusAfterInjection, postInjectionReason);
     }
-    state.compactionRequired = gateRequired;
+    gateStatus = gateStatusAfterInjection;
+    gateReason =
+      gateStatus.reason === "floor_unmet"
+        ? "floor_unmet"
+        : gateStatus.required
+          ? "hard_limit"
+          : null;
+    state.lastRuntimeGateRequired = gateStatus.required;
 
     const blocks: string[] = [
       buildTapeStatusBlock({
         runtime,
         sessionId,
-        pressure,
-        state,
-        gateRequired,
+        gateStatus,
       }),
     ];
-    if (gateRequired) {
+    if (gateStatus.required) {
       blocks.push(
         buildCompactionGateMessage({
-          pressure,
+          pressure: gateStatus.pressure,
           reason: gateReason === "floor_unmet" ? "floor_unmet" : "hard_limit",
         }),
       );
@@ -407,7 +335,7 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
           originalTokens: injection.originalTokens,
           finalTokens: injection.finalTokens,
           truncated: injection.truncated,
-          gateRequired,
+          gateRequired: gateStatus.required,
         },
       },
     };

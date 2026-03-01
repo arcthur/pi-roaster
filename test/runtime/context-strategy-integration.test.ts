@@ -7,18 +7,17 @@ import { BrewvaRuntime, DEFAULT_BREWVA_CONFIG, type BrewvaConfig } from "@brewva
 function createConfig(): BrewvaConfig {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.infrastructure.contextBudget.enabled = true;
+  config.infrastructure.contextBudget.profile = "managed";
   config.infrastructure.contextBudget.maxInjectionTokens = 100;
   config.infrastructure.contextBudget.truncationStrategy = "tail";
   config.infrastructure.contextBudget.floorUnmetPolicy.enabled = false;
-  config.infrastructure.contextBudget.strategy.defaultArm = "passthrough";
-  config.infrastructure.contextBudget.strategy.enableAutoByContextWindow = false;
   config.infrastructure.toolFailureInjection.enabled = false;
   config.memory.enabled = false;
   return config;
 }
 
 describe("context strategy integration", () => {
-  test("passthrough arm bypasses maxInjectionTokens cap while keeping context accepted", async () => {
+  test("managed arm keeps maxInjectionTokens cap while context remains accepted", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-context-strategy-int-"));
     writeFileSync(
       join(workspace, "AGENTS.md"),
@@ -34,18 +33,18 @@ describe("context strategy integration", () => {
     runtime.context.onTurnStart(sessionId, 1);
     runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
-      goal: "passthrough check " + "x".repeat(4_000),
+      goal: "managed check " + "x".repeat(4_000),
     });
     runtime.truth.upsertFact(sessionId, {
-      id: "truth:passthrough",
+      id: "truth:managed",
       kind: "diagnostic",
       severity: "warn",
-      summary: "passthrough summary " + "y".repeat(4_000),
+      summary: "managed summary " + "y".repeat(4_000),
     });
 
-    const result = await runtime.context.buildInjection(sessionId, "run passthrough strategy");
+    const result = await runtime.context.buildInjection(sessionId, "run managed strategy");
     expect(result.accepted).toBe(true);
-    expect(result.finalTokens).toBeGreaterThan(100);
+    expect(result.finalTokens).toBeLessThanOrEqual(100);
 
     const strategySelected = runtime.events.query(sessionId, {
       type: "context_strategy_selected",
@@ -53,6 +52,6 @@ describe("context strategy integration", () => {
     })[0];
     expect(strategySelected).toBeDefined();
     const payload = strategySelected?.payload as { arm?: string } | undefined;
-    expect(payload?.arm).toBe("passthrough");
+    expect(payload?.arm).toBe("managed");
   });
 });
