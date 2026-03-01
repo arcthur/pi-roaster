@@ -175,12 +175,10 @@ Concrete enforcement:
   a minimum sample size. The `ContextEvolutionManager` evaluates these from
   7-day event windows and emits `context_evolution_feature_disabled` /
   `context_evolution_feature_reenabled` on transitions.
-- **Passthrough default**: the context strategy must be able to degrade to
-  `passthrough` (no zone budgets, no injection token cap, no adaptive loop)
-  at any time. Correctness does not depend on the optimization layer.
-- **TTL-scoped overrides**: strategy overrides written by the tuner skill
-  carry an `expiresAt` timestamp. Expired overrides are silently ignored.
-  No override can persist without explicit renewal.
+- **Profile fallback**: `simple` profile remains the default path (global
+  cap + compaction gate only). Managed mechanisms are opt-in via
+  `infrastructure.contextBudget.profile="managed"` and can be exited by
+  switching back to `simple`.
 - **Durable principles are exempt**: tape, contracts, ledger, and skill
   orchestration do not carry retirement policies because they serve system
   integrity, not model-capability compensation.
@@ -197,7 +195,7 @@ Implementation anchors:
 The following principles describe mechanisms that compensate for current model
 limitations (bounded context windows, quality degradation under long context).
 As models improve and costs decrease, these mechanisms are expected to
-progressively simplify toward passthrough. Their design anticipates this
+progressively simplify toward the default `simple` profile. Their design anticipates this
 trajectory.
 
 #### 7) Agent Autonomy With Pressure Transparency
@@ -211,13 +209,13 @@ Four orthogonal pressure surfaces:
 | --------------------------- | ----------------------------- | ------------------------------ | ----------------------------------------- |
 | **State Tape**              | Append-only operational state | `tape_pressure`                | `tape_handoff` marks phase boundaries     |
 | **Message Buffer**          | LLM context window            | `context_pressure`             | `session_compact` compacts history        |
-| **Context Injection Arena** | Semantic injection budget     | zone/arena SLO + injection cap | strategy-dependent (see Principle 8)      |
+| **Context Injection Arena** | Semantic injection budget     | zone/arena SLO + injection cap | profile-dependent (see Principle 8)       |
 | **Cognitive Inference**     | Runtime cognition budget      | cognitive budget status        | `CognitivePort` or deterministic fallback |
 
 Context injection zones (`brewva.identity`, `brewva.truth-static`,
 `brewva.truth-facts`, `brewva.task-state`, `brewva.tool-failures`,
 `brewva.memory-working`, `brewva.memory-recall`, `brewva.rag-external`) remain
-explicit and traceable regardless of which strategy arm is active.
+explicit and traceable regardless of profile.
 
 Cognitive behavior follows a tri-mode model:
 
@@ -227,10 +225,8 @@ Cognitive behavior follows a tri-mode model:
 - `memory.cognitive.mode="active"`: cognition can influence decisions within
   budget, with deterministic fallback on error/exhaustion.
 
-Runtime default is `shadow` for safety and observability. Promotion to
-`active` is evidence-driven: collect `cognitive_relevance_ranking*` events in
-shadow mode, compare deterministic vs cognitive ordering offline, and promote
-only when quality deltas are materially positive.
+Runtime default is `off`. Additionally, `memory.cognitive.maxTokensPerTurn<=0`
+hard-disables cognitive port calls even if mode is not `off`.
 
 Implementation anchors:
 
@@ -242,30 +238,23 @@ Implementation anchors:
 - `packages/brewva-cli/src/session.ts`
 - `script/analyze-memory-recall.ts`
 
-#### 8) Adaptive Context Strategy
+#### 8) Context Profile And Managed Controls
 
-Context injection is governed by a strategy arm selected per session.
-The strategy determines how much management overhead the runtime applies.
-As model context windows grow and quality-under-length improves, the expected
-trajectory is `managed → hybrid → passthrough`.
+Context injection is profile-gated:
 
-| Arm             | Zone Budgets | Adaptive Controller | Injection Token Cap | Stability Monitor | When                        |
-| --------------- | ------------ | ------------------- | ------------------- | ----------------- | --------------------------- |
-| **managed**     | enforced     | active              | enforced            | active            | small context windows       |
-| **hybrid**      | bypassed     | bypassed            | enforced            | bypassed          | medium context windows      |
-| **passthrough** | bypassed     | bypassed            | bypassed            | bypassed          | large context windows (1M+) |
+| Profile     | Zone Budgets | Adaptive Controller | Floor Cascade | Stability Monitor | Evolution Manager |
+| ----------- | ------------ | ------------------- | ------------- | ----------------- | ----------------- |
+| **simple**  | bypassed     | bypassed            | bypassed      | bypassed          | not instantiated  |
+| **managed** | enforced     | active              | active        | active            | instantiated      |
 
-Strategy arm resolution (`ContextEvolutionManager.resolve()`):
+Default profile is `simple`, optimizing for predictable E2E behavior around two
+numbers: `maxInjectionTokens` and `hardLimitPercent`.
 
-1. TTL-scoped override match (model + task class) from
-   `.brewva/strategy/context-strategy.json`.
-2. Auto-select by `contextWindow` size if `strategy.enableAutoByContextWindow`
-   is enabled (default thresholds: hybrid ≥ 256K, passthrough ≥ 1M).
-3. Fall back to `strategy.defaultArm` (default: `managed`).
+Inside `managed`, arm selection is fixed to `managed`; `ContextEvolutionManager`
+only controls retirement-driven enable/disable for adaptive zones and stability
+monitor.
 
-Within the `managed` arm, the following transitional mechanisms apply. Each
-is governed by Principle 6 (Mechanism Metabolism) and may be independently
-retired:
+Within managed mode, the following transitional mechanisms apply:
 
 - **Zone budget allocation** (`ZoneBudgetAllocator`): pure function
   (`totalBudget + demand + config → allocation`).

@@ -35,8 +35,10 @@ describe("Context injection orchestrator characterization", () => {
     const workspace = createWorkspace("ctx-orchestrator-sources");
     writeIdentity(workspace, "default", "role: orchestrator characterization");
     writeAgentsRules(workspace);
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.infrastructure.contextBudget.profile = "managed";
 
-    const runtime = new BrewvaRuntime({ cwd: workspace, agentId: "default" });
+    const runtime = new BrewvaRuntime({ cwd: workspace, agentId: "default", config });
     const sessionId = "ctx-orchestrator-sources-1";
     runtime.context.onTurnStart(sessionId, 1);
 

@@ -74,12 +74,13 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `memory.retrievalWeights.confidence`: `0.20`
 - `memory.recallMode`: `primary`
 - `memory.externalRecall.enabled`: `false`
+- `memory.externalRecall.builtinProvider`: `off`
 - `memory.externalRecall.minInternalScore`: `0.62`
 - `memory.externalRecall.queryTopK`: `5`
 - `memory.externalRecall.injectedConfidence`: `0.6`
 - `memory.evolvesMode`: `shadow`
-- `memory.cognitive.mode`: `shadow`
-- `memory.cognitive.maxTokensPerTurn`: `0` (`0` means unlimited)
+- `memory.cognitive.mode`: `off`
+- `memory.cognitive.maxTokensPerTurn`: `0` (`<=0` disables cognitive port calls)
 - `memory.global.enabled`: `true`
 - `memory.global.minConfidence`: `0.8`
 
@@ -132,6 +133,7 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `infrastructure.events.dir`: `.orchestrator/events`
 - `infrastructure.events.level`: `ops`
 - `infrastructure.contextBudget.enabled`: `true`
+- `infrastructure.contextBudget.profile`: `simple`
 - `infrastructure.contextBudget.maxInjectionTokens`: `1200`
 - `infrastructure.contextBudget.compactionThresholdPercent`: `0.82`
 - `infrastructure.contextBudget.hardLimitPercent`: `0.94`
@@ -165,11 +167,6 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `infrastructure.contextBudget.stabilityMonitor.retirement.reenableAbove`: `0.03`
 - `infrastructure.contextBudget.stabilityMonitor.retirement.checkIntervalHours`: `168`
 - `infrastructure.contextBudget.stabilityMonitor.retirement.minSamples`: `50`
-- `infrastructure.contextBudget.strategy.defaultArm`: `managed`
-- `infrastructure.contextBudget.strategy.enableAutoByContextWindow`: `true`
-- `infrastructure.contextBudget.strategy.hybridContextWindowMin`: `256000`
-- `infrastructure.contextBudget.strategy.passthroughContextWindowMin`: `1000000`
-- `infrastructure.contextBudget.strategy.overridesPath`: `.brewva/strategy/context-strategy.json`
 - `infrastructure.contextBudget.arena.maxEntriesPerSession`: `4096`
 - `infrastructure.contextBudget.arena.degradationPolicy`: `drop_recall`
 - `infrastructure.contextBudget.arena.zones.identity`: `{ min: 0, max: 320 }`
@@ -274,15 +271,35 @@ With `infrastructure.contextBudget.enabled=true`, runtime enforces:
 - primary injection cap (`maxInjectionTokens`)
 - pressure thresholds (`compactionThresholdPercent`, `hardLimitPercent`)
 - truncation policy (`truncationStrategy`)
-- arena zone floor/cap allocation (`arena.zones.*`)
-- adaptive zone control loop (`adaptiveZones.*`)
-- floor-unmet recovery policy (`floorUnmetPolicy.*`)
-- strategy arm routing (`strategy.*`: `managed | hybrid | passthrough`)
 - session arena SLO policy (`arena.maxEntriesPerSession`, `arena.degradationPolicy`)
 
 `enabled=false` disables runtime token-budget enforcement for context injection.
 
-Arena allocation behavior:
+Profile behavior:
+
+- `profile=simple` (default):
+  - skips zone allocation (`arena.zones.*`)
+  - skips adaptive zone controller (`adaptiveZones.*`)
+  - skips floor-unmet cascade (`floorUnmetPolicy.*`)
+  - skips evolution manager instantiation (no managed retirement/event scanning)
+  - keeps global injection cap + hard-limit gate model
+- `profile=managed`:
+  - enables full zone/floor/cascade/adaptive/evolution behavior (fixed managed arm)
+
+In `simple`, runtime emits one-time profile telemetry per session:
+
+- `context_profile_selected`
+- `context_profile_option_ignored` (deduped by `session + optionKey`)
+
+`context_profile_option_ignored` currently covers:
+
+- `infrastructure.contextBudget.arena.zones`
+- `infrastructure.contextBudget.adaptiveZones`
+- `infrastructure.contextBudget.stabilityMonitor`
+- `infrastructure.contextBudget.floorUnmetPolicy`
+- `infrastructure.toolFailureInjection.sourceTokenLimitsDerived`
+
+Managed arena behavior:
 
 - Sources are planned by deterministic zone order:
   `identity -> truth -> skills -> task_state -> tool_failures -> memory_working -> memory_recall -> rag_external`.
@@ -294,11 +311,6 @@ Arena allocation behavior:
   (`floorUnmetPolicy.requestCompaction`), which bypasses normal cooldown.
 - Adaptive zone controller updates per-session zone `max` overrides based on
   observed truncation/idle ratios (`adaptiveZones.*`), while allocator remains pure.
-- Strategy arm behavior:
-  - `managed`: full arena zone control (floors/caps/cascade/adaptive).
-  - `hybrid`: keep global context budget cap, bypass zone floor/cascade/adaptive loops.
-  - `passthrough`: bypass both zone control and primary `maxInjectionTokens` cap
-    (hard-limit safety still applies if provided usage exceeds `hardLimitPercent`).
 - Retirement policy (`adaptiveZones.retirement`, `stabilityMonitor.retirement`) can
   auto-disable mechanisms when 7-day effectiveness metrics stay below thresholds, and
   auto-reenable once metrics recover above `reenableAbove`.
@@ -311,9 +323,11 @@ Arena allocation behavior:
 - External recall boundary is explicit and disabled by default:
   `memory.externalRecall.enabled=true` + non-zero `arena.zones.ragExternal.max`
   are both required for effective external injection.
-- Runtime auto-wires a default crystal-lexical external recall provider (feature-hashing bag-of-words; zero-dependency deterministic fallback) when
-  `memory.externalRecall.enabled=true` and no custom `externalRecallPort` is injected
-  (default provider reads global crystal projection artifacts only).
+- Runtime auto-wires a default crystal-lexical external recall provider (feature-hashing bag-of-words; zero-dependency deterministic fallback) only when:
+  - `memory.externalRecall.enabled=true`
+  - `memory.externalRecall.builtinProvider="crystal-lexical"`
+  - no custom `externalRecallPort` is injected
+  - provider reads global crystal projection artifacts only.
 
 Normalization details from `normalizeBrewvaConfig(...)`:
 
@@ -330,7 +344,6 @@ Normalization details from `normalizeBrewvaConfig(...)`:
 - `adaptiveZones.*` and compaction cooldown settings are clamped to safe numeric ranges.
 - `adaptiveZones.retirement.*` and `stabilityMonitor.retirement.*` are normalized to bounded
   ratios/positive integers, and `reenableAbove` is clamped to `>= disableBelow`.
-- `strategy.defaultArm` is normalized to `managed | hybrid | passthrough`.
 - Most numeric fields are floor-normalized to positive/non-negative integers (invalid values fall back to defaults).
 
 ## Turn WAL Model

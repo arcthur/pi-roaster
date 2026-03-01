@@ -56,13 +56,14 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     recallMode: "primary",
     externalRecall: {
       enabled: false,
+      builtinProvider: "off",
       minInternalScore: 0.62,
       queryTopK: 5,
       injectedConfidence: 0.6,
     },
     evolvesMode: "shadow",
     cognitive: {
-      mode: "shadow",
+      mode: "off",
       maxTokensPerTurn: 0,
     },
     global: {
@@ -127,6 +128,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     },
     contextBudget: {
       enabled: true,
+      profile: "simple",
       maxInjectionTokens: 1200,
       compactionThresholdPercent: 0.82,
       hardLimitPercent: 0.94,
@@ -172,13 +174,6 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
           checkIntervalHours: 168,
           minSamples: 50,
         },
-      },
-      strategy: {
-        defaultArm: "managed",
-        enableAutoByContextWindow: true,
-        hybridContextWindowMin: 256_000,
-        passthroughContextWindowMin: 1_000_000,
-        overridesPath: ".brewva/strategy/context-strategy.json",
       },
       arena: {
         maxEntriesPerSession: 4096,

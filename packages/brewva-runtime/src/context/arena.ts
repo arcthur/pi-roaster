@@ -230,13 +230,11 @@ export class ContextArena {
     totalTokenBudget: number,
     options?: {
       forceCriticalOnly?: boolean;
-      strategyArm?: ContextStrategyArm;
       disableAdaptiveZones?: boolean;
     },
   ): ContextInjectionPlanResult {
-    const strategyArm = options?.strategyArm ?? "managed";
-    const adaptiveZonesDisabled =
-      options?.disableAdaptiveZones === true || strategyArm !== "managed";
+    const strategyArm: ContextStrategyArm = "managed";
+    const adaptiveZonesDisabled = options?.disableAdaptiveZones === true;
     const stabilityForced = options?.forceCriticalOnly === true;
     const state = this.sessions.get(sessionId);
     if (!state || state.latestIndexByKey.size === 0) {
@@ -246,7 +244,7 @@ export class ContextArena {
         estimatedTokens: 0,
         truncated: false,
         consumedKeys: [],
-        planTelemetry: this.emptyPlanTelemetry(strategyArm, adaptiveZonesDisabled, stabilityForced),
+        planTelemetry: this.emptyPlanTelemetry(adaptiveZonesDisabled, stabilityForced),
       };
     }
 
@@ -268,14 +266,14 @@ export class ContextArena {
         consumedKeys: [],
         planTelemetry: this.consumePlanTelemetry(
           state,
-          this.emptyPlanTelemetry(strategyArm, adaptiveZonesDisabled, stabilityForced),
+          this.emptyPlanTelemetry(adaptiveZonesDisabled, stabilityForced),
         ),
       };
     }
 
     const sortEntries = (entries: ArenaEntry[]): ArenaEntry[] => {
       entries.sort((left, right) => {
-        if (this.zoneLayout && strategyArm === "managed") {
+        if (this.zoneLayout) {
           const leftZone = zoneOrderIndex(zoneForSource(left.source));
           const rightZone = zoneOrderIndex(zoneForSource(right.source));
           if (leftZone !== rightZone) return leftZone - rightZone;
@@ -300,13 +298,6 @@ export class ContextArena {
         floorUnmet: false,
         appliedFloorRelaxation: [],
         allocated: createZeroZoneTokenMap(),
-      };
-    } else if (strategyArm !== "managed") {
-      zonePlan = {
-        kind: "disabled",
-        floorUnmet: false,
-        appliedFloorRelaxation: [],
-        allocated: zoneDemands,
       };
     } else {
       zonePlan = this.buildZonePlan(
@@ -887,12 +878,11 @@ export class ContextArena {
   }
 
   private emptyPlanTelemetry(
-    strategyArm: ContextStrategyArm = "managed",
     adaptiveZonesDisabled = false,
     stabilityForced = false,
   ): ContextInjectionPlanResult["planTelemetry"] {
     return {
-      strategyArm,
+      strategyArm: "managed",
       zoneDemandTokens: createZeroZoneTokenMap(),
       zoneAllocatedTokens: createZeroZoneTokenMap(),
       zoneAcceptedTokens: createZeroZoneTokenMap(),

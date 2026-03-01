@@ -18,7 +18,6 @@ export interface BuildContextInjectionInput {
   prompt: string;
   usage?: ContextBudgetUsage;
   injectionScopeId?: string;
-  strategyArm?: ContextStrategyArm;
   adaptiveZonesEnabled?: boolean;
   stabilityMonitorEnabled?: boolean;
 }
@@ -70,7 +69,6 @@ export interface ContextInjectionOrchestratorDeps {
     totalTokenBudget: number,
     options?: {
       forceCriticalOnly?: boolean;
-      strategyArm?: ContextStrategyArm;
       disableAdaptiveZones?: boolean;
     },
   ): ContextInjectionPlanResult;
@@ -79,7 +77,6 @@ export interface ContextInjectionOrchestratorDeps {
     sessionId: string,
     inputText: string,
     usage?: ContextBudgetUsage,
-    options?: { bypassMaxInjectionTokens?: boolean },
   ): ContextInjectionDecision;
   buildInjectionScopeKey(sessionId: string, injectionScopeId?: string): string;
   setReservedTokens(scopeKey: string, tokens: number): void;
@@ -187,23 +184,17 @@ export function buildContextInjection(
     }
   }
 
-  const strategyArm = input.strategyArm ?? "managed";
-  const stabilityMonitorEnabled =
-    input.stabilityMonitorEnabled !== false && strategyArm === "managed";
-  const adaptiveZonesEnabled = input.adaptiveZonesEnabled !== false && strategyArm === "managed";
+  const strategyArm: ContextStrategyArm = "managed";
+  const stabilityMonitorEnabled = input.stabilityMonitorEnabled !== false;
+  const adaptiveZonesEnabled = input.adaptiveZonesEnabled !== false;
   const forceCriticalOnly = stabilityMonitorEnabled
     ? deps.shouldForceCriticalOnly(input.sessionId, currentTurn)
     : false;
   const merged = deps.planContextInjection(
     input.sessionId,
-    strategyArm === "passthrough"
-      ? Number.MAX_SAFE_INTEGER
-      : deps.isContextBudgetEnabled()
-        ? deps.maxInjectionTokens
-        : Number.MAX_SAFE_INTEGER,
+    deps.isContextBudgetEnabled() ? deps.maxInjectionTokens : Number.MAX_SAFE_INTEGER,
     {
       forceCriticalOnly,
-      strategyArm,
       disableAdaptiveZones: !adaptiveZonesEnabled,
     },
   );
@@ -275,9 +266,7 @@ export function buildContextInjection(
     }
   }
 
-  const decision = deps.planBudgetInjection(input.sessionId, merged.text, input.usage, {
-    bypassMaxInjectionTokens: strategyArm === "passthrough",
-  });
+  const decision = deps.planBudgetInjection(input.sessionId, merged.text, input.usage);
   const wasTruncated = decision.truncated || merged.truncated;
   if (decision.accepted) {
     const fingerprint = sha256(decision.finalText);

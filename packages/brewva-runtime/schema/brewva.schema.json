@@ -305,6 +305,10 @@
                 "maxInjectionTokens": {
                   "type": "number"
                 },
+                "profile": {
+                  "type": "string",
+                  "enum": ["simple", "managed"]
+                },
                 "stabilityMonitor": {
                   "type": "object",
                   "additionalProperties": false,
@@ -338,27 +342,6 @@
                           "type": "number"
                         }
                       }
-                    }
-                  }
-                },
-                "strategy": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "defaultArm": {
-                      "$ref": "#/definitions/ContextStrategyArm"
-                    },
-                    "enableAutoByContextWindow": {
-                      "type": "boolean"
-                    },
-                    "hybridContextWindowMin": {
-                      "type": "number"
-                    },
-                    "overridesPath": {
-                      "type": "string"
-                    },
-                    "passthroughContextWindowMin": {
-                      "type": "number"
                     }
                   }
                 },
@@ -505,6 +488,10 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "builtinProvider": {
+                  "type": "string",
+                  "enum": ["off", "crystal-lexical"]
+                },
                 "enabled": {
                   "type": "boolean"
                 },
@@ -770,10 +757,6 @@
     "ContextRetirementMetricKey": {
       "type": "string",
       "enum": ["floor_unmet_rate_7d", "zone_adaptation_benefit_7d"]
-    },
-    "ContextStrategyArm": {
-      "type": "string",
-      "enum": ["managed", "hybrid", "passthrough"]
     },
     "SkillContractOverride": {
       "type": "object",

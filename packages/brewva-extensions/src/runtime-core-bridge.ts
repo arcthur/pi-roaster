@@ -1,15 +1,16 @@
 import { coerceContextBudgetUsage, type BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
+import {
+  extractCompactionEntryId,
+  extractCompactionSummary,
+  formatPercent,
+  resolveInjectionScopeId,
+} from "./context-shared.js";
 import { registerLedgerWriter } from "./ledger-writer.js";
 import { registerQualityGate } from "./quality-gate.js";
 
 const CORE_CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-core-context-injection";
 const CORE_CONTEXT_CONTRACT_MARKER = "[Brewva Core Context Contract]";
-
-function formatPercent(ratio: number | null): string {
-  if (ratio === null) return "unknown";
-  return `${(ratio * 100).toFixed(1)}%`;
-}
 
 function buildCoreContextContract(runtime: BrewvaRuntime): string {
   const tapeThresholds = runtime.events.getTapePressureThresholds();
@@ -56,56 +57,12 @@ function buildCoreStatusBlock(runtime: BrewvaRuntime, sessionId: string): string
     `context_pressure: ${gate.pressure.level}`,
     `context_usage: ${formatPercent(gate.pressure.usageRatio)}`,
     `context_hard_limit: ${formatPercent(gate.pressure.hardLimitRatio)}`,
+    `compaction_gate_reason: ${gate.reason ?? "none"}`,
     `recent_compact_performed: ${gate.recentCompaction ? "true" : "false"}`,
+    `turns_since_compaction: ${gate.turnsSinceCompaction ?? "none"}`,
     `recent_compaction_window_turns: ${gate.windowTurns}`,
     `required_action: ${action}`,
   ].join("\n");
-}
-
-function extractCompactionSummary(input: unknown): string | undefined {
-  const event = input as
-    | {
-        compactionEntry?: {
-          summary?: unknown;
-          content?: unknown;
-          text?: unknown;
-        };
-      }
-    | undefined;
-  const entry = event?.compactionEntry;
-  if (!entry) return undefined;
-
-  const candidates = [entry.summary, entry.content, entry.text];
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const normalized = candidate.trim();
-    if (normalized.length > 0) return normalized;
-  }
-  return undefined;
-}
-
-function extractCompactionEntryId(input: unknown): string | undefined {
-  const event = input as
-    | {
-        compactionEntry?: {
-          id?: unknown;
-        };
-      }
-    | undefined;
-  const id = event?.compactionEntry?.id;
-  if (typeof id !== "string") return undefined;
-  const normalized = id.trim();
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function resolveInjectionScopeId(input: unknown): string | undefined {
-  const sessionManager = input as
-    | { getLeafId?: (() => string | null | undefined) | undefined }
-    | undefined;
-  const leafId = sessionManager?.getLeafId?.();
-  if (typeof leafId !== "string") return undefined;
-  const normalized = leafId.trim();
-  return normalized.length > 0 ? normalized : undefined;
 }
 
 export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRuntime): void {

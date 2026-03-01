@@ -2,14 +2,17 @@
 
 ## Objective
 
-Maintain high-signal context over long-running sessions through an arena-allocator
-model with adaptive zone budgeting, deterministic SLO enforcement, and explicit
-agent-managed compaction.
+Maintain high-signal context over long-running sessions with a two-profile model:
+
+- `simple` (default): global token cap + compaction gate, minimal mechanisms.
+- `managed`: arena allocator + adaptive zone budgeting + deterministic SLO.
 
 Scope note:
 
 - This journey assumes the extension-enabled profile, where `before_agent_start`
   runs context-transform injection.
+- Flowchart below describes `managed` profile behavior. `simple` skips zone/floor
+  loops and performs direct concatenate+truncate planning under `maxInjectionTokens`.
 
 ```mermaid
 flowchart TD
@@ -35,18 +38,18 @@ flowchart TD
 
 ## Arena Allocator Model
 
-The context window is managed as a contiguous memory block with arena-style semantics:
+`managed` profile uses arena-style semantics:
 
 - **Append-only**: entries are appended per session epoch; superseded entries are
   trimmed by compaction, not deleted in place.
-- **Zone-partitioned**: seven semantic zones enforce spatial locality:
-  `identity → truth → task_state → tool_failures → memory_working → memory_recall → rag_external`.
+- **Zone-partitioned**: eight semantic zones enforce spatial locality:
+  `identity → truth → skills → task_state → tool_failures → memory_working → memory_recall → rag_external`.
 - **Budget-constrained**: per-zone floor/cap allocation + global injection cap
   are enforced together by `ZoneBudgetAllocator`.
 - **Adaptively tuned**: `ZoneBudgetController` observes truncation/idle ratios
   via EMA and shifts zone caps between turns (donor → receiver).
 
-## Key Control Loops
+## Key Control Loops (`managed`)
 
 ### 1) Compaction Loop (Pressure → Compact → Reset)
 
@@ -93,8 +96,9 @@ External knowledge retrieval is an explicit I/O boundary, not a parallel prompt 
 1. Trigger: internal memory search score < `minInternalScore` AND skill has
    `external-knowledge` tag
 2. Budget: `rag_external` zone (default `max: 0`, disabled by default)
-3. Port: `externalRecallPort.search()` — clean abstraction over any retrieval backend
-   (runtime auto-wires a crystal-lexical default (feature-hashing bag-of-words; zero-dependency deterministic fallback) over global crystal projections when no custom port is provided)
+3. Port: `externalRecallPort.search()` — clean abstraction over any retrieval backend.
+   Built-in provider is opt-in (`memory.externalRecall.builtinProvider="crystal-lexical"`).
+   Default is `off`; no auto-wiring occurs unless explicitly enabled.
 4. Write-back: results persisted as memory units with `sourceTier: "external"`
    and lower confidence (default `0.6`)
 

@@ -20,9 +20,11 @@ function createConfig(): BrewvaConfig {
   config.memory.enabled = true;
   config.memory.recallMode = "primary";
   config.memory.externalRecall.enabled = true;
+  config.memory.externalRecall.builtinProvider = "crystal-lexical";
   config.memory.externalRecall.minInternalScore = 0.62;
   config.memory.externalRecall.queryTopK = 3;
   config.memory.externalRecall.injectedConfidence = 0.6;
+  config.infrastructure.contextBudget.profile = "managed";
   config.infrastructure.contextBudget.maxInjectionTokens = 4_000;
   config.infrastructure.contextBudget.arena.zones.ragExternal.max = 256;
   config.infrastructure.toolFailureInjection.enabled = false;
@@ -316,5 +318,28 @@ describe("context external recall boundary", () => {
       | undefined;
     expect(payload?.reason).toBe("internal_score_sufficient");
     expect((payload?.internalTopScore ?? 0) >= 0.62).toBe(true);
+  });
+
+  test("emits provider_unavailable when external recall is enabled with builtin provider off and no custom port", async () => {
+    const config = createConfig();
+    config.memory.externalRecall.builtinProvider = "off";
+    const runtime = new BrewvaRuntime({
+      cwd: mkdtempSync(join(tmpdir(), "brewva-external-recall-provider-unavailable-")),
+      config,
+    });
+    patchExternalKnowledgeSkill(runtime);
+
+    const sessionId = "context-external-recall-provider-unavailable";
+    runtime.context.onTurnStart(sessionId, 1);
+    const injection = await runtime.context.buildInjection(sessionId, "Need external references");
+
+    expect(injection.text.includes("[ExternalRecall]")).toBe(false);
+    const skippedEvent = runtime.events.query(sessionId, {
+      type: "context_external_recall_skipped",
+      last: 1,
+    })[0];
+    expect(skippedEvent).toBeDefined();
+    const payload = skippedEvent?.payload as { reason?: string } | undefined;
+    expect(payload?.reason).toBe("provider_unavailable");
   });
 });

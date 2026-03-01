@@ -406,10 +406,6 @@ describe("Extension gaps: context transform", () => {
         config.infrastructure.contextBudget.hardLimitPercent = 0.8;
       }),
       context: {
-        onTurnStart: () => undefined,
-        observeUsage: () => undefined,
-        shouldRequestCompaction: () => true,
-        markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
           accepted: false,
@@ -488,10 +484,6 @@ describe("Extension gaps: context transform", () => {
         config.infrastructure.contextBudget.hardLimitPercent = 0.8;
       }),
       context: {
-        onTurnStart: () => undefined,
-        observeUsage: () => undefined,
-        shouldRequestCompaction: () => true,
-        markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
           accepted: false,
@@ -574,7 +566,7 @@ describe("Extension gaps: context transform", () => {
     expect(eventTypes).toContain("critical_without_compact");
   });
 
-  test("given prior context_compacted tape event, when high pressure starts, then gate remains disarmed", async () => {
+  test("given previously compacted runtime state, when high pressure starts, then gate remains disarmed", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const eventTypes: string[] = [];
 
@@ -583,10 +575,6 @@ describe("Extension gaps: context transform", () => {
         config.infrastructure.contextBudget.hardLimitPercent = 0.8;
       }),
       context: {
-        onTurnStart: () => undefined,
-        observeUsage: () => undefined,
-        shouldRequestCompaction: () => true,
-        markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
           accepted: false,
@@ -596,20 +584,6 @@ describe("Extension gaps: context transform", () => {
         }),
       },
       events: {
-        query: (_sessionId: string, query: { type?: string; last?: number }) => {
-          if (query.type === "context_compacted" && query.last === 1) {
-            return [
-              {
-                id: "evt-hydrated-compact",
-                sessionId: "s-hydrate",
-                type: "context_compacted",
-                timestamp: Date.now(),
-                turn: 7,
-              },
-            ];
-          }
-          return [];
-        },
         record: (input: { type: string }) => {
           eventTypes.push(input.type);
           return undefined;
@@ -623,6 +597,21 @@ describe("Extension gaps: context transform", () => {
       getSessionId: () => "s-hydrate",
     };
 
+    invokeHandler(handlers, "turn_start", { turnIndex: 7 }, { sessionManager });
+    invokeHandler(
+      handlers,
+      "session_compact",
+      {
+        compactionEntry: {
+          id: "cmp-hydrated-state",
+          summary: "hydrated compact",
+        },
+      },
+      {
+        sessionManager,
+        getContextUsage: () => ({ tokens: 300, contextWindow: 1000, percent: 0.3 }),
+      },
+    );
     invokeHandler(handlers, "turn_start", { turnIndex: 8 }, { sessionManager });
 
     const before = await invokeHandlerAsync<{
@@ -651,7 +640,7 @@ describe("Extension gaps: context transform", () => {
   test("given floor_unmet appears during injection planning, when before_agent_start runs, then gate is armed in the same turn", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const gateReasons: string[] = [];
-    let pendingReasonCalls = 0;
+    let gateStatusCalls = 0;
 
     const runtime = createRuntimeFixture({
       context: {
@@ -659,9 +648,38 @@ describe("Extension gaps: context transform", () => {
         observeUsage: () => undefined,
         shouldRequestCompaction: () => false,
         markCompacted: () => undefined,
-        getPendingCompactionReason: () => {
-          pendingReasonCalls += 1;
-          return pendingReasonCalls >= 2 ? "floor_unmet" : null;
+        getCompactionGateStatus: () => {
+          gateStatusCalls += 1;
+          if (gateStatusCalls >= 2) {
+            return {
+              required: true,
+              reason: "floor_unmet" as const,
+              pressure: {
+                level: "low" as const,
+                usageRatio: 0.3,
+                hardLimitRatio: 0.94,
+                compactionThresholdRatio: 0.82,
+              },
+              recentCompaction: false,
+              windowTurns: 2,
+              lastCompactionTurn: null,
+              turnsSinceCompaction: null,
+            };
+          }
+          return {
+            required: false,
+            reason: null,
+            pressure: {
+              level: "low" as const,
+              usageRatio: 0.3,
+              hardLimitRatio: 0.94,
+              compactionThresholdRatio: 0.82,
+            },
+            recentCompaction: false,
+            windowTurns: 2,
+            lastCompactionTurn: null,
+            turnsSinceCompaction: null,
+          };
         },
         buildInjection: async () => ({
           text: "",

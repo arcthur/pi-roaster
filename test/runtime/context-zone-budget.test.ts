@@ -81,4 +81,25 @@ describe("ZoneBudgetAllocator", () => {
     expect(result.task_state).toBe(0);
     expect(result.memory_recall).toBe(0);
   });
+
+  test("skips floor-unmet branch when effective floors are zero", () => {
+    const allocator = new ZoneBudgetAllocator({
+      identity: { min: 0, max: 320 },
+      truth: { min: 0, max: 420 },
+      task_state: { min: 0, max: 360 },
+      tool_failures: { min: 0, max: 240 },
+      memory_working: { min: 0, max: 300 },
+      memory_recall: { min: 0, max: 600 },
+      rag_external: { min: 0, max: 128 },
+    });
+    const result = allocator.allocate({
+      totalBudget: 1,
+      zoneDemands: {
+        truth: 200,
+        memory_recall: 200,
+      },
+    });
+    expect(result.accepted).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
 });

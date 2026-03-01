@@ -1,5 +1,3 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
 import type {
   BrewvaConfig,
   BrewvaEventRecord,
@@ -12,7 +10,6 @@ export interface ContextEvolutionDecisionInput {
   sessionId: string;
   model: string;
   taskClass: string;
-  contextWindow: number | null;
 }
 
 export interface ContextEvolutionFeatureTransition {
@@ -26,40 +23,12 @@ export interface ContextEvolutionFeatureTransition {
 
 export interface ContextEvolutionDecision {
   arm: ContextStrategyArm;
-  armSource: "override" | "auto_context_window" | "default";
-  armOverrideId?: string;
+  armSource: "default";
   model: string;
   taskClass: string;
   adaptiveZonesEnabled: boolean;
   stabilityMonitorEnabled: boolean;
   transitions: ContextEvolutionFeatureTransition[];
-}
-
-interface ContextStrategyOverrideEntry {
-  id: string;
-  model: string;
-  taskClass: string;
-  arm: ContextStrategyArm;
-  expiresAtMs: number | null;
-  updatedAtMs: number;
-}
-
-interface ContextStrategyOverridesFile {
-  version?: number;
-  entries?: Array<{
-    id?: unknown;
-    model?: unknown;
-    taskClass?: unknown;
-    arm?: unknown;
-    expiresAt?: unknown;
-    updatedAt?: unknown;
-  }>;
-}
-
-interface OverridesCacheSnapshot {
-  path: string;
-  mtimeMs: number;
-  entries: ContextStrategyOverrideEntry[];
 }
 
 interface RetirementState {
@@ -79,8 +48,6 @@ interface SessionClassifier {
   taskClass: string;
 }
 
-const VALID_STRATEGY_ARMS = new Set<ContextStrategyArm>(["managed", "hybrid", "passthrough"]);
-const WILDCARD = "*";
 const NONE_TASK_CLASS = "(none)";
 const UNKNOWN_MODEL = "(unknown)";
 
@@ -88,17 +55,6 @@ function normalizeNonEmpty(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : fallback;
-}
-
-function normalizeFiniteNumber(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return value;
-}
-
-function normalizeTimestampMs(value: unknown): number | null {
-  const normalized = normalizeFiniteNumber(value);
-  if (normalized === null) return null;
-  return Math.max(0, Math.floor(normalized));
 }
 
 function parseWindowMs(metricKey: ContextRetirementMetricKey): number {
@@ -116,45 +72,20 @@ function toBucketKey(
   return `${feature}::${model}::${taskClass}`;
 }
 
-function toStrategyMatcherScore(
-  entry: ContextStrategyOverrideEntry,
-  model: string,
-  taskClass: string,
-): number {
-  let score = 0;
-  if (entry.model === model) {
-    score += 2;
-  } else if (entry.model !== WILDCARD) {
-    return -1;
-  }
-
-  if (entry.taskClass === taskClass) {
-    score += 2;
-  } else if (entry.taskClass !== WILDCARD) {
-    return -1;
-  }
-
-  return score;
-}
-
 export class ContextEvolutionManager {
   private readonly config: BrewvaConfig["infrastructure"]["contextBudget"];
-  private readonly workspaceRoot: string;
   private readonly listSessionIds: () => string[];
   private readonly listEvents: (sessionId: string) => BrewvaEventRecord[];
   private readonly now: () => number;
   private readonly retirementStates = new Map<string, RetirementState>();
-  private overridesCache: OverridesCacheSnapshot | null = null;
 
   constructor(input: {
     config: BrewvaConfig["infrastructure"]["contextBudget"];
-    workspaceRoot: string;
     listSessionIds: () => string[];
     listEvents: (sessionId: string) => BrewvaEventRecord[];
     now?: () => number;
   }) {
     this.config = input.config;
-    this.workspaceRoot = input.workspaceRoot;
     this.listSessionIds = input.listSessionIds;
     this.listEvents = input.listEvents;
     this.now = input.now ?? Date.now;
@@ -163,12 +94,6 @@ export class ContextEvolutionManager {
   resolve(input: ContextEvolutionDecisionInput): ContextEvolutionDecision {
     const model = normalizeNonEmpty(input.model, UNKNOWN_MODEL);
     const taskClass = normalizeNonEmpty(input.taskClass, NONE_TASK_CLASS);
-
-    const armDecision = this.resolveArm({
-      model,
-      taskClass,
-      contextWindow: input.contextWindow,
-    });
     const transitions: ContextEvolutionFeatureTransition[] = [];
 
     const stabilityMonitorEnabled = this.resolveRetirementEnabled({
@@ -189,146 +114,14 @@ export class ContextEvolutionManager {
     });
 
     return {
-      arm: armDecision.arm,
-      armSource: armDecision.source,
-      armOverrideId: armDecision.overrideId,
+      arm: "managed",
+      armSource: "default",
       model,
       taskClass,
-      adaptiveZonesEnabled: armDecision.arm === "managed" ? adaptiveZonesEnabled : false,
-      stabilityMonitorEnabled: armDecision.arm === "managed" ? stabilityMonitorEnabled : false,
+      adaptiveZonesEnabled,
+      stabilityMonitorEnabled,
       transitions,
     };
-  }
-
-  private resolveArm(input: { model: string; taskClass: string; contextWindow: number | null }): {
-    arm: ContextStrategyArm;
-    source: "override" | "auto_context_window" | "default";
-    overrideId?: string;
-  } {
-    const override = this.resolveOverride(input.model, input.taskClass);
-    if (override) {
-      return {
-        arm: override.arm,
-        source: "override",
-        overrideId: override.id,
-      };
-    }
-
-    if (
-      this.config.strategy.enableAutoByContextWindow &&
-      typeof input.contextWindow === "number" &&
-      Number.isFinite(input.contextWindow) &&
-      input.contextWindow > 0
-    ) {
-      const passthroughThreshold = Math.max(
-        this.config.strategy.hybridContextWindowMin,
-        this.config.strategy.passthroughContextWindowMin,
-      );
-      const hybridThreshold = Math.min(
-        this.config.strategy.hybridContextWindowMin,
-        passthroughThreshold,
-      );
-      if (input.contextWindow >= passthroughThreshold) {
-        return { arm: "passthrough", source: "auto_context_window" };
-      }
-      if (input.contextWindow >= hybridThreshold) {
-        return { arm: "hybrid", source: "auto_context_window" };
-      }
-      return { arm: "managed", source: "auto_context_window" };
-    }
-
-    return {
-      arm: this.config.strategy.defaultArm,
-      source: "default",
-    };
-  }
-
-  private resolveOverride(model: string, taskClass: string): ContextStrategyOverrideEntry | null {
-    const overrides = this.readOverrides();
-    if (overrides.length === 0) return null;
-
-    let selected: ContextStrategyOverrideEntry | null = null;
-    let selectedScore = -1;
-
-    for (const entry of overrides) {
-      const score = toStrategyMatcherScore(entry, model, taskClass);
-      if (score < 0) continue;
-      if (!selected || score > selectedScore) {
-        selected = entry;
-        selectedScore = score;
-        continue;
-      }
-      if (score === selectedScore && entry.updatedAtMs > selected.updatedAtMs) {
-        selected = entry;
-      }
-    }
-
-    return selected;
-  }
-
-  private readOverrides(): ContextStrategyOverrideEntry[] {
-    const path = resolve(this.workspaceRoot, this.config.strategy.overridesPath);
-    if (!existsSync(path)) {
-      this.overridesCache = {
-        path,
-        mtimeMs: -1,
-        entries: [],
-      };
-      return [];
-    }
-
-    let mtimeMs: number;
-    try {
-      mtimeMs = statSync(path).mtimeMs;
-    } catch {
-      return this.overridesCache?.path === path ? [...this.overridesCache.entries] : [];
-    }
-
-    if (
-      this.overridesCache &&
-      this.overridesCache.path === path &&
-      this.overridesCache.mtimeMs === mtimeMs
-    ) {
-      return [...this.overridesCache.entries];
-    }
-
-    let parsed: ContextStrategyOverridesFile;
-    try {
-      parsed = JSON.parse(readFileSync(path, "utf8")) as ContextStrategyOverridesFile;
-    } catch {
-      return this.overridesCache?.path === path ? [...this.overridesCache.entries] : [];
-    }
-    if (!Array.isArray(parsed.entries)) {
-      this.overridesCache = {
-        path,
-        mtimeMs,
-        entries: [],
-      };
-      return [];
-    }
-
-    const now = this.now();
-    const entries: ContextStrategyOverrideEntry[] = [];
-    for (const raw of parsed.entries) {
-      if (!raw || typeof raw !== "object") continue;
-      if (!VALID_STRATEGY_ARMS.has(raw.arm as ContextStrategyArm)) continue;
-      const expiresAtMs = normalizeTimestampMs(raw.expiresAt);
-      if (expiresAtMs !== null && expiresAtMs <= now) continue;
-      entries.push({
-        id: normalizeNonEmpty(raw.id, `override-${entries.length + 1}`),
-        model: normalizeNonEmpty(raw.model, WILDCARD),
-        taskClass: normalizeNonEmpty(raw.taskClass, WILDCARD),
-        arm: raw.arm as ContextStrategyArm,
-        expiresAtMs,
-        updatedAtMs: normalizeTimestampMs(raw.updatedAt) ?? 0,
-      });
-    }
-    this.overridesCache = {
-      path,
-      mtimeMs,
-      entries,
-    };
-    return [...entries];
   }
 
   private resolveRetirementEnabled(input: {

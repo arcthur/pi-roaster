@@ -7,6 +7,7 @@ import { BrewvaRuntime, DEFAULT_BREWVA_CONFIG, type BrewvaConfig } from "@brewva
 function createConfig(): BrewvaConfig {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.infrastructure.contextBudget.enabled = true;
+  config.infrastructure.contextBudget.profile = "managed";
   config.infrastructure.contextBudget.maxInjectionTokens = 100;
   config.infrastructure.contextBudget.truncationStrategy = "tail";
   config.infrastructure.contextBudget.floorUnmetPolicy.enabled = false;
@@ -17,15 +18,6 @@ function createConfig(): BrewvaConfig {
   config.infrastructure.contextBudget.stabilityMonitor.consecutiveThreshold = 2;
   config.infrastructure.toolFailureInjection.enabled = true;
   config.memory.enabled = false;
-  return config;
-}
-
-function createAutoArmConfig(): BrewvaConfig {
-  const config = createConfig();
-  config.infrastructure.contextBudget.strategy.defaultArm = "managed";
-  config.infrastructure.contextBudget.strategy.enableAutoByContextWindow = true;
-  config.infrastructure.contextBudget.strategy.hybridContextWindowMin = 800;
-  config.infrastructure.contextBudget.strategy.passthroughContextWindowMin = 1_000;
   return config;
 }
 
@@ -150,93 +142,5 @@ describe("context stability monitor integration", () => {
       type: "context_stability_monitor_tripped",
     });
     expect(trippedAfterSecondTurn).toHaveLength(1);
-  });
-
-  test("clears stale stabilized state when strategy arm disables monitor", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-stability-int-strategy-switch-"));
-    writeFileSync(
-      join(workspace, "AGENTS.md"),
-      ["## CRITICAL RULES", "- User-facing command name is `brewva`."].join("\n"),
-      "utf8",
-    );
-
-    const runtime = new BrewvaRuntime({
-      cwd: workspace,
-      config: createAutoArmConfig(),
-    });
-    const sessionId = "context-stability-int-switch";
-    const recordFailure = () =>
-      runtime.tools.recordResult({
-        sessionId,
-        toolName: "exec",
-        args: { command: "bun test" },
-        outputText: "Error: synthetic failure " + "x".repeat(4_000),
-        success: false,
-      });
-
-    runtime.context.onTurnStart(sessionId, 1);
-    recordFailure();
-    const first = await runtime.context.buildInjection(sessionId, "turn-1", {
-      tokens: 800,
-      contextWindow: 500,
-      percent: 0.2,
-    });
-    expect(first.accepted).toBe(false);
-    runtime.context.markCompacted(sessionId, { fromTokens: 3000, toTokens: 500 });
-
-    runtime.context.onTurnStart(sessionId, 2);
-    recordFailure();
-    const second = await runtime.context.buildInjection(sessionId, "turn-2", {
-      tokens: 820,
-      contextWindow: 500,
-      percent: 0.21,
-    });
-    expect(second.accepted).toBe(false);
-    runtime.context.markCompacted(sessionId, { fromTokens: 2800, toTokens: 450 });
-
-    const trippedBeforeSwitch = runtime.events.query(sessionId, {
-      type: "context_stability_monitor_tripped",
-    });
-    expect(trippedBeforeSwitch).toHaveLength(1);
-
-    runtime.context.onTurnStart(sessionId, 3);
-    recordFailure();
-    const passthrough = await runtime.context.buildInjection(sessionId, "turn-3", {
-      tokens: 900,
-      contextWindow: 2_000,
-      percent: 0.1,
-    });
-    expect(passthrough.accepted).toBe(true);
-    runtime.context.markCompacted(sessionId, { fromTokens: 2500, toTokens: 420 });
-
-    runtime.context.onTurnStart(sessionId, 4);
-    recordFailure();
-    const afterSwitchFirst = await runtime.context.buildInjection(sessionId, "turn-4", {
-      tokens: 840,
-      contextWindow: 500,
-      percent: 0.2,
-    });
-    expect(afterSwitchFirst.accepted).toBe(false);
-    runtime.context.markCompacted(sessionId, { fromTokens: 2300, toTokens: 400 });
-
-    const trippedAfterSwitchFirst = runtime.events.query(sessionId, {
-      type: "context_stability_monitor_tripped",
-    });
-    expect(trippedAfterSwitchFirst).toHaveLength(1);
-
-    runtime.context.onTurnStart(sessionId, 5);
-    recordFailure();
-    const afterSwitchSecond = await runtime.context.buildInjection(sessionId, "turn-5", {
-      tokens: 860,
-      contextWindow: 500,
-      percent: 0.21,
-    });
-    expect(afterSwitchSecond.accepted).toBe(false);
-    runtime.context.markCompacted(sessionId, { fromTokens: 2100, toTokens: 380 });
-
-    const trippedAfterSwitchSecond = runtime.events.query(sessionId, {
-      type: "context_stability_monitor_tripped",
-    });
-    expect(trippedAfterSwitchSecond).toHaveLength(2);
   });
 });

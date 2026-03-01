@@ -192,10 +192,11 @@ Memory split behavior:
 - Open memory insights can expand recall query terms (`memory_recall_query_expanded` event).
 - `brewva.rag-external` is injected only when `memory.externalRecall.enabled=true`,
   active skill carries tag `external-knowledge`, internal recall top score is below
-  threshold (`memory.externalRecall.minInternalScore`), and zone budget permits
-  `rag_external`.
-- If `BrewvaRuntimeOptions.externalRecallPort` is not provided, runtime uses a
-  built-in crystal-lexical provider (feature-hashing bag-of-words; zero-dependency deterministic fallback) over global crystal projection artifacts.
+  threshold (`memory.externalRecall.minInternalScore`), and active context profile
+  permits `rag_external`.
+- If `BrewvaRuntimeOptions.externalRecallPort` is not provided, runtime only auto-wires
+  built-in crystal-lexical provider when
+  `memory.externalRecall.builtinProvider="crystal-lexical"` (default is `off`).
 
 Identity source behavior:
 
@@ -206,10 +207,18 @@ Identity source behavior:
 - Runtime never auto-generates or rewrites identity files.
 - `brewva.identity` is registered as `critical` + `oncePerSession`.
 
-Arena layout and budgeting:
+Context budget profile:
+
+- Default profile is `infrastructure.contextBudget.profile="simple"`.
+- `simple` keeps global budget and hard-limit compaction gate semantics, while skipping
+  managed zone control loops.
+- `managed` enables full arena zoning, floor-unmet cascade, adaptive zones, and
+  stability monitor behavior.
+
+Arena layout and budgeting (`managed` profile):
 
 - Planner layout follows deterministic zone order:
-  `identity -> truth -> task_state -> tool_failures -> memory_working -> memory_recall -> rag_external`.
+  `identity -> truth -> skills -> task_state -> tool_failures -> memory_working -> memory_recall -> rag_external`.
 - Zone floors/caps are configured via
   `infrastructure.contextBudget.arena.zones.*`.
 - `ZoneBudgetAllocator` is pure; adaptive zone control is handled by a separate
@@ -222,6 +231,9 @@ Arena layout and budgeting:
   `zoneDemandTokens`, `zoneAllocatedTokens`, `zoneAcceptedTokens`,
   `floorUnmet`, `appliedFloorRelaxation`, `degradationApplied`.
 - Arena SLO enforcement (`maxEntriesPerSession`) emits `context_arena_slo_enforced`.
+- Profile telemetry:
+  - `context_profile_selected` (once per session)
+  - `context_profile_option_ignored` (simple profile only, deduped by option key)
 
 Execution profile note:
 

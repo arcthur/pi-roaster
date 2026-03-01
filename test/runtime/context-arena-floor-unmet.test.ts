@@ -7,6 +7,7 @@ import { BrewvaRuntime, DEFAULT_BREWVA_CONFIG, type BrewvaConfig } from "@brewva
 function createConfig(): BrewvaConfig {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.infrastructure.contextBudget.enabled = true;
+  config.infrastructure.contextBudget.profile = "managed";
   config.infrastructure.contextBudget.maxInjectionTokens = 100;
   config.infrastructure.contextBudget.truncationStrategy = "tail";
   config.infrastructure.contextBudget.arena.zones.truth = { min: 500, max: 1000 };
