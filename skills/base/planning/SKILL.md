@@ -24,6 +24,8 @@ outputs:
     objective,
     assumptions,
     options,
+    oracle_brief,
+    oracle_synthesis,
     execution_steps,
     risk_register,
     verification_plan,
@@ -163,7 +165,26 @@ SYSTEM_SNAPSHOT
   - <open question>
 ```
 
-### Step 5: Generate options (1-3 only)
+### Step 5: Deep consultation checkpoint (conditional)
+
+Use external deep consultation when any applies:
+
+- `ARCHITECTURE` classification with medium/low confidence
+- multiple viable options with non-obvious trade-offs
+- API/persistence/migration/security/concurrency impact
+- unresolved unknowns after focused exploration
+
+Build `ORACLE_BRIEF` and normalize response into `ORACLE_SYNTHESIS` using:
+`skills/base/planning/references/oracle-consultation-protocol.md`.
+
+Hard rules:
+
+- consultation is advisory; local constraints remain authoritative
+- do not skip local option comparison and risk analysis
+- maximum 3 consultation rounds in planning
+- if unresolved after round 3, stop and report missing input
+
+### Step 6: Generate options (1-3 only)
 
 Each option must include:
 
@@ -193,7 +214,7 @@ OPTION_A
 
 Avoid creating multiple options that are effectively the same.
 
-### Step 6: Choose one option with explicit rationale
+### Step 7: Choose one option with explicit rationale
 
 Selection rules:
 
@@ -213,7 +234,7 @@ PLAN_DECISION
   - "<option + rejection reason>"
 ```
 
-### Step 7: Build execution plan with checkpoints
+### Step 8: Build execution plan with checkpoints
 
 Plan must be atomic and reviewable.
 
@@ -233,7 +254,7 @@ EXECUTION_STEPS
 3. "<step>" -> output: "<artifact>" -> verify: "<check>"
 ```
 
-### Step 8: Build risk register and verification plan
+### Step 9: Build risk register and verification plan
 
 Risk template:
 
@@ -274,7 +295,7 @@ TEST_MAPPING
   required_test: "<test file + case>"
 ```
 
-### Step 9: Handoff Packet (mandatory)
+### Step 10: Handoff Packet (mandatory)
 
 Deliver a packet that implementation and review can consume directly.
 

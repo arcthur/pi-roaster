@@ -29,6 +29,8 @@ outputs:
     review_context,
     plan_conformance,
     risk_profile,
+    oracle_brief,
+    oracle_synthesis,
     findings,
     failure_modes,
     review_decision,
@@ -67,6 +69,16 @@ Use this skill for:
 - all issues must be traceable with stable IDs and locations
 - review is read-only; do not implement changes, run verification commands, or perform Git operations
 - follow executable-evidence policy from `skills/base/planning/references/executable-evidence-bridge.md`
+
+### Dispatch Policy Semantics
+
+Frontmatter `dispatch` controls runtime dispatch behavior for this skill:
+
+- `gate_threshold`: minimum score to trigger gate mode
+- `auto_threshold`: minimum score to trigger auto mode
+- `default_mode`: fallback mode when score is below gate threshold
+
+Current values favor conservative review invocation (`suggest` default with higher auto threshold).
 
 ## Review Workflow
 
@@ -164,6 +176,13 @@ If an external aggregated review tool (for example `code_review`) is available, 
 - use it to broaden candidate issue discovery
 - still perform lane-based validation for severity, confidence, and evidence
 - never skip Step 1/Step 3 risk modeling because of tool output
+
+Optional deep consultation checkpoint:
+
+- In `DEEP` mode with unresolved severity/confidence disputes, build `ORACLE_BRIEF` and normalize into
+  `ORACLE_SYNTHESIS` using `skills/base/planning/references/oracle-consultation-protocol.md`.
+- Consultation is advisory and cannot replace lane evidence collection.
+- Limit to 2 rounds in review mode to avoid analysis churn.
 
 `core` lane (always enabled):
 

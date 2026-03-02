@@ -87,6 +87,10 @@ gh repo view --json nameWithOwner --jq '.nameWithOwner'
 
 #### ISSUE mode
 
+Routing rule:
+
+- If the request is batch triage, issue prioritization, or issue-to-PR pipeline execution, route to `gh-issues` instead of handling in this mode.
+
 Common commands:
 
 ```bash

@@ -17,7 +17,7 @@ tools:
 budget:
   max_tool_calls: 90
   max_tokens: 150000
-outputs: [root_cause, fix_description, evidence, verification]
+outputs: [oracle_brief, oracle_synthesis, root_cause, fix_description, evidence, verification]
 consumes: [architecture_map, execution_steps]
 escalation_path:
   hypothesis_exhausted: exploration
@@ -120,7 +120,24 @@ Hard rules:
 - Maximum 3 tool calls per hypothesis before moving on.
 - Never apply a fix before at least one hypothesis is confirmed.
 
-### Step 4: Validate hypotheses one by one
+### Step 4: Deep consultation checkpoint (conditional)
+
+Consult external deep reasoning only when needed:
+
+- no hypothesis can be confirmed after initial validation attempts
+- failure appears non-deterministic (timing/order/concurrency)
+- impact crosses module boundaries and local signal is weak
+
+Build `ORACLE_BRIEF` and normalize response into `ORACLE_SYNTHESIS` using:
+`skills/base/planning/references/oracle-consultation-protocol.md`.
+
+Hard rules:
+
+- consultation is advisory, not proof
+- keep local reproduction and falsification steps authoritative
+- maximum 3 consultation rounds per debugging task
+
+### Step 5: Validate hypotheses one by one
 
 Validation order:
 
@@ -136,7 +153,7 @@ Validation checklist:
 
 If hypothesis is refuted, document reason and move to next.
 
-### Step 5: Apply minimal fix
+### Step 6: Apply minimal fix
 
 Fix only confirmed root cause lines.
 
@@ -157,7 +174,7 @@ FIX_PLAN
 - why_minimal: "<why this is smallest valid fix>"
 ```
 
-### Step 6: Verify in two layers
+### Step 7: Verify in two layers
 
 Layer A: exact repro command from Step 2.
 Layer B: broader safety check for nearby regressions.
@@ -181,7 +198,7 @@ If Layer A passes but Layer B fails:
 If required verification commands are unavailable, emit `TOOL_BRIDGE` using
 `skills/base/planning/references/executable-evidence-bridge.md` with a reproducible script path and success criteria.
 
-### Step 7: Emit final debugging report
+### Step 8: Emit final debugging report
 
 ```text
 DEBUG_REPORT

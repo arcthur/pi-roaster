@@ -17,7 +17,16 @@ tools:
 budget:
   max_tool_calls: 100
   max_tokens: 200000
-outputs: [execution_mode, task_dispatch, execution_progress, review_gate, execution_report]
+outputs:
+  [
+    boundary_decision,
+    action_mode,
+    execution_mode,
+    task_dispatch,
+    execution_progress,
+    review_gate,
+    execution_report,
+  ]
 consumes: [execution_steps, design_spec, handoff_packet]
 escalation_path:
   plan_unclear: planning
@@ -40,7 +49,30 @@ Skip this skill when:
 - The task is a single-file fix with no coordination need (use `patching` directly).
 - You need to explore the system before acting (use `exploration`).
 
-## Mode Detection (mandatory first step)
+## Step 0: Autonomy Boundary Gate (mandatory first step)
+
+Choose action mode before task dispatch:
+
+- `ACT_DIRECT`: read-only actions or reversible local edits
+- `ACT_WITH_NOTICE`: broader but non-destructive actions
+- `ASK_FIRST`: destructive or hard-to-rollback actions, or high-impact API/persistence changes
+
+Blocking output:
+
+```text
+BOUNDARY_DECISION
+- action: <ACT_DIRECT|ACT_WITH_NOTICE|ASK_FIRST>
+- risk_class: <A|B|C>
+- rationale: "<risk-based reason>"
+- next_step: "<execute|notify|ask>"
+```
+
+Hard rules:
+
+- `ASK_FIRST` requires explicit user confirmation before execution.
+- boundary gate controls act-vs-ask; it does not replace planning decisions.
+
+## Step 1: Mode Detection (mandatory)
 
 Before executing anything, classify the execution mode.
 

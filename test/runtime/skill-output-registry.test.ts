@@ -44,12 +44,15 @@ describe("skill output registry", () => {
     // planning consumes: [architecture_map, key_modules, unknowns, root_cause]
     // debugging produces root_cause — IS a match
     runtime.skills.activate(sessionId, "debugging");
-    runtime.skills.complete(sessionId, {
+    const completion = runtime.skills.complete(sessionId, {
+      oracle_brief: "Investigate recent callback handler changes",
+      oracle_synthesis: "Null guard is missing in callback parsing path",
       root_cause: "null ref in handler",
       fix_description: "added guard",
       evidence: "test passes",
       verification: "pass",
     });
+    expect(completion).toEqual({ ok: true, missing: [] });
 
     const planningAvailable = runtime.skills.getConsumedOutputs(sessionId, "planning");
     expect(planningAvailable.root_cause).toBe("null ref in handler");

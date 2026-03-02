@@ -49,6 +49,10 @@ Use this skill when a user asks to:
 
 Do not use this skill for broad architecture redesign.
 
+Routing boundary:
+
+- If the fix introduces new behavior and requires new test coverage to define expected behavior first, switch to `tdd`.
+
 ## Procedure
 
 ### Step 1: Define change boundary (mandatory)
