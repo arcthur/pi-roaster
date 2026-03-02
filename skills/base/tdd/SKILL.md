@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [tdd, test, red-green-refactor, implementation]
 anti_tags: [explore, research, architecture]
-triggers:
-  intents: ["write tests first", "tdd cycle", "red green refactor", "test-driven implementation"]
-  topics: ["unit tests", "failing tests first", "refactor"]
-  phrases: ["red green refactor", "test first"]
 tools:
   required: [read, exec]
   optional: [grep, edit, lsp_diagnostics, skill_complete]

@@ -10,7 +10,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         onTurnStart: () => undefined,
         observeUsage: () => undefined,
-        shouldRequestCompaction: () => false,
+        checkAndRequestCompaction: () => false,
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "[Brewva Context]\nTop-K Skill Candidates:\n- debugging",
@@ -68,7 +68,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         onTurnStart: () => undefined,
         observeUsage: () => undefined,
-        shouldRequestCompaction: () => false,
+        checkAndRequestCompaction: () => false,
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
@@ -113,7 +113,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         onTurnStart: () => undefined,
         observeUsage: () => undefined,
-        shouldRequestCompaction: () => false,
+        checkAndRequestCompaction: () => false,
         markCompacted: () => undefined,
         buildInjection: async (
           _sessionId: string,
@@ -162,7 +162,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         onTurnStart: () => undefined,
         observeUsage: () => undefined,
-        shouldRequestCompaction: () => false,
+        checkAndRequestCompaction: () => false,
         markCompacted: () => undefined,
         buildInjection: async () => {
           calls.push("async");
@@ -203,6 +203,265 @@ describe("Extension gaps: context transform", () => {
     expect(result.message.content.includes("[async]")).toBe(true);
   });
 
+  test("given step-0 translation result, when before_agent_start runs, then translated prompt drives routing injection", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const routedPrompts: string[] = [];
+    const translationPayloads: Record<string, unknown>[] = [];
+    const runtime = createRuntimeFixture({
+      context: {
+        onTurnStart: () => undefined,
+        observeUsage: () => undefined,
+        checkAndRequestCompaction: () => false,
+        markCompacted: () => undefined,
+        buildInjection: async (_sessionId: string, prompt: string) => {
+          routedPrompts.push(prompt);
+          return {
+            text: "[translated-routing]",
+            accepted: true,
+            originalTokens: 11,
+            finalTokens: 11,
+            truncated: false,
+          };
+        },
+      },
+      events: {
+        record: (input: { type: string; payload?: Record<string, unknown> }) => {
+          if (input.type === "skill_routing_translation" && input.payload) {
+            translationPayloads.push(input.payload);
+          }
+          return undefined;
+        },
+      },
+    });
+
+    registerContextTransform(api, runtime, {
+      translatePromptForRouting: async () => ({
+        prompt: "review architecture and evaluate fallback quality",
+        translated: true,
+        status: "translated",
+        reason: "ok",
+        provider: "openai",
+        model: "gpt-test",
+        stopReason: "stop",
+        usage: {
+          input: 10,
+          output: 8,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 18,
+          costTotal: 0.0009,
+        },
+      }),
+    });
+
+    const result = await invokeHandlerAsync<{
+      message: {
+        details?: {
+          routingTranslation?: {
+            status?: string;
+            translated?: boolean;
+          };
+        };
+      };
+    }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "请评审当前架构和兜底设计",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-translate-success",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(routedPrompts).toEqual(["review architecture and evaluate fallback quality"]);
+    expect(translationPayloads[0]?.status).toBe("translated");
+    expect(translationPayloads[0]?.translated).toBe(true);
+    expect(result.message.details?.routingTranslation?.status).toBe("translated");
+    expect(result.message.details?.routingTranslation?.translated).toBe(true);
+
+    const summary = runtime.cost.getSummary("s-translate-success");
+    expect(summary.totalTokens).toBe(18);
+    expect(summary.totalCostUsd).toBeCloseTo(0.0009);
+  });
+
+  test("given translation failure, when before_agent_start runs, then original prompt is used for routing injection", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const routedPrompts: string[] = [];
+    const translationPayloads: Record<string, unknown>[] = [];
+    const runtime = createRuntimeFixture({
+      context: {
+        onTurnStart: () => undefined,
+        observeUsage: () => undefined,
+        checkAndRequestCompaction: () => false,
+        markCompacted: () => undefined,
+        buildInjection: async (_sessionId: string, prompt: string) => {
+          routedPrompts.push(prompt);
+          return {
+            text: "[fallback-original]",
+            accepted: true,
+            originalTokens: 9,
+            finalTokens: 9,
+            truncated: false,
+          };
+        },
+      },
+      events: {
+        record: (input: { type: string; payload?: Record<string, unknown> }) => {
+          if (input.type === "skill_routing_translation" && input.payload) {
+            translationPayloads.push(input.payload);
+          }
+          return undefined;
+        },
+      },
+    });
+
+    registerContextTransform(api, runtime, {
+      translatePromptForRouting: async ({ prompt }) => ({
+        prompt,
+        translated: false,
+        status: "failed",
+        reason: "translation_error",
+        error: "timeout",
+      }),
+    });
+
+    const result = await invokeHandlerAsync<{
+      message: {
+        details?: {
+          routingTranslation?: {
+            status?: string;
+            reason?: string;
+          };
+        };
+      };
+    }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "请评审当前架构和兜底设计",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-translate-failed",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(routedPrompts).toEqual(["请评审当前架构和兜底设计"]);
+    expect(translationPayloads[0]?.status).toBe("failed");
+    expect(translationPayloads[0]?.reason).toBe("translation_error");
+    expect(result.message.details?.routingTranslation?.status).toBe("failed");
+    expect(result.message.details?.routingTranslation?.reason).toBe("translation_error");
+
+    const summary = runtime.cost.getSummary("s-translate-failed");
+    expect(summary.totalTokens).toBe(0);
+    expect(summary.totalCostUsd).toBe(0);
+  });
+
+  test("given semantic selector returns empty, when before_agent_start runs, then lexical fallback is bypassed", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture();
+
+    registerContextTransform(api, runtime, {
+      translatePromptForRouting: async ({ prompt }) => ({
+        prompt,
+        translated: false,
+        status: "pass_through",
+        reason: "unchanged",
+      }),
+      selectSkillsForRouting: async () => ({
+        selected: [],
+        status: "empty",
+        reason: "no_skill_match",
+      }),
+    });
+
+    await invokeHandlerAsync(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "please review architecture and fallback quality",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-semantic-empty",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(runtime.skills.getPendingDispatch("s-semantic-empty")).toBeUndefined();
+    const routingDecisions = runtime.events
+      .query("s-semantic-empty")
+      .filter((event) => event.type === "skill_routing_decided");
+    const lastDecision = routingDecisions[routingDecisions.length - 1];
+    const payload = (lastDecision?.payload ?? {}) as {
+      mode?: string;
+      selectedCount?: number;
+      reason?: string;
+    };
+    expect(payload.mode).toBe("none");
+    expect(payload.selectedCount).toBe(0);
+    expect(payload.reason).toBe("no-skill-match");
+  });
+
+  test("given semantic selector chooses review, when before_agent_start runs, then dispatch follows semantic result", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture();
+
+    registerContextTransform(api, runtime, {
+      translatePromptForRouting: async ({ prompt }) => ({
+        prompt,
+        translated: false,
+        status: "pass_through",
+        reason: "unchanged",
+      }),
+      selectSkillsForRouting: async () => ({
+        selected: [
+          {
+            name: "review",
+            score: 20,
+            reason: "semantic:review request",
+            breakdown: [{ signal: "semantic_match", term: "semantic", delta: 20 }],
+          },
+        ],
+        status: "selected",
+        reason: "ok",
+      }),
+    });
+
+    await invokeHandlerAsync(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "review merge risk and architecture quality",
+        systemPrompt: "base",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-semantic-review",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    const decision = runtime.skills.getPendingDispatch("s-semantic-review");
+    expect(decision?.primary?.name).toBe("review");
+    expect(decision?.mode).toBe("auto");
+  });
+
   test("given createBrewvaExtension factory, when initialized with runtime, then async context injection is preserved", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const calls: string[] = [];
@@ -210,7 +469,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         onTurnStart: () => undefined,
         observeUsage: () => undefined,
-        shouldRequestCompaction: () => false,
+        checkAndRequestCompaction: () => false,
         markCompacted: () => undefined,
         buildInjection: async () => {
           calls.push("async");
@@ -262,7 +521,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         onTurnStart: () => undefined,
         observeUsage: () => undefined,
-        shouldRequestCompaction: () => true,
+        checkAndRequestCompaction: () => true,
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
@@ -318,7 +577,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         onTurnStart: () => undefined,
         observeUsage: () => undefined,
-        shouldRequestCompaction: () => true,
+        checkAndRequestCompaction: () => true,
         markCompacted: (_sessionId: string, payload: Record<string, unknown>) => {
           capturedCompactions.push(payload);
         },

@@ -6,11 +6,6 @@ stability: stable
 tier: base
 tags: [map, architecture, modules, dependency]
 anti_tags: [quick-fix]
-triggers:
-  intents:
-    ["map architecture", "trace dependencies", "module ownership", "impact analysis", "架构梳理"]
-  topics: ["module graph", "dependencies", "ownership", "boundaries"]
-  phrases: ["dependency map", "impact analysis"]
 tools:
   required: [grep, read]
   optional: [glob, ledger_query, skill_complete]

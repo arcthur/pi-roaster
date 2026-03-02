@@ -6,13 +6,6 @@ stability: stable
 tier: pack
 tags: [github, gh, issues, triage, pr, review]
 anti_tags: [single-command-only]
-triggers:
-  intents: ["triage github issues","process issue queue","convert issue to pr"]
-  topics: ["github issues","triage","issue spec","review followup"]
-  phrases: ["gh issue triage","issue to pr"]
-  negatives:
-    - scope: intent
-      terms: ["create a github issue", "open github issue", "single issue create", "simple issue"]
 tools:
   required: [exec, read]
   optional: [grep, ledger_query, skill_complete]

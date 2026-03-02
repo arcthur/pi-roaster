@@ -6,10 +6,6 @@ stability: experimental
 tier: pack
 tags: [telegram, interactive, ui, inline-keyboard, callback, channel]
 anti_tags: [plain-text-only]
-triggers:
-  intents: ["build telegram ui","create inline keyboard","design callback flow"]
-  topics: ["telegram bot ui","callback payload","menu components"]
-  phrases: ["inline keyboard","telegram callback"]
 tools:
   required: [read]
   optional: [grep]

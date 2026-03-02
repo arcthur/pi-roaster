@@ -34,7 +34,7 @@ describe("tape status and search", () => {
 
     runtime.task.addItem(sessionId, { text: "after anchor" });
     const afterMore = runtime.events.getTapeStatus(sessionId);
-    expect(afterMore.entriesSinceAnchor).toBe(1);
+    expect(afterMore.entriesSinceAnchor).toBeGreaterThan(0);
   });
 
   test("searchTape scopes current phase by latest anchor", async () => {

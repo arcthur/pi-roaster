@@ -59,11 +59,10 @@ Implementation anchors:
 
 Execution is skill-first and prompt-triggered, not prompt-first:
 
-- Prompt text is treated as a dispatch signal and routed through a two-stage
-  selector: deterministic lexical triggers first, then zero-dependency semantic
-  fallback when lexical confidence is below threshold.
+- Prompt text is treated as a dispatch signal and routed by LLM-first semantic
+  routing. Runtime no longer performs lexical keyword matching for dispatch.
 - Dispatch decision resolves `suggest | gate | auto` from per-skill policy
-  (`triggers` + `dispatch` metadata), keeping mode and confidence replayable.
+  (`dispatch` metadata), keeping mode and confidence replayable.
 - Skill contracts remain the primary unit for tool policy, budget envelope, and
   completion requirements.
 - Skill activation is dynamic (`skill_load`) and scoped to session state instead
@@ -78,8 +77,7 @@ Execution is skill-first and prompt-triggered, not prompt-first:
 - Context injection and replay stay skill-addressable through
   `skill_activated`/`skill_completed` and `skill_routing_*` tape events.
 
-This keeps orchestration deterministic and auditable while reducing unnecessary
-context expansion from prompt-only routing.
+This keeps orchestration auditable while avoiding keyword-fragile routing logic.
 
 Implementation anchors:
 
@@ -87,9 +85,9 @@ Implementation anchors:
 - `packages/brewva-runtime/src/services/skill-lifecycle.ts`
 - `packages/brewva-runtime/src/services/tool-gate.ts`
 - `packages/brewva-runtime/src/skills/registry.ts`
-- `packages/brewva-runtime/src/skills/selector.ts`
 - `packages/brewva-runtime/src/skills/dispatch.ts`
 - `packages/brewva-runtime/src/skills/chain-planner.ts`
+- `packages/brewva-extensions/src/context-transform.ts`
 - `packages/brewva-tools/src/skill-load.ts`
 - `packages/brewva-tools/src/skill-route-override.ts`
 - `packages/brewva-tools/src/skill-complete.ts`

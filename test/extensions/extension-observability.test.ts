@@ -215,7 +215,7 @@ describe("Extension integration: observability", () => {
     expect(existsSync(artifactPath)).toBe(true);
     expect(readFileSync(artifactPath, "utf8")).toContain("edited");
 
-    const ledgerRows = runtime.ledger.list(sessionId);
+    const ledgerRows = runtime.truth.listLedgerRows(sessionId);
     expect(ledgerRows).toHaveLength(1);
     expect(ledgerRows[0]?.tool).toBe("edit");
 
@@ -268,7 +268,7 @@ describe("Extension integration: observability", () => {
 
     const reloaded = new BrewvaRuntime({ cwd: workspace });
     expect(reloaded.events.query(sessionId).length).toBeGreaterThan(0);
-    expect(reloaded.ledger.list(sessionId)).toHaveLength(1);
+    expect(reloaded.truth.listLedgerRows(sessionId)).toHaveLength(1);
   });
 
   test("given high-volume exec tool output, when ledger writer handles tool_result, then distilled event and metadata are recorded", () => {

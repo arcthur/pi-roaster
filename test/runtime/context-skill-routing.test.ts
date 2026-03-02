@@ -11,7 +11,7 @@ function createWorkspace(name: string): string {
 }
 
 describe("context skill routing", () => {
-  test("injects skill candidates and emits routing decision event", async () => {
+  test("without semantic preselection, context injection does not include skill candidates", async () => {
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.memory.enabled = false;
     config.infrastructure.toolFailureInjection.enabled = false;
@@ -31,16 +31,16 @@ describe("context skill routing", () => {
     );
 
     expect(injection.accepted).toBe(true);
-    expect(injection.text.includes("Top-K Skill Candidates:")).toBe(true);
-    expect(injection.text.includes("- review")).toBe(true);
+    expect(injection.text.includes("Top-K Skill Candidates:")).toBe(false);
 
     const routed = runtime.events.query(sessionId, { type: "skill_routing_decided", last: 1 })[0];
     expect(routed).toBeDefined();
-    const payload = routed?.payload as { selectedCount?: number } | undefined;
-    expect((payload?.selectedCount ?? 0) > 0).toBe(true);
+    const payload = routed?.payload as { mode?: string; selectedCount?: number } | undefined;
+    expect(payload?.mode).toBe("none");
+    expect(payload?.selectedCount).toBe(0);
   });
 
-  test("skips low-confidence suggested candidates in context injection", async () => {
+  test("still emits deterministic no-skill decision in low-signal prompt", async () => {
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.memory.enabled = false;
     config.infrastructure.toolFailureInjection.enabled = false;
@@ -67,8 +67,8 @@ describe("context skill routing", () => {
     const payload = routed?.payload as
       | { mode?: string; confidence?: number; selectedCount?: number }
       | undefined;
-    expect(payload?.mode).toBe("suggest");
-    expect(payload?.selectedCount).toBeGreaterThan(0);
-    expect((payload?.confidence ?? 1) < 0.55).toBe(true);
+    expect(payload?.mode).toBe("none");
+    expect(payload?.selectedCount).toBe(0);
+    expect(payload?.confidence).toBe(0);
   });
 });

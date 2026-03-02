@@ -6,10 +6,6 @@ stability: stable
 tier: pack
 tags: [agent-browser, browser, automation, e2e, screenshot, extraction]
 anti_tags: [backend-only]
-triggers:
-  intents: ["browser automation","run e2e in browser","capture screenshot","scrape page"]
-  topics: ["web navigation","screenshot","extraction","e2e"]
-  phrases: ["browser automation","take screenshot"]
 tools:
   required: [exec, read]
   optional: [look_at, ledger_query, skill_complete]

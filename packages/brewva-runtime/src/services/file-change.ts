@@ -1,4 +1,5 @@
 import { SessionCostTracker } from "../cost/tracker.js";
+import { VERIFICATION_STATE_RESET_EVENT_TYPE } from "../events/event-types.js";
 import { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { FileChangeTracker } from "../state/file-change-tracker.js";
 import type { SkillDocument } from "../types.js";
@@ -156,7 +157,7 @@ export class FileChangeService {
     this.verification.stateStore.clear(sessionId);
     this.recordEvent({
       sessionId,
-      type: "verification_state_reset",
+      type: VERIFICATION_STATE_RESET_EVENT_TYPE,
       turn,
       payload: {
         reason: "rollback",

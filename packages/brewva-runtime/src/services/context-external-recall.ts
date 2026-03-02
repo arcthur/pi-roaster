@@ -30,6 +30,17 @@ export function recordContextExternalRecallDecision(
   if (externalRecallDecision.status === "disabled") return;
 
   if (externalRecallDecision.status === "skipped") {
+    if (externalRecallDecision.payload.reason === "skill_tag_missing") {
+      deps.recordEvent({
+        sessionId,
+        type: "context_external_recall_decision_debug",
+        payload: {
+          outcome: "skipped",
+          ...externalRecallDecision.payload,
+        },
+      });
+      return;
+    }
     deps.recordEvent({
       sessionId,
       type: "context_external_recall_decision",

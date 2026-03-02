@@ -16,7 +16,6 @@ function createEntry(
     stability: input.stability ?? "stable",
     composableWith: input.composableWith ?? [],
     consumes: input.consumes ?? [],
-    triggers: input.triggers,
     dispatch: input.dispatch,
   };
 }
@@ -24,7 +23,7 @@ function createEntry(
 describe("skill dispatch decision", () => {
   test("falls back to default dispatch thresholds when dispatch metadata is absent", () => {
     const decision = resolveSkillDispatchDecision({
-      selected: [{ name: "review", score: 12, reason: "intent_match:review", breakdown: [] }],
+      selected: [{ name: "review", score: 12, reason: "semantic:review", breakdown: [] }],
       index: [createEntry({ name: "review" })],
       turn: 5,
     });

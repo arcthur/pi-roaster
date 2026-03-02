@@ -281,7 +281,7 @@ describe("Gap remediation: event stream and context budget", () => {
     expect(primary.truncated).toBe(false);
     expect(primary.finalTokens).toBeGreaterThan(32);
 
-    const supplemental = runtime.context.planSupplementalInjection(
+    const supplemental = runtime.context.appendSupplementalInjection(
       sessionId,
       "y".repeat(800),
       {
@@ -323,7 +323,7 @@ describe("Gap remediation: event stream and context budget", () => {
       usage,
       "leaf-a",
     );
-    const supplemental = runtime.context.planSupplementalInjection(
+    const supplemental = runtime.context.appendSupplementalInjection(
       sessionId,
       "x".repeat(2000),
       usage,
@@ -336,7 +336,7 @@ describe("Gap remediation: event stream and context budget", () => {
       expect(supplemental.droppedReason).toBe("budget_exhausted");
     }
 
-    const otherScope = runtime.context.planSupplementalInjection(
+    const otherScope = runtime.context.appendSupplementalInjection(
       sessionId,
       "y".repeat(120),
       usage,
@@ -345,7 +345,7 @@ describe("Gap remediation: event stream and context budget", () => {
     expect(otherScope.accepted).toBe(true);
 
     runtime.context.onTurnStart(sessionId, 2);
-    const afterTurnReset = runtime.context.planSupplementalInjection(
+    const afterTurnReset = runtime.context.appendSupplementalInjection(
       sessionId,
       "z".repeat(120),
       usage,
@@ -354,7 +354,7 @@ describe("Gap remediation: event stream and context budget", () => {
     expect(afterTurnReset.accepted).toBe(true);
   });
 
-  test("reserves supplemental budget only after explicit commit", async () => {
+  test("reserves supplemental budget immediately after append", async () => {
     const workspace = createWorkspace("context-supplemental-commit");
     const config = createConfig({});
     config.infrastructure = {
@@ -375,7 +375,7 @@ describe("Gap remediation: event stream and context budget", () => {
     };
 
     runtime.context.onTurnStart(sessionId, 1);
-    const first = runtime.context.planSupplementalInjection(
+    const first = runtime.context.appendSupplementalInjection(
       sessionId,
       "x".repeat(2000),
       usage,
@@ -383,17 +383,16 @@ describe("Gap remediation: event stream and context budget", () => {
     );
     expect(first.accepted).toBe(true);
 
-    const second = runtime.context.planSupplementalInjection(
+    const second = runtime.context.appendSupplementalInjection(
       sessionId,
       "x".repeat(2000),
       usage,
       "leaf-a",
     );
-    expect(second.accepted).toBe(true);
-    expect(second.finalTokens).toBe(first.finalTokens);
+    expect(second.accepted).toBe(false);
+    expect(second.droppedReason).toBe("budget_exhausted");
 
-    runtime.context.commitSupplementalInjection(sessionId, first.finalTokens, "leaf-a");
-    const exhausted = runtime.context.planSupplementalInjection(
+    const exhausted = runtime.context.appendSupplementalInjection(
       sessionId,
       "x".repeat(2000),
       usage,
@@ -402,7 +401,7 @@ describe("Gap remediation: event stream and context budget", () => {
     expect(exhausted.accepted).toBe(false);
     expect(exhausted.droppedReason).toBe("budget_exhausted");
 
-    const otherScope = runtime.context.planSupplementalInjection(
+    const otherScope = runtime.context.appendSupplementalInjection(
       sessionId,
       "x".repeat(2000),
       usage,
@@ -411,7 +410,7 @@ describe("Gap remediation: event stream and context budget", () => {
     expect(otherScope.accepted).toBe(true);
 
     runtime.context.onTurnStart(sessionId, 2);
-    const afterTurnReset = runtime.context.planSupplementalInjection(
+    const afterTurnReset = runtime.context.appendSupplementalInjection(
       sessionId,
       "x".repeat(2000),
       usage,
@@ -544,7 +543,7 @@ describe("Gap remediation: event stream and context budget", () => {
 
     runtime.context.onTurnStart(sessionId, 1);
     expect(
-      runtime.context.shouldRequestCompaction(sessionId, {
+      runtime.context.checkAndRequestCompaction(sessionId, {
         tokens: 820,
         contextWindow: 1000,
         percent: 0.9,
@@ -554,7 +553,7 @@ describe("Gap remediation: event stream and context budget", () => {
 
     runtime.context.onTurnStart(sessionId, 2);
     expect(
-      runtime.context.shouldRequestCompaction(sessionId, {
+      runtime.context.checkAndRequestCompaction(sessionId, {
         tokens: 820,
         contextWindow: 1000,
         percent: 0.9,
@@ -563,7 +562,7 @@ describe("Gap remediation: event stream and context budget", () => {
 
     runtime.context.onTurnStart(sessionId, 3);
     expect(
-      runtime.context.shouldRequestCompaction(sessionId, {
+      runtime.context.checkAndRequestCompaction(sessionId, {
         tokens: 820,
         contextWindow: 1000,
         percent: 0.9,
@@ -603,7 +602,9 @@ describe("Gap remediation: event stream and context budget", () => {
       costUsd: 0.001,
     });
 
-    const rows = runtime.ledger.list(sessionId).filter((row) => row.tool !== "ledger_checkpoint");
+    const rows = runtime.truth
+      .listLedgerRows(sessionId)
+      .filter((row) => row.tool !== "ledger_checkpoint");
     expect(rows.length).toBe(3);
     expect(rows.every((row) => row.turn === 7)).toBe(true);
   });
@@ -620,7 +621,7 @@ describe("Gap remediation: event stream and context budget", () => {
       toTokens: 1200,
     });
 
-    const rows = runtime.ledger.list(sessionId);
+    const rows = runtime.truth.listLedgerRows(sessionId);
     expect(rows.some((row) => row.tool === "brewva_context_compaction")).toBe(true);
   });
 });

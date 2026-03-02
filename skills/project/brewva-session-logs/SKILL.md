@@ -6,10 +6,6 @@ stability: stable
 tier: project
 tags: [session, logs, events, ledger, memory, cost, diagnosis, jsonl, context-arena]
 anti_tags: []
-triggers:
-  intents: ["analyze session logs", "inspect runtime artifacts", "trace event timeline"]
-  topics: ["event store", "ledger", "memory", "cost", "tape"]
-  phrases: ["session logs", "event timeline"]
 tools:
   required: [read, grep]
   optional: [exec, process, ledger_query, tape_info, tape_search, cost_view, skill_complete]

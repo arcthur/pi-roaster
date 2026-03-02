@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [design, ideation, pre-implementation, feature-scoping]
 anti_tags: [quick-fix, hotfix, typo]
-triggers:
-  intents: ["brainstorm", "ideate", "design options", "propose approaches", "发散方案"]
-  topics: ["feature design", "tradeoffs", "requirements", "scope"]
-  phrases: ["brainstorm options", "design alternatives"]
 tools:
   required: [read, grep]
   optional: [glob, ledger_query, skill_complete]

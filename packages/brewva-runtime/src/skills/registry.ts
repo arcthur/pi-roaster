@@ -274,12 +274,6 @@ export class SkillRegistry {
       stability: skill.contract.stability ?? "stable",
       composableWith: skill.contract.composableWith ?? [],
       consumes: skill.contract.consumes ?? [],
-      triggers: {
-        intents: skill.contract.triggers?.intents ?? [],
-        topics: skill.contract.triggers?.topics ?? [],
-        phrases: skill.contract.triggers?.phrases ?? [],
-        negatives: skill.contract.triggers?.negatives ?? [],
-      },
       dispatch: {
         gateThreshold: skill.contract.dispatch?.gateThreshold ?? 10,
         autoThreshold: skill.contract.dispatch?.autoThreshold ?? 16,

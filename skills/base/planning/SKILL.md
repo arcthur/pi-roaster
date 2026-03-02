@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [plan, roadmap, architecture, scope]
 anti_tags: [quick-fix]
-triggers:
-  intents: ["plan implementation", "break down tasks", "roadmap", "design plan", "制定计划"]
-  topics: ["scope", "milestones", "risk register", "verification plan"]
-  phrases: ["implementation plan", "execution steps"]
 tools:
   required: [read]
   optional: [grep, ledger_query, skill_complete]

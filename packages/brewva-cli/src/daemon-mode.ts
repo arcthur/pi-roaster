@@ -2,6 +2,12 @@ import { join } from "node:path";
 import { writePidRecord, removePidRecord } from "@brewva/brewva-gateway";
 import {
   BrewvaRuntime,
+  SCHEDULE_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_FAILED_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_FINISHED_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_STARTED_EVENT_TYPE,
+  SCHEDULE_RECOVERY_DEFERRED_EVENT_TYPE,
+  SCHEDULE_WAKEUP_EVENT_TYPE,
   SchedulerService,
   parseScheduleIntentEvent,
   type ScheduleIntentProjectionRecord,
@@ -174,23 +180,23 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
     summaryWindow.childFailed = 0;
   };
   const unsubscribeEvents = runtime.events.subscribe((event) => {
-    if (event.type === "schedule_recovery_deferred") {
+    if (event.type === SCHEDULE_RECOVERY_DEFERRED_EVENT_TYPE) {
       summaryWindow.deferredIntents += 1;
       return;
     }
-    if (event.type === "schedule_child_session_started") {
+    if (event.type === SCHEDULE_CHILD_SESSION_STARTED_EVENT_TYPE) {
       summaryWindow.childStarted += 1;
       return;
     }
-    if (event.type === "schedule_child_session_finished") {
+    if (event.type === SCHEDULE_CHILD_SESSION_FINISHED_EVENT_TYPE) {
       summaryWindow.childFinished += 1;
       return;
     }
-    if (event.type === "schedule_child_session_failed") {
+    if (event.type === SCHEDULE_CHILD_SESSION_FAILED_EVENT_TYPE) {
       summaryWindow.childFailed += 1;
       return;
     }
-    if (event.type !== "schedule_intent") return;
+    if (event.type !== SCHEDULE_EVENT_TYPE) return;
 
     const payload = parseScheduleIntentEvent({
       id: event.id,
@@ -278,7 +284,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
 
       runtime.events.record({
         sessionId: childSessionId,
-        type: "schedule_wakeup",
+        type: SCHEDULE_WAKEUP_EVENT_TYPE,
         payload: {
           schema: "brewva.schedule-wakeup.v1",
           intentId: intent.intentId,
@@ -295,7 +301,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
       });
       runtime.events.record({
         sessionId: intent.parentSessionId,
-        type: "schedule_child_session_started",
+        type: SCHEDULE_CHILD_SESSION_STARTED_EVENT_TYPE,
         payload: {
           intentId: intent.intentId,
           childSessionId,
@@ -308,7 +314,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
         await child.session.agent.waitForIdle();
         runtime.events.record({
           sessionId: intent.parentSessionId,
-          type: "schedule_child_session_finished",
+          type: SCHEDULE_CHILD_SESSION_FINISHED_EVENT_TYPE,
           payload: {
             intentId: intent.intentId,
             childSessionId,
@@ -319,7 +325,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
       } catch (error) {
         runtime.events.record({
           sessionId: intent.parentSessionId,
-          type: "schedule_child_session_failed",
+          type: SCHEDULE_CHILD_SESSION_FAILED_EVENT_TYPE,
           payload: {
             intentId: intent.intentId,
             childSessionId,

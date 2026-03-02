@@ -1,5 +1,8 @@
 import { ContextBudgetManager } from "../context/budget.js";
-import { buildContextInjection as buildContextInjectionOrchestrated } from "../context/injection-orchestrator.js";
+import {
+  buildContextInjection as buildContextInjectionOrchestrated,
+  type ContextInjectionOrchestratorDeps,
+} from "../context/injection-orchestrator.js";
 import {
   ContextInjectionCollector,
   type ContextInjectionPriority,
@@ -131,6 +134,7 @@ export class ContextService {
   private readonly contextCompactionDeps: ContextCompactionDeps;
   private readonly contextSupplementalBudgetDeps: ContextSupplementalBudgetDeps;
   private readonly contextExternalRecallDeps: ContextExternalRecallDeps;
+  private readonly contextInjectionOrchestratorDeps: ContextInjectionOrchestratorDeps;
 
   constructor(options: ContextServiceOptions) {
     this.cwd = options.cwd;
@@ -197,6 +201,40 @@ export class ContextService {
       config: this.config,
       memory: this.memory,
       recordEvent: (input) => this.recordEvent(input),
+    };
+
+    this.contextInjectionOrchestratorDeps = {
+      cwd: this.cwd,
+      maxInjectionTokens: this.config.infrastructure.contextBudget.maxInjectionTokens,
+      isContextBudgetEnabled: () => this.isContextBudgetEnabled(),
+      getToolFailureInjectionConfig: () => this.config.infrastructure.toolFailureInjection,
+      getToolOutputDistillationInjectionConfig: () =>
+        this.config.infrastructure.toolOutputDistillationInjection,
+      sanitizeInput: (text) => this.sanitizeInput(text),
+      getTruthState: (id) => this.getTruthState(id),
+      maybeAlignTaskStatus: (orchestrationInput) => this.maybeAlignTaskStatus(orchestrationInput),
+      getRecentToolFailures: (id) => this.getRecentToolFailures(id),
+      getRecentToolOutputDistillations: (id) => this.getRecentToolOutputDistillationsBlock(id),
+      getTaskState: (id) => this.getTaskState(id),
+      buildTaskStateBlock: (state) => this.buildTaskStateBlock(state),
+      prepareSkillDispatch: (dispatchInput) => this.prepareSkillDispatch(dispatchInput),
+      buildSkillCandidateBlock: (selected) => this.buildSkillCandidateBlock(selected),
+      buildSkillDispatchGateBlock: (decision) => this.buildSkillDispatchGateBlock(decision),
+      registerContextInjection: (id, registerInput) =>
+        this.registerContextInjection(id, registerInput),
+      recordEvent: (eventInput) => this.recordEvent(eventInput),
+      planContextInjection: (id, tokenBudget) => this.contextInjection.plan(id, tokenBudget),
+      commitContextInjection: (id, consumedKeys) => this.contextInjection.commit(id, consumedKeys),
+      planBudgetInjection: (id, inputText, budgetUsage) =>
+        this.contextBudget.planInjection(id, inputText, budgetUsage),
+      buildInjectionScopeKey: (id, scopeId) => this.buildInjectionScopeKey(id, scopeId),
+      setReservedTokens: (scopeKey, tokens) =>
+        this.sessionState.reservedContextInjectionTokensByScope.set(scopeKey, tokens),
+      getLastInjectedFingerprint: (scopeKey) =>
+        this.sessionState.lastInjectedContextFingerprintBySession.get(scopeKey),
+      setLastInjectedFingerprint: (scopeKey, fingerprint) =>
+        this.sessionState.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint),
+      getCurrentTurn: (id) => this.getCurrentTurn(id),
     };
   }
 
@@ -276,7 +314,7 @@ export class ContextService {
     return finalized;
   }
 
-  planSupplementalContextInjection(
+  appendSupplementalContextInjection(
     sessionId: string,
     inputText: string,
     usage?: ContextBudgetUsage,
@@ -289,30 +327,26 @@ export class ContextService {
     truncated: boolean;
     droppedReason?: "hard_limit" | "budget_exhausted";
   } {
-    return planSupplementalContextInjection(
+    const plan = planSupplementalContextInjection(
       this.contextSupplementalBudgetDeps,
       sessionId,
       inputText,
       usage,
       injectionScopeId,
     );
+    if (plan.accepted && plan.finalTokens > 0) {
+      commitSupplementalContextInjection(
+        this.contextSupplementalBudgetDeps,
+        sessionId,
+        plan.finalTokens,
+        injectionScopeId,
+      );
+    }
+    return plan;
   }
 
-  commitSupplementalContextInjection(
-    sessionId: string,
-    finalTokens: number,
-    injectionScopeId?: string,
-  ): void {
-    commitSupplementalContextInjection(
-      this.contextSupplementalBudgetDeps,
-      sessionId,
-      finalTokens,
-      injectionScopeId,
-    );
-  }
-
-  shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean {
-    return this.contextPressure.shouldRequestCompaction(sessionId, usage);
+  checkAndRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean {
+    return this.contextPressure.checkAndRequestCompaction(sessionId, usage);
   }
 
   requestCompaction(
@@ -371,46 +405,12 @@ export class ContextService {
     finalTokens: number;
     truncated: boolean;
   } {
-    return buildContextInjectionOrchestrated(
-      {
-        cwd: this.cwd,
-        maxInjectionTokens: this.config.infrastructure.contextBudget.maxInjectionTokens,
-        isContextBudgetEnabled: () => this.isContextBudgetEnabled(),
-        getToolFailureInjectionConfig: () => this.config.infrastructure.toolFailureInjection,
-        sanitizeInput: (text) => this.sanitizeInput(text),
-        getTruthState: (id) => this.getTruthState(id),
-        maybeAlignTaskStatus: (orchestrationInput) => this.maybeAlignTaskStatus(orchestrationInput),
-        getRecentToolFailures: (id) => this.getRecentToolFailures(id),
-        getRecentToolOutputDistillations: (id) => this.getRecentToolOutputDistillationsBlock(id),
-        getTaskState: (id) => this.getTaskState(id),
-        buildTaskStateBlock: (state) => this.buildTaskStateBlock(state),
-        prepareSkillDispatch: (dispatchInput) => this.prepareSkillDispatch(dispatchInput),
-        buildSkillCandidateBlock: (selected) => this.buildSkillCandidateBlock(selected),
-        buildSkillDispatchGateBlock: (decision) => this.buildSkillDispatchGateBlock(decision),
-        registerContextInjection: (id, registerInput) =>
-          this.registerContextInjection(id, registerInput),
-        recordEvent: (eventInput) => this.recordEvent(eventInput),
-        planContextInjection: (id, tokenBudget) => this.contextInjection.plan(id, tokenBudget),
-        commitContextInjection: (id, consumedKeys) =>
-          this.contextInjection.commit(id, consumedKeys),
-        planBudgetInjection: (id, inputText, budgetUsage) =>
-          this.contextBudget.planInjection(id, inputText, budgetUsage),
-        buildInjectionScopeKey: (id, scopeId) => this.buildInjectionScopeKey(id, scopeId),
-        setReservedTokens: (scopeKey, tokens) =>
-          this.sessionState.reservedContextInjectionTokensByScope.set(scopeKey, tokens),
-        getLastInjectedFingerprint: (scopeKey) =>
-          this.sessionState.lastInjectedContextFingerprintBySession.get(scopeKey),
-        setLastInjectedFingerprint: (scopeKey, fingerprint) =>
-          this.sessionState.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint),
-        getCurrentTurn: (id) => this.getCurrentTurn(id),
-      },
-      {
-        sessionId,
-        prompt,
-        usage,
-        injectionScopeId,
-      },
-    );
+    return buildContextInjectionOrchestrated(this.contextInjectionOrchestratorDeps, {
+      sessionId,
+      prompt,
+      usage,
+      injectionScopeId,
+    });
   }
 
   private getRecentToolFailures(sessionId: string): ToolFailureEntry[] {

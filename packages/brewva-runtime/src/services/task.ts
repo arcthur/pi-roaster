@@ -36,6 +36,7 @@ export interface TaskServiceOptions {
   config: BrewvaConfig;
   isContextBudgetEnabled: RuntimeCallback<[], boolean>;
   getTaskState: RuntimeCallback<[sessionId: string], TaskState>;
+  getTruthState: RuntimeCallback<[sessionId: string], TruthState>;
   evaluateCompletion: RuntimeCallback<
     [sessionId: string, level?: VerificationLevel],
     VerificationReport
@@ -59,6 +60,7 @@ export class TaskService {
   private readonly config: BrewvaConfig;
   private readonly isContextBudgetEnabled: () => boolean;
   private readonly getTaskState: (sessionId: string) => TaskState;
+  private readonly getTruthState: (sessionId: string) => TruthState;
   private readonly evaluateCompletion: (
     sessionId: string,
     level?: VerificationLevel,
@@ -69,8 +71,17 @@ export class TaskService {
     this.config = options.config;
     this.isContextBudgetEnabled = options.isContextBudgetEnabled;
     this.getTaskState = options.getTaskState;
+    this.getTruthState = options.getTruthState;
     this.evaluateCompletion = options.evaluateCompletion;
     this.recordEvent = options.recordEvent;
+  }
+
+  private alignTaskStatusAfterMutation(sessionId: string): void {
+    this.maybeAlignTaskStatus({
+      sessionId,
+      promptText: "",
+      truthState: this.getTruthState(sessionId),
+    });
   }
 
   private isSameTaskStatus(left: TaskStatus | undefined, right: TaskStatus): boolean {
@@ -197,6 +208,7 @@ export class TaskService {
         spec: normalized,
       },
     });
+    this.alignTaskStatusAfterMutation(sessionId);
   }
 
   addTaskItem(
@@ -218,6 +230,7 @@ export class TaskService {
       type: TASK_EVENT_TYPE,
       payload,
     });
+    this.alignTaskStatusAfterMutation(sessionId);
     return { ok: true, itemId: payload.item.id };
   }
 
@@ -243,6 +256,7 @@ export class TaskService {
       type: TASK_EVENT_TYPE,
       payload,
     });
+    this.alignTaskStatusAfterMutation(sessionId);
     return { ok: true };
   }
 
@@ -271,6 +285,7 @@ export class TaskService {
       type: TASK_EVENT_TYPE,
       payload,
     });
+    this.alignTaskStatusAfterMutation(sessionId);
     return { ok: true, blockerId: payload.blocker.id };
   }
 
@@ -284,6 +299,7 @@ export class TaskService {
       type: TASK_EVENT_TYPE,
       payload,
     });
+    this.alignTaskStatusAfterMutation(sessionId);
     return { ok: true };
   }
 }

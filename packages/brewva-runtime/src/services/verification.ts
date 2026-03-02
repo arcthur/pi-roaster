@@ -8,6 +8,7 @@ import {
   cognitiveUsagePayload,
   normalizeCognitiveUsage,
 } from "../cognitive/usage.js";
+import { VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE } from "../events/event-types.js";
 import type {
   BrewvaConfig,
   TaskState,
@@ -319,7 +320,7 @@ export class VerificationService {
 
     this.recordEvent({
       sessionId,
-      type: "verification_outcome_recorded",
+      type: VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE,
       payload: {
         schema: "brewva.verification.outcome.v1",
         level,

@@ -5,7 +5,6 @@ export type VerificationLevel = "quick" | "standard" | "strict";
 export type SkillTier = "base" | "pack" | "project";
 export type SkillCostHint = "low" | "medium" | "high";
 export type SkillDispatchMode = "suggest" | "gate" | "auto";
-export type SkillTriggerNegativeScope = "intent" | "topic";
 
 export interface SkillDispatchPolicy {
   gateThreshold: number;
@@ -13,24 +12,11 @@ export interface SkillDispatchPolicy {
   defaultMode: SkillDispatchMode;
 }
 
-export interface SkillTriggerNegativeRule {
-  scope: SkillTriggerNegativeScope;
-  terms: string[];
-}
-
-export interface SkillTriggerPolicy {
-  intents: string[];
-  topics: string[];
-  phrases: string[];
-  negatives: SkillTriggerNegativeRule[];
-}
-
 export interface SkillContract {
   name: string;
   tier: SkillTier;
   tags: string[];
   antiTags?: string[];
-  triggers?: SkillTriggerPolicy;
   dispatch?: SkillDispatchPolicy;
   tools: {
     required: string[];
@@ -79,7 +65,6 @@ export interface SkillsIndexEntry {
   stability: "experimental" | "stable" | "deprecated";
   composableWith: string[];
   consumes: string[];
-  triggers?: SkillTriggerPolicy;
   dispatch?: SkillDispatchPolicy;
 }
 
@@ -94,24 +79,9 @@ export interface SkillSelectorConfig {
   k: number;
 }
 
-export type SkillSelectionSignal =
-  | "name_match"
-  | "intent_match"
-  | "intent_body_match"
-  | "phrase_match"
-  | "tag_match"
-  | "anti_tag_penalty"
-  | "cost_adjustment";
+export type SkillSelectionSignal = "semantic_match";
 
-export const SKILL_SELECTION_SIGNALS: SkillSelectionSignal[] = [
-  "name_match",
-  "intent_match",
-  "intent_body_match",
-  "phrase_match",
-  "tag_match",
-  "anti_tag_penalty",
-  "cost_adjustment",
-];
+export const SKILL_SELECTION_SIGNALS: SkillSelectionSignal[] = ["semantic_match"];
 
 export interface SkillSelectionBreakdownEntry {
   signal: SkillSelectionSignal;
@@ -537,6 +507,11 @@ export interface BrewvaConfig {
       maxEntries: number;
       maxOutputChars: number;
     };
+    toolOutputDistillationInjection: {
+      enabled: boolean;
+      maxEntries: number;
+      maxOutputChars: number;
+    };
     interruptRecovery: {
       enabled: boolean;
       gracefulTimeoutMs: number;
@@ -603,6 +578,7 @@ export interface BrewvaConfigFile {
       | "events"
       | "contextBudget"
       | "toolFailureInjection"
+      | "toolOutputDistillationInjection"
       | "interruptRecovery"
       | "costTracking"
       | "turnWal"
@@ -611,6 +587,9 @@ export interface BrewvaConfigFile {
     events?: Partial<BrewvaConfig["infrastructure"]["events"]>;
     contextBudget?: DeepPartial<BrewvaConfig["infrastructure"]["contextBudget"]>;
     toolFailureInjection?: Partial<BrewvaConfig["infrastructure"]["toolFailureInjection"]>;
+    toolOutputDistillationInjection?: Partial<
+      BrewvaConfig["infrastructure"]["toolOutputDistillationInjection"]
+    >;
     interruptRecovery?: Partial<BrewvaConfig["infrastructure"]["interruptRecovery"]>;
     costTracking?: Partial<BrewvaConfig["infrastructure"]["costTracking"]>;
     turnWal?: Partial<BrewvaConfig["infrastructure"]["turnWal"]>;

@@ -1,3 +1,4 @@
+import { TOOL_RESULT_RECORDED_EVENT_TYPE } from "../events/event-types.js";
 import { buildLedgerDigest } from "../ledger/digest.js";
 import type { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { formatLedgerRows } from "../ledger/query.js";
@@ -8,6 +9,7 @@ import {
 import { syncTruthFromToolResult } from "../truth/sync.js";
 import type {
   BrewvaConfig,
+  EvidenceLedgerRow,
   EvidenceQuery,
   SkillDocument,
   TaskState,
@@ -213,7 +215,7 @@ export class LedgerService {
     this.verification.stateStore.appendEvidence(input.sessionId, evidence);
     this.recordEvent({
       sessionId: input.sessionId,
-      type: "tool_result_recorded",
+      type: TOOL_RESULT_RECORDED_EVENT_TYPE,
       turn,
       payload: {
         toolName: input.toolName,
@@ -258,6 +260,18 @@ export class LedgerService {
   queryLedger(sessionId: string, query: EvidenceQuery): string {
     const rows = this.ledger.query(sessionId, query);
     return formatLedgerRows(rows);
+  }
+
+  listLedgerRows(sessionId?: string): EvidenceLedgerRow[] {
+    return this.ledger.list(sessionId);
+  }
+
+  verifyLedgerChain(sessionId: string): { valid: boolean; reason?: string } {
+    return this.ledger.verifyChain(sessionId);
+  }
+
+  getLedgerPath(): string {
+    return this.ledger.path;
   }
 
   private maybeCompactLedger(sessionId: string, turn: number): void {

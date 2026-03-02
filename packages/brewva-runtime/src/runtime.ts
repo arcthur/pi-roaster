@@ -15,6 +15,7 @@ import { normalizeAgentId } from "./context/identity.js";
 import { ContextInjectionCollector } from "./context/injection.js";
 import type { ToolOutputDistillationEntry } from "./context/tool-output-distilled.js";
 import { SessionCostTracker } from "./cost/tracker.js";
+import { TOOL_OUTPUT_DISTILLED_EVENT_TYPE } from "./events/event-types.js";
 import { BrewvaEventStore } from "./events/store.js";
 import type { ExternalRecallPort } from "./external-recall/types.js";
 import { EvidenceLedger } from "./ledger/evidence-ledger.js";
@@ -48,7 +49,6 @@ import { TruthService } from "./services/truth.js";
 import { VerificationService } from "./services/verification.js";
 import { resolveSkillDispatchDecision } from "./skills/dispatch.js";
 import { SkillRegistry } from "./skills/registry.js";
-import { selectTopKSkills } from "./skills/selector.js";
 import { FileChangeTracker } from "./state/file-change-tracker.js";
 import { TurnReplayEngine } from "./tape/replay-engine.js";
 import type {
@@ -57,6 +57,7 @@ import type {
   ContextPressureStatus,
   ContextCompactionGateStatus,
   ContextBudgetUsage,
+  EvidenceLedgerRow,
   EvidenceQuery,
   ParallelAcquireResult,
   RollbackResult,
@@ -157,7 +158,8 @@ export class BrewvaRuntime {
     refresh(): void;
     list(): SkillDocument[];
     get(name: string): SkillDocument | undefined;
-    select(message: string): SkillSelection[];
+    setNextSelection(sessionId: string, selected: SkillSelection[]): void;
+    clearNextSelection(sessionId: string): SkillSelection[] | undefined;
     prepareDispatch(sessionId: string, message: string): SkillDispatchDecision;
     getPendingDispatch(sessionId: string): SkillDispatchDecision | undefined;
     clearPendingDispatch(sessionId: string): SkillDispatchDecision | undefined;
@@ -217,7 +219,7 @@ export class BrewvaRuntime {
       finalTokens: number;
       truncated: boolean;
     }>;
-    planSupplementalInjection(
+    appendSupplementalInjection(
       sessionId: string,
       inputText: string,
       usage?: ContextBudgetUsage,
@@ -230,12 +232,7 @@ export class BrewvaRuntime {
       truncated: boolean;
       droppedReason?: "hard_limit" | "budget_exhausted";
     };
-    commitSupplementalInjection(
-      sessionId: string,
-      finalTokens: number,
-      injectionScopeId?: string,
-    ): void;
-    shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean;
+    checkAndRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean;
     requestCompaction(sessionId: string, reason: ContextCompactionReason): void;
     getPendingCompactionReason(sessionId: string): ContextCompactionReason | null;
     getCompactionInstructions(): string;
@@ -318,6 +315,9 @@ export class BrewvaRuntime {
     getState(sessionId: string): TruthState;
     getLedgerDigest(sessionId: string): string;
     queryLedger(sessionId: string, query: EvidenceQuery): string;
+    listLedgerRows(sessionId?: string): EvidenceLedgerRow[];
+    verifyLedgerChain(sessionId: string): { valid: boolean; reason?: string };
+    getLedgerPath(): string;
     upsertFact(
       sessionId: string,
       input: {
@@ -444,13 +444,13 @@ export class BrewvaRuntime {
     clearState(sessionId: string): void;
   };
 
-  readonly ledger: EvidenceLedger;
-  readonly parallel: ParallelBudgetManager;
-  readonly parallelResults: ParallelResultStore;
-  readonly contextBudget: ContextBudgetManager;
-  readonly contextInjection: ContextInjectionCollector;
-  readonly fileChanges: FileChangeTracker;
-  readonly costTracker: SessionCostTracker;
+  private readonly ledger: EvidenceLedger;
+  private readonly parallel: ParallelBudgetManager;
+  private readonly parallelResults: ParallelResultStore;
+  private readonly contextBudget: ContextBudgetManager;
+  private readonly contextInjection: ContextInjectionCollector;
+  private readonly fileChanges: FileChangeTracker;
+  private readonly costTracker: SessionCostTracker;
 
   private readonly skillRegistry: SkillRegistry;
   private readonly verificationGate: VerificationGate;
@@ -635,6 +635,7 @@ export class BrewvaRuntime {
       config: this.config,
       isContextBudgetEnabled: () => this.isContextBudgetEnabled(),
       getTaskState: (sessionId) => this.getTaskState(sessionId),
+      getTruthState: (sessionId) => this.getTruthState(sessionId),
       evaluateCompletion: (sessionId, level) => this.evaluateCompletion(sessionId, level),
       recordEvent: (input) => this.recordEvent(input),
     });
@@ -862,7 +863,8 @@ export class BrewvaRuntime {
         },
         list: () => this.skillRegistry.list(),
         get: (name) => this.skillRegistry.get(name),
-        select: (message) => this.selectSkills(message),
+        setNextSelection: (sessionId, selected) => this.setNextSkillSelections(sessionId, selected),
+        clearNextSelection: (sessionId) => this.clearNextSkillSelections(sessionId),
         prepareDispatch: (sessionId, message) =>
           this.prepareSkillDispatch({
             sessionId,
@@ -908,21 +910,15 @@ export class BrewvaRuntime {
           this.contextService.checkContextCompactionGate(sessionId, toolName, usage),
         buildInjection: (sessionId, prompt, usage, injectionScopeId) =>
           this.contextService.buildContextInjection(sessionId, prompt, usage, injectionScopeId),
-        planSupplementalInjection: (sessionId, inputText, usage, injectionScopeId) =>
-          this.contextService.planSupplementalContextInjection(
+        appendSupplementalInjection: (sessionId, inputText, usage, injectionScopeId) =>
+          this.contextService.appendSupplementalContextInjection(
             sessionId,
             inputText,
             usage,
             injectionScopeId,
           ),
-        commitSupplementalInjection: (sessionId, finalTokens, injectionScopeId) =>
-          this.contextService.commitSupplementalContextInjection(
-            sessionId,
-            finalTokens,
-            injectionScopeId,
-          ),
-        shouldRequestCompaction: (sessionId, usage) =>
-          this.contextService.shouldRequestCompaction(sessionId, usage),
+        checkAndRequestCompaction: (sessionId, usage) =>
+          this.contextService.checkAndRequestCompaction(sessionId, usage),
         requestCompaction: (sessionId, reason) =>
           this.contextService.requestCompaction(sessionId, reason),
         getPendingCompactionReason: (sessionId) =>
@@ -964,6 +960,9 @@ export class BrewvaRuntime {
         getState: (sessionId) => this.turnReplay.getTruthState(sessionId),
         getLedgerDigest: (sessionId) => this.ledgerService.getLedgerDigest(sessionId),
         queryLedger: (sessionId, query) => this.ledgerService.queryLedger(sessionId, query),
+        listLedgerRows: (sessionId) => this.ledgerService.listLedgerRows(sessionId),
+        verifyLedgerChain: (sessionId) => this.ledgerService.verifyLedgerChain(sessionId),
+        getLedgerPath: () => this.ledgerService.getLedgerPath(),
         upsertFact: (sessionId, input) => this.truthService.upsertTruthFact(sessionId, input),
         resolveFact: (sessionId, truthFactId) =>
           this.truthService.resolveTruthFact(sessionId, truthFactId),
@@ -1047,9 +1046,53 @@ export class BrewvaRuntime {
     };
   }
 
-  private selectSkills(message: string): SkillSelection[] {
-    const input = this.config.security.sanitizeContext ? sanitizeContextText(message) : message;
-    return selectTopKSkills(input, this.skillRegistry.buildIndex(), this.config.skills.selector.k);
+  private normalizeSkillSelections(selected: SkillSelection[]): SkillSelection[] {
+    return selected
+      .filter(
+        (entry) =>
+          typeof entry.name === "string" &&
+          entry.name.trim().length > 0 &&
+          typeof entry.score === "number" &&
+          Number.isFinite(entry.score) &&
+          entry.score > 0,
+      )
+      .map((entry) => ({
+        name: entry.name.trim(),
+        score: Math.max(1, Math.floor(entry.score)),
+        reason: typeof entry.reason === "string" ? entry.reason : "",
+        breakdown: Array.isArray(entry.breakdown) ? entry.breakdown : [],
+      }))
+      .toSorted((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, Math.max(1, this.config.skills.selector.k));
+  }
+
+  private setNextSkillSelections(sessionId: string, selected: SkillSelection[]): void {
+    this.sessionState.nextSkillSelectionsBySession.set(
+      sessionId,
+      this.normalizeSkillSelections(selected),
+    );
+  }
+
+  private clearNextSkillSelections(sessionId: string): SkillSelection[] | undefined {
+    const selected = this.sessionState.nextSkillSelectionsBySession.get(sessionId);
+    this.sessionState.nextSkillSelectionsBySession.delete(sessionId);
+    return selected;
+  }
+
+  private consumeNextSkillSelections(sessionId: string): SkillSelection[] | undefined {
+    if (!this.sessionState.nextSkillSelectionsBySession.has(sessionId)) {
+      return undefined;
+    }
+    return this.clearNextSkillSelections(sessionId) ?? [];
+  }
+
+  private selectSkillsForDispatch(sessionId: string, message: string): SkillSelection[] {
+    void message;
+    const preselected = this.consumeNextSkillSelections(sessionId);
+    return preselected ?? [];
   }
 
   private prepareSkillDispatch(input: {
@@ -1057,7 +1100,7 @@ export class BrewvaRuntime {
     promptText: string;
     turn: number;
   }): SkillDispatchDecision {
-    const selected = this.selectSkills(input.promptText);
+    const selected = this.selectSkillsForDispatch(input.sessionId, input.promptText);
     const decision = resolveSkillDispatchDecision({
       selected,
       index: this.skillRegistry.buildIndex(),
@@ -1186,7 +1229,7 @@ export class BrewvaRuntime {
   ): ToolOutputDistillationEntry[] {
     const limit = Number.isFinite(maxEntries) ? Math.max(1, Math.floor(maxEntries)) : 12;
     const candidateEvents = this.eventStore.list(sessionId, {
-      type: "tool_output_distilled",
+      type: TOOL_OUTPUT_DISTILLED_EVENT_TYPE,
       last: Math.max(limit * 4, limit),
     });
 

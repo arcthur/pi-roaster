@@ -6,10 +6,6 @@ stability: stable
 tier: pack
 tags: [skill, skills, creator, authoring, scaffold, packaging, workflow]
 anti_tags: []
-triggers:
-  intents: ["create skill","update skill","scaffold skill package","design skill contract"]
-  topics: ["skill authoring","skill contract","packaging"]
-  phrases: ["create a skill","skill scaffold"]
 tools:
   required: [read]
   optional: [grep, exec, skill_complete]

@@ -128,8 +128,8 @@ describe("Tool failure context injection", () => {
   test("respects distilled output maxEntries and maxOutputChars from config", async () => {
     const workspace = createWorkspace("tool-output-distilled-limits");
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
-    config.infrastructure.toolFailureInjection.maxEntries = 1;
-    config.infrastructure.toolFailureInjection.maxOutputChars = 36;
+    config.infrastructure.toolOutputDistillationInjection.maxEntries = 1;
+    config.infrastructure.toolOutputDistillationInjection.maxOutputChars = 36;
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "tool-output-distilled-limits-1";
 
@@ -188,7 +188,7 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const row = runtime.ledger.list(sessionId).at(-1);
+    const row = runtime.truth.listLedgerRows(sessionId).at(-1);
     const metadata = row?.metadata as
       | {
           brewvaToolFailureContext?: {
@@ -270,7 +270,7 @@ describe("Tool failure context injection", () => {
       success: false,
     });
 
-    const row = runtime.ledger.list(sessionId).at(-1);
+    const row = runtime.truth.listLedgerRows(sessionId).at(-1);
     const metadata = row?.metadata as
       | {
           brewvaToolFailureContext?: {

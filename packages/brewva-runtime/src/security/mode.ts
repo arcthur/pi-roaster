@@ -14,6 +14,7 @@ export interface EffectiveSecurityPolicy {
 export function resolveSecurityPolicy(
   mode: BrewvaConfig["security"]["mode"],
 ): EffectiveSecurityPolicy {
+  // tools.denied is a hard contract boundary, so we enforce it consistently across all security modes.
   if (mode === "strict") {
     return {
       enforceDeniedTools: true,

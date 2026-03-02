@@ -6,10 +6,6 @@ stability: stable
 tier: pack
 tags: [github, gh, pr, issue, ci, review]
 anti_tags: [local-git-only]
-triggers:
-  intents: ["operate github","manage pr","inspect ci","query repo metadata"]
-  topics: ["pull request","issue lifecycle","github actions"]
-  phrases: ["github cli","ci checks"]
 tools:
   required: [exec, read]
   optional: [grep, ledger_query, skill_complete]

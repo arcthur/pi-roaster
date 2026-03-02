@@ -180,7 +180,7 @@ describe("exec/process tool flow", () => {
       mode: "standard",
       backend: "sandbox",
       fallbackToHost: true,
-      serverUrl: "http://127.0.0.1:1",
+      serverUrl: "http://127.0.0.1:2",
     });
     const execTool = createExecTool({ runtime });
     const sessionId = "s13-exec-fallback-host";
@@ -209,6 +209,46 @@ describe("exec/process tool flow", () => {
     expect(typeof redacted).toBe("string");
     expect((redacted as string).includes("<redacted>")).toBe(true);
     expect((redacted as string).includes("super-secret-token")).toBe(false);
+  });
+
+  test("standard mode caches sandbox failures and skips immediate sandbox retries", async () => {
+    const { runtime, events } = createRuntimeForExecTests({
+      mode: "standard",
+      backend: "sandbox",
+      fallbackToHost: true,
+      serverUrl: "http://127.0.0.1:1",
+    });
+    const execTool = createExecTool({ runtime });
+    const sessionId = "s13-exec-fallback-cached";
+
+    const first = await execTool.execute(
+      "tc-exec-fallback-cached-1",
+      {
+        command: "echo first-fallback",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    expect(extractTextContent(first).includes("first-fallback")).toBe(true);
+
+    const second = await execTool.execute(
+      "tc-exec-fallback-cached-2",
+      {
+        command: "echo second-fallback",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    expect(extractTextContent(second).includes("second-fallback")).toBe(true);
+
+    const sandboxErrors = events.filter((event) => event.type === "exec_sandbox_error");
+    expect(sandboxErrors).toHaveLength(1);
+    const fallbackEvents = events.filter((event) => event.type === "exec_fallback_host");
+    expect(fallbackEvents).toHaveLength(2);
+    const secondFallbackPayload = fallbackEvents[1]?.payload;
+    expect(secondFallbackPayload?.reason).toBe("sandbox_unavailable_cached");
   });
 
   test("strict mode fails closed when sandbox backend is unavailable", async () => {

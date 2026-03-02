@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { basename, resolve } from "node:path";
-import { DEFAULT_BREWVA_CONFIG, type BrewvaConfig } from "@brewva/brewva-runtime";
+import {
+  DEFAULT_BREWVA_CONFIG,
+  EXEC_BLOCKED_ISOLATION_EVENT_TYPE,
+  EXEC_FALLBACK_HOST_EVENT_TYPE,
+  EXEC_ROUTED_EVENT_TYPE,
+  EXEC_SANDBOX_ERROR_EVENT_TYPE,
+  type BrewvaConfig,
+} from "@brewva/brewva-runtime";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
@@ -32,6 +39,7 @@ const SHELL_ARGS = ["-lc"];
 const DEFAULT_SANDBOX_WORKDIR = "/";
 const SANDBOX_STOP_TIMEOUT_MS = 5_000;
 const DEFAULT_AUDIT_COMMAND_PREVIEW_LENGTH = 240;
+const SANDBOX_FAILURE_BACKOFF_MS = 60_000;
 const VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const DENY_LIST_BEST_EFFORT_MESSAGE =
   "security.execution.commandDenyList is best-effort and must not be treated as a hard security boundary.";
@@ -47,10 +55,10 @@ type SandboxConfig = BrewvaConfig["security"]["execution"]["sandbox"];
 type MicrosandboxSdk = Pick<typeof import("microsandbox"), "NodeSandbox">;
 
 type RecordedExecEvent =
-  | "exec_routed"
-  | "exec_fallback_host"
-  | "exec_blocked_isolation"
-  | "exec_sandbox_error";
+  | typeof EXEC_ROUTED_EVENT_TYPE
+  | typeof EXEC_FALLBACK_HOST_EVENT_TYPE
+  | typeof EXEC_BLOCKED_ISOLATION_EVENT_TYPE
+  | typeof EXEC_SANDBOX_ERROR_EVENT_TYPE;
 
 interface ResolvedExecutionPolicy {
   mode: SecurityMode;
@@ -88,6 +96,7 @@ interface SandboxExecutionResult {
 }
 
 let microsandboxSdkPromise: Promise<MicrosandboxSdk> | null = null;
+const sandboxBackoffUntilByTarget = new Map<string, number>();
 
 class SandboxCommandFailedError extends Error {
   readonly exitCode: number;
@@ -470,6 +479,43 @@ function resolvePreferredBackend(
     return backendPreference;
   }
   return mode === "permissive" ? "host" : "sandbox";
+}
+
+function resolveSandboxBackoffKey(policy: ResolvedExecutionPolicy): string {
+  const serverUrl = normalizeOptionalString(policy.sandbox.serverUrl) ?? "(default-server)";
+  const image = normalizeOptionalString(policy.sandbox.defaultImage) ?? "(default-image)";
+  return `${serverUrl}|${image}`;
+}
+
+function getSandboxBackoffUntil(policy: ResolvedExecutionPolicy): number | null {
+  const key = resolveSandboxBackoffKey(policy);
+  const backoffUntil = sandboxBackoffUntilByTarget.get(key);
+  if (typeof backoffUntil !== "number" || !Number.isFinite(backoffUntil)) {
+    sandboxBackoffUntilByTarget.delete(key);
+    return null;
+  }
+  return backoffUntil;
+}
+
+function getRemainingSandboxBackoffMs(policy: ResolvedExecutionPolicy, now: number): number {
+  const backoffUntil = getSandboxBackoffUntil(policy);
+  if (backoffUntil === null) return 0;
+  const remaining = backoffUntil - now;
+  if (remaining <= 0) {
+    sandboxBackoffUntilByTarget.delete(resolveSandboxBackoffKey(policy));
+    return 0;
+  }
+  return remaining;
+}
+
+function markSandboxBackoff(policy: ResolvedExecutionPolicy, now: number): number {
+  const backoffUntil = now + SANDBOX_FAILURE_BACKOFF_MS;
+  sandboxBackoffUntilByTarget.set(resolveSandboxBackoffKey(policy), backoffUntil);
+  return backoffUntil;
+}
+
+function clearSandboxBackoff(policy: ResolvedExecutionPolicy): void {
+  sandboxBackoffUntilByTarget.delete(resolveSandboxBackoffKey(policy));
 }
 
 function redactCommandForAudit(command: string): string {
@@ -881,7 +927,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         recordExecEvent(
           options?.runtime,
           ownerSessionId,
-          "exec_blocked_isolation",
+          EXEC_BLOCKED_ISOLATION_EVENT_TYPE,
           buildExecAuditPayload({
             toolCallId,
             policy,
@@ -901,7 +947,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
       recordExecEvent(
         options?.runtime,
         ownerSessionId,
-        "exec_routed",
+        EXEC_ROUTED_EVENT_TYPE,
         buildExecAuditPayload({
           toolCallId,
           policy,
@@ -934,13 +980,35 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         return await runHost();
       }
 
+      if (policy.allowHostFallback) {
+        const now = Date.now();
+        const backoffMsRemaining = getRemainingSandboxBackoffMs(policy, now);
+        if (backoffMsRemaining > 0) {
+          recordExecEvent(
+            options?.runtime,
+            ownerSessionId,
+            EXEC_FALLBACK_HOST_EVENT_TYPE,
+            buildExecAuditPayload({
+              toolCallId,
+              policy,
+              command,
+              payload: {
+                reason: "sandbox_unavailable_cached",
+                backoffMsRemaining,
+              },
+            }),
+          );
+          return await runHost();
+        }
+      }
+
       if (background) {
         const reason = "sandbox backend does not support background process mode";
         if (policy.allowHostFallback) {
           recordExecEvent(
             options?.runtime,
             ownerSessionId,
-            "exec_fallback_host",
+            EXEC_FALLBACK_HOST_EVENT_TYPE,
             buildExecAuditPayload({
               toolCallId,
               policy,
@@ -954,7 +1022,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         recordExecEvent(
           options?.runtime,
           ownerSessionId,
-          "exec_blocked_isolation",
+          EXEC_BLOCKED_ISOLATION_EVENT_TYPE,
           buildExecAuditPayload({
             toolCallId,
             policy,
@@ -975,6 +1043,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
           requestedTimeoutSec: timeoutSec,
           signal,
         });
+        clearSandboxBackoff(policy);
         return textResult(result.output, {
           status: "completed",
           exitCode: result.exitCode,
@@ -997,10 +1066,12 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         }
 
         const message = error instanceof Error ? error.message : String(error);
+        const now = Date.now();
+        const backoffUntil = policy.allowHostFallback ? markSandboxBackoff(policy, now) : null;
         recordExecEvent(
           options?.runtime,
           ownerSessionId,
-          "exec_sandbox_error",
+          EXEC_SANDBOX_ERROR_EVENT_TYPE,
           buildExecAuditPayload({
             toolCallId,
             policy,
@@ -1015,7 +1086,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
           recordExecEvent(
             options?.runtime,
             ownerSessionId,
-            "exec_fallback_host",
+            EXEC_FALLBACK_HOST_EVENT_TYPE,
             buildExecAuditPayload({
               toolCallId,
               policy,
@@ -1023,6 +1094,8 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
               payload: {
                 reason: "sandbox_execution_error",
                 error: message,
+                backoffMs: SANDBOX_FAILURE_BACKOFF_MS,
+                backoffUntil,
               },
             }),
           );
@@ -1032,7 +1105,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         recordExecEvent(
           options?.runtime,
           ownerSessionId,
-          "exec_blocked_isolation",
+          EXEC_BLOCKED_ISOLATION_EVENT_TYPE,
           buildExecAuditPayload({
             toolCallId,
             policy,

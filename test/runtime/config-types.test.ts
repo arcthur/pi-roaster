@@ -20,11 +20,17 @@ describe("BrewvaConfigFile typing", () => {
           enabled: false,
           maxEntries: 5,
         },
+        toolOutputDistillationInjection: {
+          enabled: true,
+          maxEntries: 2,
+          maxOutputChars: 120,
+        },
       },
     };
 
     expect(config.memory?.cognitive?.mode).toBe("active");
     expect(config.memory?.global?.enabled).toBe(true);
     expect(config.infrastructure?.toolFailureInjection?.enabled).toBe(false);
+    expect(config.infrastructure?.toolOutputDistillationInjection?.maxEntries).toBe(2);
   });
 });

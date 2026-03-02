@@ -6,11 +6,6 @@ stability: stable
 tier: project
 tags: [project, migration, runtime, diagnostics, verification, delivery, context-arena]
 anti_tags: []
-triggers:
-  intents:
-    ["brewva project analysis", "runtime diagnosis", "migration planning", "delivery orchestration"]
-  topics: ["brewva runtime", "context arena", "allocator", "delivery"]
-  phrases: ["brewva runtime", "project orchestration"]
 tools:
   required: [read, grep]
   optional:

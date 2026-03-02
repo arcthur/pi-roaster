@@ -23,7 +23,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     commands: {
       "type-check": "bun run typecheck",
       tests: "bun test",
-      lint: "bunx tsc --noEmit",
+      lint: "bun run lint",
       "diff-review": "git diff --stat",
     },
   },
@@ -137,6 +137,11 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       },
     },
     toolFailureInjection: {
+      enabled: true,
+      maxEntries: 3,
+      maxOutputChars: 300,
+    },
+    toolOutputDistillationInjection: {
       enabled: true,
       maxEntries: 3,
       maxOutputChars: 300,

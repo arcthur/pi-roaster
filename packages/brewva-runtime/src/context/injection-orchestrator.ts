@@ -43,6 +43,11 @@ export interface ContextInjectionOrchestratorDeps {
     maxEntries: number;
     maxOutputChars: number;
   };
+  getToolOutputDistillationInjectionConfig(): {
+    enabled: boolean;
+    maxEntries: number;
+    maxOutputChars: number;
+  };
   sanitizeInput(text: string): string;
   getTruthState(sessionId: string): TruthState;
   maybeAlignTaskStatus(input: {
@@ -160,11 +165,14 @@ export function buildContextInjection(
         content: failureBlock,
       });
     }
+  }
 
+  const toolOutputDistillationConfig = deps.getToolOutputDistillationInjectionConfig();
+  if (toolOutputDistillationConfig.enabled) {
     const distilledOutputs = deps.getRecentToolOutputDistillations(input.sessionId);
     const distilledBlock = buildRecentToolOutputDistillationBlock(distilledOutputs, {
-      maxEntries: toolFailureConfig.maxEntries,
-      maxSummaryChars: toolFailureConfig.maxOutputChars,
+      maxEntries: toolOutputDistillationConfig.maxEntries,
+      maxSummaryChars: toolOutputDistillationConfig.maxOutputChars,
     });
     if (distilledBlock) {
       deps.registerContextInjection(input.sessionId, {

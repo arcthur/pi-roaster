@@ -140,6 +140,9 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `infrastructure.toolFailureInjection.enabled`: `true`
 - `infrastructure.toolFailureInjection.maxEntries`: `3`
 - `infrastructure.toolFailureInjection.maxOutputChars`: `300`
+- `infrastructure.toolOutputDistillationInjection.enabled`: `true`
+- `infrastructure.toolOutputDistillationInjection.maxEntries`: `3`
+- `infrastructure.toolOutputDistillationInjection.maxOutputChars`: `300`
 - `infrastructure.interruptRecovery.enabled`: `true`
 - `infrastructure.interruptRecovery.gracefulTimeoutMs`: `8000`
 - `infrastructure.costTracking.enabled`: `true`
@@ -212,6 +215,7 @@ Notes:
 
 - `host fallback` applies only when the resolved backend is `sandbox`.
 - Sandbox background process mode is unsupported; with fallback disabled this is fail-closed.
+- When sandbox execution fails and host fallback is enabled, runtime applies a short backoff window before retrying sandbox (`exec_fallback_host.reason=sandbox_unavailable_cached`) to avoid repeated sandbox error churn.
 - If `exec.workdir` is omitted, sandbox execution defaults to `/` and does not inherit host runtime cwd.
 - `commandDenyList` is a best-effort UX guard and is evaluated before backend execution; the hard boundary is sandbox isolation.
 

@@ -460,6 +460,42 @@ describe("Brewva config loader normalization", () => {
     ).toBe(true);
   });
 
+  test("given tool output distillation injection config, when loading with diagnostics, then schema accepts the key", () => {
+    const workspace = createWorkspace("tool-output-distillation-schema");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          infrastructure: {
+            toolOutputDistillationInjection: {
+              enabled: false,
+              maxEntries: 2,
+              maxOutputChars: 180,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = loadBrewvaConfigWithDiagnostics({
+      cwd: workspace,
+      configPath: ".brewva/brewva.json",
+    });
+    expect(loaded.config.infrastructure.toolOutputDistillationInjection.enabled).toBe(false);
+    expect(loaded.config.infrastructure.toolOutputDistillationInjection.maxEntries).toBe(2);
+    expect(loaded.config.infrastructure.toolOutputDistillationInjection.maxOutputChars).toBe(180);
+    expect(
+      loaded.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === "config_schema_invalid" &&
+          diagnostic.message.includes('unknown property "toolOutputDistillationInjection"'),
+      ),
+    ).toBe(false);
+  });
+
   test("given global and project configs, when loading config, then project values take precedence", () => {
     const workspace = createWorkspace("layered-default");
     const xdgRoot = mkdtempSync(join(tmpdir(), "brewva-config-xdg-"));

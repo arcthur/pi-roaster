@@ -265,10 +265,6 @@ export class ContextArena {
     }
   }
 
-  resetEpoch(sessionId: string): void {
-    this.sessions.delete(sessionId);
-  }
-
   clearSession(sessionId: string): void {
     this.sessions.delete(sessionId);
   }

@@ -6,17 +6,6 @@ stability: stable
 tier: base
 tags: [explore, understand, map, discover]
 anti_tags: [apply-change]
-triggers:
-  intents:
-    [
-      "explore codebase",
-      "understand repository",
-      "locate entrypoint",
-      "discover modules",
-      "熟悉仓库",
-    ]
-  topics: ["repository structure", "entrypoints", "unknown modules", "codebase map"]
-  phrases: ["codebase exploration", "understand architecture"]
 tools:
   required: [read, grep]
   optional: [glob, ledger_query, look_at, skill_complete]

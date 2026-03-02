@@ -24,7 +24,7 @@ flowchart TD
 3. Merge results and detect patch conflicts
 4. Release slots and clear transient worker state
 
-Note: Use `BrewvaRuntime.acquireParallelSlot` to apply per-skill `maxParallel` policy (warn/enforce), not `runtime.parallel.acquire` directly.
+Note: Use `runtime.tools.acquireParallelSlot` to apply per-skill `maxParallel` policy (warn/enforce), not internal parallel managers directly.
 
 ## Code Pointers
 

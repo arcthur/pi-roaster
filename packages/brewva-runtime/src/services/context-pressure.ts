@@ -114,6 +114,7 @@ export class ContextPressureService {
     } else if (usageRatio >= compactionThresholdRatio) {
       level = "high";
     } else {
+      // Keep medium/low bands proportional to compaction pressure so signals scale with user-configured thresholds.
       const mediumThreshold = Math.max(0.5, compactionThresholdRatio * 0.75);
       if (usageRatio >= mediumThreshold) {
         level = "medium";
@@ -212,7 +213,7 @@ export class ContextPressureService {
     return { allowed: false, reason };
   }
 
-  shouldRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean {
+  checkAndRequestCompaction(sessionId: string, usage: ContextBudgetUsage | undefined): boolean {
     const decision = this.contextBudget.shouldRequestCompaction(sessionId, usage);
     if (!decision.shouldCompact) return false;
     this.requestCompaction(sessionId, decision.reason ?? "usage_threshold", decision.usage);

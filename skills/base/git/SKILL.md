@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [git, branch, commit, rebase, blame, bisect]
 anti_tags: [runtime]
-triggers:
-  intents: ["commit changes", "rebase branch", "inspect git history", "bisect regression"]
-  topics: ["branch", "commit", "rebase", "blame", "bisect"]
-  phrases: ["git history", "interactive rebase"]
 tools:
   required: [exec, read]
   optional: [grep, ledger_query, skill_complete]

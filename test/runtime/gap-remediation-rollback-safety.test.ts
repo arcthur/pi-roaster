@@ -119,7 +119,7 @@ describe("Gap remediation: rollback safety net", () => {
     expect(rollback.reason).toBe("restore_failed");
     expect(rollback.failedPaths).toContain("src/main.ts");
     expect(readFileSync(filePath, "utf8")).toBe("export const value = 2;\n");
-    expect(runtime.fileChanges.hasHistory(sessionId)).toBe(true);
+    expect(runtime.tools.resolveUndoSessionId(sessionId)).toBe(sessionId);
   });
 
   test("does not track file paths outside workspace during snapshot capture", async () => {
@@ -129,30 +129,32 @@ describe("Gap remediation: rollback safety net", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace, configPath: GAP_REMEDIATION_CONFIG_PATH });
     const sessionId = "rollback-path-traversal-1";
 
-    const outside = runtime.fileChanges.captureBeforeToolCall({
+    runtime.tools.trackCallStart({
       sessionId,
       toolCallId: "tc-outside",
       toolName: "edit",
       args: { file_path: "../outside.ts" },
     });
-    expect(outside.trackedFiles).toEqual([]);
 
-    const absoluteOutside = runtime.fileChanges.captureBeforeToolCall({
+    runtime.tools.trackCallStart({
       sessionId,
       toolCallId: "tc-abs",
       toolName: "edit",
       args: { file_path: "/etc/passwd" },
     });
-    expect(absoluteOutside.trackedFiles).toEqual([]);
 
     mkdirSync(join(workspace, "src"), { recursive: true });
-    const inside = runtime.fileChanges.captureBeforeToolCall({
+    runtime.tools.trackCallStart({
       sessionId,
       toolCallId: "tc-inside",
       toolName: "edit",
       args: { file_path: "src/inside.ts" },
     });
-    expect(inside.trackedFiles).toEqual(["src/inside.ts"]);
+
+    const snapshots = runtime.events.query(sessionId, { type: "file_snapshot_captured" });
+    expect(snapshots).toHaveLength(1);
+    const payload = snapshots[0]?.payload as { files?: string[] } | undefined;
+    expect(payload?.files).toEqual(["src/inside.ts"]);
   });
 
   test("supports cross-process undo via persisted patchset history", async () => {

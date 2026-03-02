@@ -1,5 +1,24 @@
 import { formatISO } from "date-fns";
+import {
+  EXEC_BLOCKED_ISOLATION_EVENT_TYPE,
+  EXEC_FALLBACK_HOST_EVENT_TYPE,
+  EXEC_ROUTED_EVENT_TYPE,
+  EXEC_SANDBOX_ERROR_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_FAILED_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_FINISHED_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_STARTED_EVENT_TYPE,
+  SCHEDULE_RECOVERY_DEFERRED_EVENT_TYPE,
+  SCHEDULE_RECOVERY_SUMMARY_EVENT_TYPE,
+  SCHEDULE_WAKEUP_EVENT_TYPE,
+  TOOL_OUTPUT_ARTIFACT_PERSISTED_EVENT_TYPE,
+  TOOL_OUTPUT_DISTILLED_EVENT_TYPE,
+  TOOL_OUTPUT_OBSERVED_EVENT_TYPE,
+  TOOL_RESULT_RECORDED_EVENT_TYPE,
+  VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE,
+  VERIFICATION_STATE_RESET_EVENT_TYPE,
+} from "../events/event-types.js";
 import { BrewvaEventStore } from "../events/store.js";
+import { SCHEDULE_EVENT_TYPE } from "../schedule/events.js";
 import { TAPE_ANCHOR_EVENT_TYPE, TAPE_CHECKPOINT_EVENT_TYPE } from "../tape/events.js";
 import { TASK_EVENT_TYPE } from "../task/ledger.js";
 import { TRUTH_EVENT_TYPE } from "../truth/ledger.js";
@@ -17,23 +36,23 @@ const AUDIT_EVENT_TYPES = new Set<string>([
   TAPE_CHECKPOINT_EVENT_TYPE,
   TASK_EVENT_TYPE,
   TRUTH_EVENT_TYPE,
-  "tool_result_recorded",
-  "tool_output_observed",
-  "tool_output_distilled",
-  "tool_output_artifact_persisted",
-  "verification_outcome_recorded",
-  "verification_state_reset",
-  "schedule_intent",
-  "schedule_recovery_deferred",
-  "schedule_recovery_summary",
-  "schedule_wakeup",
-  "schedule_child_session_started",
-  "schedule_child_session_finished",
-  "schedule_child_session_failed",
-  "exec_routed",
-  "exec_fallback_host",
-  "exec_blocked_isolation",
-  "exec_sandbox_error",
+  TOOL_RESULT_RECORDED_EVENT_TYPE,
+  TOOL_OUTPUT_OBSERVED_EVENT_TYPE,
+  TOOL_OUTPUT_DISTILLED_EVENT_TYPE,
+  TOOL_OUTPUT_ARTIFACT_PERSISTED_EVENT_TYPE,
+  VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE,
+  VERIFICATION_STATE_RESET_EVENT_TYPE,
+  SCHEDULE_EVENT_TYPE,
+  SCHEDULE_RECOVERY_DEFERRED_EVENT_TYPE,
+  SCHEDULE_RECOVERY_SUMMARY_EVENT_TYPE,
+  SCHEDULE_WAKEUP_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_STARTED_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_FINISHED_EVENT_TYPE,
+  SCHEDULE_CHILD_SESSION_FAILED_EVENT_TYPE,
+  EXEC_ROUTED_EVENT_TYPE,
+  EXEC_FALLBACK_HOST_EVENT_TYPE,
+  EXEC_BLOCKED_ISOLATION_EVENT_TYPE,
+  EXEC_SANDBOX_ERROR_EVENT_TYPE,
 ]);
 
 const DEBUG_EVENT_TYPES = new Set<string>([
@@ -47,6 +66,7 @@ const DEBUG_EVENT_TYPES = new Set<string>([
   "cognitive_outcome_reflection",
   "cognitive_outcome_reflection_skipped",
   "cognitive_outcome_reflection_failed",
+  "context_external_recall_decision_debug",
 ]);
 
 const TURN_WAL_EVENT_TYPES = new Set<string>([

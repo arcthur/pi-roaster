@@ -29,7 +29,9 @@ describe("runtime artifact root resolution", () => {
     });
 
     expect(runtime.workspaceRoot).toBe(workspace);
-    expect(runtime.ledger.path).toBe(join(workspace, ".orchestrator", "ledger", "evidence.jsonl"));
+    expect(runtime.truth.getLedgerPath()).toBe(
+      join(workspace, ".orchestrator", "ledger", "evidence.jsonl"),
+    );
     const eventsRoot = join(workspace, ".orchestrator", "events");
     const eventFiles = readdirSync(eventsRoot).filter((name) => name.endsWith(".jsonl"));
     expect(eventFiles.length).toBeGreaterThan(0);

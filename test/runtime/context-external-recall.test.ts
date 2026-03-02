@@ -172,9 +172,11 @@ describe("context external recall boundary", () => {
   });
 
   test("emits skill_tag_missing skip when external recall is enabled without external-knowledge skill", async () => {
+    const config = createConfig();
+    config.infrastructure.events.level = "debug";
     const runtime = new BrewvaRuntime({
       cwd: mkdtempSync(join(tmpdir(), "brewva-external-recall-skill-tag-missing-")),
-      config: createConfig(),
+      config,
       externalRecallPort: {
         search: async () => [
           {
@@ -192,7 +194,7 @@ describe("context external recall boundary", () => {
     await runtime.context.buildInjection(sessionId, "Need external references");
 
     const skippedEvent = runtime.events.query(sessionId, {
-      type: "context_external_recall_decision",
+      type: "context_external_recall_decision_debug",
       last: 1,
     })[0];
     expect(skippedEvent).toBeDefined();

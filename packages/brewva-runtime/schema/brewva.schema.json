@@ -185,6 +185,21 @@
                 }
               }
             },
+            "toolOutputDistillationInjection": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "maxEntries": {
+                  "type": "number"
+                },
+                "maxOutputChars": {
+                  "type": "number"
+                }
+              }
+            },
             "turnWal": {
               "type": "object",
               "additionalProperties": false,
@@ -613,9 +628,6 @@
             }
           }
         },
-        "triggers": {
-          "$ref": "#/definitions/SkillTriggerPolicy"
-        },
         "version": {
           "type": "string"
         }
@@ -648,57 +660,6 @@
     "SkillTier": {
       "type": "string",
       "enum": ["base", "pack", "project"]
-    },
-    "SkillTriggerNegativeRule": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "scope": {
-          "$ref": "#/definitions/SkillTriggerNegativeScope"
-        },
-        "terms": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": ["scope", "terms"]
-    },
-    "SkillTriggerNegativeScope": {
-      "type": "string",
-      "enum": ["intent", "topic"]
-    },
-    "SkillTriggerPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "intents": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "negatives": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SkillTriggerNegativeRule"
-          }
-        },
-        "phrases": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "topics": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": ["intents", "topics", "phrases", "negatives"]
     },
     "VerificationLevel": {
       "type": "string",

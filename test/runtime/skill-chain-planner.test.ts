@@ -16,12 +16,6 @@ function createEntry(
     stability: input.stability ?? "stable",
     composableWith: input.composableWith ?? [],
     consumes: input.consumes ?? [],
-    triggers: input.triggers ?? {
-      intents: [],
-      topics: [],
-      phrases: [],
-      negatives: [],
-    },
     dispatch: input.dispatch ?? {
       gateThreshold: 10,
       autoThreshold: 16,

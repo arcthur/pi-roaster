@@ -1,6 +1,8 @@
 export const CHARS_PER_TOKEN = 3.5;
 const DEFAULT_MAX_SUMMARY_TOKENS = 220;
 const MAX_LINE_CHARS = 240;
+const MIN_DISTILLATION_RAW_TOKENS = 48;
+const MIN_COMPRESSION_GAIN = 0.1;
 
 export interface ToolOutputDistillationInput {
   toolName: string;
@@ -146,6 +148,22 @@ function buildLspSummary(lines: string[], rawText: string): string {
   return [header, body].join("\n");
 }
 
+function shouldKeepDistillation(input: {
+  strategy: ToolOutputDistillation["strategy"];
+  rawTokens: number;
+  summaryTokens: number;
+  isError: boolean;
+}): boolean {
+  if (input.strategy === "none") return false;
+  if (input.rawTokens <= 0 || input.summaryTokens <= 0) return false;
+  if (input.rawTokens < MIN_DISTILLATION_RAW_TOKENS) return false;
+
+  const compressionRatio = input.summaryTokens / input.rawTokens;
+  if (compressionRatio >= 1) return false;
+  if (!input.isError && compressionRatio > 1 - MIN_COMPRESSION_GAIN) return false;
+  return true;
+}
+
 export function distillToolOutput(input: ToolOutputDistillationInput): ToolOutputDistillation {
   const normalizedToolName = input.toolName.trim().toLowerCase();
   const rawText = input.outputText ?? "";
@@ -182,6 +200,28 @@ export function distillToolOutput(input: ToolOutputDistillationInput): ToolOutpu
   const summaryBytes = Buffer.byteLength(summaryText, "utf8");
   const summaryTokens = estimateTokens(summaryText);
   const compressionRatio = rawTokens > 0 ? Math.max(0, Math.min(1, summaryTokens / rawTokens)) : 1;
+  const keepDistillation = shouldKeepDistillation({
+    strategy,
+    rawTokens,
+    summaryTokens,
+    isError: input.isError,
+  });
+
+  if (!keepDistillation) {
+    return {
+      distillationApplied: false,
+      strategy: "none",
+      summaryText: "",
+      rawChars,
+      rawBytes,
+      rawTokens,
+      summaryChars: 0,
+      summaryBytes: 0,
+      summaryTokens: 0,
+      compressionRatio: 1,
+      truncated: false,
+    };
+  }
 
   return {
     distillationApplied,

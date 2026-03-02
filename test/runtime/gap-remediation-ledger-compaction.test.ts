@@ -34,11 +34,11 @@ describe("Gap remediation: ledger compaction and redaction", () => {
       });
     }
 
-    const rows = runtime.ledger.list(sessionId);
+    const rows = runtime.truth.listLedgerRows(sessionId);
     expect(rows.some((row) => row.tool === "ledger_checkpoint")).toBe(true);
     expect(rows.length).toBeLessThan(6);
 
-    const chain = runtime.ledger.verifyChain(sessionId);
+    const chain = runtime.truth.verifyLedgerChain(sessionId);
     expect(chain.valid).toBe(true);
   });
 
@@ -61,7 +61,7 @@ describe("Gap remediation: ledger compaction and redaction", () => {
       },
     });
 
-    const ledgerText = readFileSync(runtime.ledger.path, "utf8");
+    const ledgerText = readFileSync(runtime.truth.getLedgerPath(), "utf8");
     expect(ledgerText.includes("sk-proj-abcdefghijklmnopqrstuvwxyz0123456789")).toBe(false);
     expect(ledgerText.includes("ghp_abcdefghijklmnopqrstuvwxyz0123456789")).toBe(false);
     expect(ledgerText.includes("AKIA1234567890ABCDEF")).toBe(false);
@@ -81,13 +81,13 @@ describe("Gap remediation: ledger compaction and redaction", () => {
       success: true,
     });
 
-    appendFileSync(runtime.ledger.path, "\nnot-json", "utf8");
+    appendFileSync(runtime.truth.getLedgerPath(), "\nnot-json", "utf8");
 
-    const rows = runtime.ledger.list(sessionId);
+    const rows = runtime.truth.listLedgerRows(sessionId);
     expect(rows.length).toBe(1);
     expect(rows[0]?.tool).toBe("read");
 
-    const chain = runtime.ledger.verifyChain(sessionId);
+    const chain = runtime.truth.verifyLedgerChain(sessionId);
     expect(chain.valid).toBe(true);
   });
 });

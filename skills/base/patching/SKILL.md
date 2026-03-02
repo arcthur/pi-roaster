@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [patch, edit, fix, implement]
 anti_tags: [research, architecture]
-triggers:
-  intents: ["apply patch", "implement change", "modify code", "edit files", "写代码实现"]
-  topics: ["code changes", "bug fix", "scoped implementation"]
-  phrases: ["apply fix", "implement requirement"]
 tools:
   required: [read, edit]
   optional: [grep, lsp_diagnostics, ledger_query, exec, skill_complete]

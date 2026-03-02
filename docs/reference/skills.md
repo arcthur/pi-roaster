@@ -4,23 +4,24 @@ Skill parsing, merge, and selection logic:
 
 - `packages/brewva-runtime/src/skills/contract.ts`
 - `packages/brewva-runtime/src/skills/registry.ts`
-- `packages/brewva-runtime/src/skills/selector.ts`
+- `packages/brewva-runtime/src/skills/dispatch.ts`
+- `packages/brewva-extensions/src/context-transform.ts`
 
 ## Contract Metadata
 
 Skill frontmatter supports dispatch-focused metadata:
 
-- `triggers.intents/topics/phrases/negatives` for selector matching
 - `dispatch.gate_threshold/auto_threshold/default_mode` for routing policy
 - `outputs/consumes/composable_with` for deterministic chain planning
 
-Selector execution is deterministic and lexical-first:
+Selector execution is LLM-first for runtime routing:
 
-1. hard negative filtering (`triggers.negatives` with scope-aware intent/topic matching)
-2. lexical scoring (`name/intents/intent-body/phrases/tags`) with structured score breakdown (`anti-tag` penalty + `costHint` adjustment included)
-3. lightweight token alias expansion is applied inside lexical matching (for example `review/audit`, `ready/release/ship`) to reduce brittle phrase dependence while staying zero-dependency
+1. step-0 routing translation runs before injection/dispatch: user prompt is translated to English by the active model in `before_agent_start`; on translation failure or empty output, runtime falls back to the original prompt
+2. semantic skill routing runs immediately after translation using the active model and skill catalog metadata (`name/description/outputs/consumes`); the resulting `selected` skills are injected into runtime as the next dispatch input
+3. runtime dispatch consumes that semantic selection directly (no lexical fallback in this path)
+4. lexical selector and `runtime.skills.select` are removed; runtime dispatch now consumes semantic preselection only
 
-`skills_index.json` now carries the normalized `outputs`, `triggers`, and `dispatch` fields for each skill entry.
+`skills_index.json` now carries normalized contract metadata for each skill entry (including `outputs`, `consumes`, and `dispatch`).
 
 ## Base Skills
 

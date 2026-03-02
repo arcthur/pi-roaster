@@ -3,8 +3,10 @@ import {
   type ContextCompactionGateStatus,
   type ContextPressureStatus,
   type BrewvaRuntime,
+  type SkillSelection,
 } from "@brewva/brewva-runtime";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { complete } from "@mariozechner/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
   extractCompactionEntryId,
   extractCompactionSummary,
@@ -14,6 +16,70 @@ import {
 
 const CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
 const CONTEXT_CONTRACT_MARKER = "[Brewva Context Contract]";
+const ROUTING_TRANSLATION_SYSTEM_PROMPT = [
+  "You are a routing translation layer.",
+  "Translate user input into concise, natural English for downstream skill routing.",
+  "Return only the translated English text.",
+  "Do not add explanations, markdown, or labels.",
+  "Preserve technical terms, tool names, code, and file paths exactly when possible.",
+].join(" ");
+const SKILL_ROUTING_SYSTEM_PROMPT = [
+  "You are a strict skill router.",
+  "Choose skills purely by semantic intent from the provided catalog.",
+  'Return JSON only in the form: {"skills":[{"name":"...","confidence":0.0,"reason":"..."}]}',
+  "confidence must be a number in [0,1].",
+  "Never invent skill names that are not in the catalog.",
+  'If no skill applies, return {"skills":[]}.',
+].join(" ");
+
+export interface RoutingPromptTranslationResult {
+  prompt: string;
+  translated: boolean;
+  status: "translated" | "pass_through" | "failed";
+  reason: string;
+  provider?: string;
+  model?: string;
+  stopReason?: string;
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+    costTotal: number;
+  };
+  error?: string;
+}
+
+export interface RoutingSkillSelectionResult {
+  selected: SkillSelection[];
+  status: "selected" | "empty" | "failed";
+  reason: string;
+  provider?: string;
+  model?: string;
+  stopReason?: string;
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+    costTotal: number;
+  };
+  error?: string;
+}
+
+export interface ContextTransformOptions {
+  translatePromptForRouting?: (input: {
+    prompt: string;
+    ctx: ExtensionContext;
+  }) => Promise<RoutingPromptTranslationResult>;
+  selectSkillsForRouting?: (input: {
+    prompt: string;
+    ctx: ExtensionContext;
+    runtime: BrewvaRuntime;
+  }) => Promise<RoutingSkillSelectionResult>;
+}
 
 interface CompactionGateState {
   turnIndex: number;
@@ -49,6 +115,382 @@ function emitRuntimeEvent(
     type: input.type,
     payload: input.payload,
   });
+}
+
+function extractTranslationText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  const text = content
+    .filter(
+      (
+        item,
+      ): item is {
+        type: "text";
+        text: string;
+      } =>
+        typeof item === "object" &&
+        item !== null &&
+        (item as { type?: unknown }).type === "text" &&
+        typeof (item as { text?: unknown }).text === "string",
+    )
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
+
+  if (!text) return "";
+  if (!text.startsWith("```")) return text;
+  const withoutOpening = text.replace(/^```[^\n]*\n/u, "");
+  return withoutOpening.replace(/\n```$/u, "").trim();
+}
+
+async function translatePromptForSkillRoutingWithModel(input: {
+  prompt: string;
+  ctx: ExtensionContext;
+}): Promise<RoutingPromptTranslationResult> {
+  const prompt = input.prompt.trim();
+  if (prompt.length === 0) {
+    return {
+      prompt: input.prompt,
+      translated: false,
+      status: "pass_through",
+      reason: "empty_prompt",
+    };
+  }
+
+  const model = input.ctx.model;
+  if (!model) {
+    return {
+      prompt: input.prompt,
+      translated: false,
+      status: "pass_through",
+      reason: "model_unavailable",
+    };
+  }
+
+  const provider = model.provider;
+  const modelId = model.id;
+  let apiKey: string | undefined;
+  try {
+    apiKey = await input.ctx.modelRegistry.getApiKey(model);
+  } catch (error) {
+    return {
+      prompt: input.prompt,
+      translated: false,
+      status: "failed",
+      reason: "api_key_error",
+      provider,
+      model: modelId,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  if (!apiKey) {
+    return {
+      prompt: input.prompt,
+      translated: false,
+      status: "pass_through",
+      reason: "api_key_missing",
+      provider,
+      model: modelId,
+    };
+  }
+
+  try {
+    const response = await complete(
+      model,
+      {
+        systemPrompt: ROUTING_TRANSLATION_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: input.prompt }],
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      {
+        apiKey,
+        maxTokens: Math.min(1024, model.maxTokens),
+        reasoningEffort: "minimal",
+      },
+    );
+
+    const translated = extractTranslationText(response.content);
+    if (!translated) {
+      return {
+        prompt: input.prompt,
+        translated: false,
+        status: "pass_through",
+        reason: "empty_translation",
+        provider,
+        model: modelId,
+        stopReason: response.stopReason,
+        usage: {
+          input: response.usage.input,
+          output: response.usage.output,
+          cacheRead: response.usage.cacheRead,
+          cacheWrite: response.usage.cacheWrite,
+          totalTokens: response.usage.totalTokens,
+          costTotal: response.usage.cost.total,
+        },
+      };
+    }
+
+    const changed = translated.trim() !== input.prompt.trim();
+    return {
+      prompt: translated,
+      translated: changed,
+      status: "translated",
+      reason: changed ? "ok" : "unchanged",
+      provider,
+      model: modelId,
+      stopReason: response.stopReason,
+      usage: {
+        input: response.usage.input,
+        output: response.usage.output,
+        cacheRead: response.usage.cacheRead,
+        cacheWrite: response.usage.cacheWrite,
+        totalTokens: response.usage.totalTokens,
+        costTotal: response.usage.cost.total,
+      },
+    };
+  } catch (error) {
+    return {
+      prompt: input.prompt,
+      translated: false,
+      status: "failed",
+      reason: "translation_error",
+      provider,
+      model: modelId,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonRecord(text: string): Record<string, unknown> | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (isRecord(parsed)) return parsed;
+  } catch {
+    // noop
+  }
+
+  const match = trimmed.match(/\{[\s\S]*\}/u);
+  if (!match) return undefined;
+  try {
+    const parsed = JSON.parse(match[0]);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeSemanticSelections(input: {
+  value: unknown;
+  allowedSkillNames: Set<string>;
+  maxSelections: number;
+}): SkillSelection[] {
+  if (!Array.isArray(input.value)) return [];
+
+  const bestByName = new Map<string, SkillSelection>();
+  for (const entry of input.value) {
+    if (!isRecord(entry)) continue;
+    const nameRaw = entry.name;
+    const confidenceRaw = entry.confidence;
+    const reasonRaw = entry.reason;
+    if (typeof nameRaw !== "string") continue;
+    const name = nameRaw.trim();
+    if (!name || !input.allowedSkillNames.has(name)) continue;
+
+    const numericConfidence =
+      typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
+        ? confidenceRaw
+        : typeof confidenceRaw === "string" && confidenceRaw.trim().length > 0
+          ? Number(confidenceRaw)
+          : NaN;
+    if (!Number.isFinite(numericConfidence)) continue;
+    const confidence = Math.max(0, Math.min(1, numericConfidence));
+    const score = Math.max(0, Math.min(30, Math.round(confidence * 20)));
+    if (score <= 0) continue;
+
+    const semanticReason =
+      typeof reasonRaw === "string" && reasonRaw.trim().length > 0
+        ? reasonRaw.trim()
+        : "semantic_match";
+    const selected: SkillSelection = {
+      name,
+      score,
+      reason: `semantic:${semanticReason}`,
+      breakdown: [
+        {
+          signal: "semantic_match",
+          term: "semantic",
+          delta: score,
+        },
+      ],
+    };
+    const existing = bestByName.get(name);
+    if (!existing || selected.score > existing.score) {
+      bestByName.set(name, selected);
+    }
+  }
+
+  return [...bestByName.values()]
+    .toSorted((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, Math.max(1, input.maxSelections));
+}
+
+async function selectSkillsForRoutingWithModel(input: {
+  prompt: string;
+  ctx: ExtensionContext;
+  runtime: BrewvaRuntime;
+}): Promise<RoutingSkillSelectionResult> {
+  const prompt = input.prompt.trim();
+  if (prompt.length === 0) {
+    return {
+      selected: [],
+      status: "empty",
+      reason: "empty_prompt",
+    };
+  }
+
+  const skillCatalog = input.runtime.skills.list().map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    tier: skill.tier,
+    outputs: skill.contract.outputs ?? [],
+    consumes: skill.contract.consumes ?? [],
+  }));
+  if (skillCatalog.length === 0) {
+    return {
+      selected: [],
+      status: "empty",
+      reason: "skill_catalog_empty",
+    };
+  }
+
+  const model = input.ctx.model;
+  if (!model) {
+    return {
+      selected: [],
+      status: "failed",
+      reason: "model_unavailable",
+    };
+  }
+
+  const provider = model.provider;
+  const modelId = model.id;
+  let apiKey: string | undefined;
+  try {
+    apiKey = await input.ctx.modelRegistry.getApiKey(model);
+  } catch (error) {
+    return {
+      selected: [],
+      status: "failed",
+      reason: "api_key_error",
+      provider,
+      model: modelId,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (!apiKey) {
+    return {
+      selected: [],
+      status: "failed",
+      reason: "api_key_missing",
+      provider,
+      model: modelId,
+    };
+  }
+
+  const maxSelections = Math.max(1, input.runtime.config.skills.selector.k);
+  const requestPayload = {
+    userPrompt: prompt,
+    maxSelections,
+    skills: skillCatalog,
+  };
+
+  try {
+    const response = await complete(
+      model,
+      {
+        systemPrompt: SKILL_ROUTING_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: JSON.stringify(requestPayload) }],
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      {
+        apiKey,
+        maxTokens: Math.min(1536, model.maxTokens),
+        reasoningEffort: "minimal",
+      },
+    );
+
+    const text = extractTranslationText(response.content);
+    const parsed = parseJsonRecord(text);
+    if (!parsed) {
+      return {
+        selected: [],
+        status: "failed",
+        reason: "invalid_json",
+        provider,
+        model: modelId,
+        stopReason: response.stopReason,
+        usage: {
+          input: response.usage.input,
+          output: response.usage.output,
+          cacheRead: response.usage.cacheRead,
+          cacheWrite: response.usage.cacheWrite,
+          totalTokens: response.usage.totalTokens,
+          costTotal: response.usage.cost.total,
+        },
+      };
+    }
+
+    const selected = normalizeSemanticSelections({
+      value: parsed.skills,
+      allowedSkillNames: new Set(skillCatalog.map((entry) => entry.name)),
+      maxSelections,
+    });
+
+    return {
+      selected,
+      status: selected.length > 0 ? "selected" : "empty",
+      reason: selected.length > 0 ? "ok" : "no_skill_match",
+      provider,
+      model: modelId,
+      stopReason: response.stopReason,
+      usage: {
+        input: response.usage.input,
+        output: response.usage.output,
+        cacheRead: response.usage.cacheRead,
+        cacheWrite: response.usage.cacheWrite,
+        totalTokens: response.usage.totalTokens,
+        costTotal: response.usage.cost.total,
+      },
+    };
+  } catch (error) {
+    return {
+      selected: [],
+      status: "failed",
+      reason: "routing_error",
+      provider,
+      model: modelId,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function resolveContextInjection(
@@ -155,8 +597,15 @@ function applyContextContract(systemPrompt: unknown, runtime: BrewvaRuntime): st
   return `${base}\n\n${contract}`;
 }
 
-export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
+export function registerContextTransform(
+  pi: ExtensionAPI,
+  runtime: BrewvaRuntime,
+  options: ContextTransformOptions = {},
+): void {
   const gateStateBySession = new Map<string, CompactionGateState>();
+  const translatePromptForRouting =
+    options.translatePromptForRouting ?? translatePromptForSkillRoutingWithModel;
+  const selectSkillsForRouting = options.selectSkillsForRouting ?? selectSkillsForRoutingWithModel;
 
   pi.on("turn_start", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
@@ -172,7 +621,7 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     runtime.context.observeUsage(sessionId, usage);
 
-    if (!runtime.context.shouldRequestCompaction(sessionId, usage)) {
+    if (!runtime.context.checkAndRequestCompaction(sessionId, usage)) {
       return undefined;
     }
 
@@ -273,10 +722,79 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
       (event as { systemPrompt?: unknown }).systemPrompt,
       runtime,
     );
+    const originalPrompt = event.prompt;
+    const routingTranslation = await translatePromptForRouting({
+      prompt: originalPrompt,
+      ctx,
+    });
+    emitRuntimeEvent(runtime, {
+      sessionId,
+      turn: state.turnIndex,
+      type: "skill_routing_translation",
+      payload: {
+        status: routingTranslation.status,
+        reason: routingTranslation.reason,
+        translated: routingTranslation.translated,
+        inputChars: originalPrompt.length,
+        outputChars: routingTranslation.prompt.length,
+        provider: routingTranslation.provider ?? null,
+        model: routingTranslation.model ?? null,
+        stopReason: routingTranslation.stopReason ?? null,
+        error: routingTranslation.error ?? null,
+      },
+    });
+    if (routingTranslation.usage && routingTranslation.model && routingTranslation.provider) {
+      runtime.cost.recordAssistantUsage({
+        sessionId,
+        model: `${routingTranslation.provider}/${routingTranslation.model}`,
+        inputTokens: routingTranslation.usage.input,
+        outputTokens: routingTranslation.usage.output,
+        cacheReadTokens: routingTranslation.usage.cacheRead,
+        cacheWriteTokens: routingTranslation.usage.cacheWrite,
+        totalTokens: routingTranslation.usage.totalTokens,
+        costUsd: routingTranslation.usage.costTotal,
+        stopReason: routingTranslation.stopReason,
+      });
+    }
+    const semanticRouting = await selectSkillsForRouting({
+      prompt: routingTranslation.prompt,
+      ctx,
+      runtime,
+    });
+    emitRuntimeEvent(runtime, {
+      sessionId,
+      turn: state.turnIndex,
+      type: "skill_routing_semantic",
+      payload: {
+        status: semanticRouting.status,
+        reason: semanticRouting.reason,
+        selectedCount: semanticRouting.selected.length,
+        selectedSkills: semanticRouting.selected.map((entry) => entry.name),
+        inputChars: routingTranslation.prompt.length,
+        provider: semanticRouting.provider ?? null,
+        model: semanticRouting.model ?? null,
+        stopReason: semanticRouting.stopReason ?? null,
+        error: semanticRouting.error ?? null,
+      },
+    });
+    if (semanticRouting.usage && semanticRouting.model && semanticRouting.provider) {
+      runtime.cost.recordAssistantUsage({
+        sessionId,
+        model: `${semanticRouting.provider}/${semanticRouting.model}`,
+        inputTokens: semanticRouting.usage.input,
+        outputTokens: semanticRouting.usage.output,
+        cacheReadTokens: semanticRouting.usage.cacheRead,
+        cacheWriteTokens: semanticRouting.usage.cacheWrite,
+        totalTokens: semanticRouting.usage.totalTokens,
+        costUsd: semanticRouting.usage.costTotal,
+        stopReason: semanticRouting.stopReason,
+      });
+    }
+    runtime.skills.setNextSelection(sessionId, semanticRouting.selected);
 
     const injection = await resolveContextInjection(runtime, {
       sessionId,
-      prompt: event.prompt,
+      prompt: routingTranslation.prompt,
       usage,
       injectionScopeId,
     });
@@ -317,6 +835,16 @@ export function registerContextTransform(pi: ExtensionAPI, runtime: BrewvaRuntim
           finalTokens: injection.finalTokens,
           truncated: injection.truncated,
           gateRequired: gateStatus.required,
+          routingTranslation: {
+            status: routingTranslation.status,
+            reason: routingTranslation.reason,
+            translated: routingTranslation.translated,
+          },
+          semanticRouting: {
+            status: semanticRouting.status,
+            reason: semanticRouting.reason,
+            selectedCount: semanticRouting.selected.length,
+          },
         },
       },
     };

@@ -96,7 +96,7 @@ export class ContextInjectionCollector {
   }
 
   onCompaction(sessionId: string): void {
-    this.arena.resetEpoch(sessionId);
+    this.arena.clearSession(sessionId);
   }
 
   clearSession(sessionId: string): void {

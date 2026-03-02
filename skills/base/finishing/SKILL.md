@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [finish, merge, pr, integrate, branch]
 anti_tags: [explore, debug]
-triggers:
-  intents: ["finalize work", "prepare merge", "open pr", "finish implementation"]
-  topics: ["merge readiness", "release checklist", "integration"]
-  phrases: ["ready to merge", "final polish"]
 tools:
   required: [exec, read]
   optional: [grep, skill_complete]

@@ -27,6 +27,14 @@ function createConfig(mode: BrewvaConfig["security"]["mode"]): BrewvaConfig {
 
 function prepareReviewDispatch(runtime: BrewvaRuntime, sessionId: string) {
   runtime.context.onTurnStart(sessionId, 1);
+  runtime.skills.setNextSelection(sessionId, [
+    {
+      name: "review",
+      score: 10,
+      reason: "semantic:review request",
+      breakdown: [{ signal: "semantic_match", term: "review", delta: 10 }],
+    },
+  ]);
   return runtime.skills.prepareDispatch(
     sessionId,
     "Review the project in depth and assess architecture risks against project philosophy",

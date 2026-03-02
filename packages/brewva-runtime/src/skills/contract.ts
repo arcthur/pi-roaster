@@ -56,44 +56,6 @@ function normalizePositiveInteger(value: unknown, fallback: number): number {
   return Math.max(1, Math.floor(value));
 }
 
-function normalizeNegatives(value: unknown): Array<{ scope: "intent" | "topic"; terms: string[] }> {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
-    .map((item) => ({
-      scope: item.scope === "intent" ? ("intent" as const) : ("topic" as const),
-      terms: normalizeStringList(item.terms),
-    }))
-    .filter((item) => item.terms.length > 0);
-}
-
-function normalizeTriggerPolicy(
-  data: Record<string, unknown>,
-): SkillContract["triggers"] | undefined {
-  const rawTriggers =
-    typeof data.triggers === "object" && data.triggers && !Array.isArray(data.triggers)
-      ? (data.triggers as Record<string, unknown>)
-      : {};
-  const intents = normalizeStringList(rawTriggers.intents);
-  const topics = normalizeStringList(rawTriggers.topics);
-  const phrases = normalizeStringList(rawTriggers.phrases);
-  const negatives = normalizeNegatives(rawTriggers.negatives);
-  if (
-    intents.length === 0 &&
-    topics.length === 0 &&
-    phrases.length === 0 &&
-    negatives.length === 0
-  ) {
-    return undefined;
-  }
-  return {
-    intents,
-    topics,
-    phrases,
-    negatives,
-  };
-}
-
 function normalizeDispatchPolicy(
   data: Record<string, unknown>,
 ): SkillContract["dispatch"] | undefined {
@@ -157,7 +119,6 @@ function normalizeContract(
   const outputs = normalizeStringList(data.outputs);
   const composableWith = normalizeStringList(data.composable_with ?? data.composableWith);
   const consumes = normalizeStringList(data.consumes);
-  const triggers = normalizeTriggerPolicy(data);
   const dispatch = normalizeDispatchPolicy(data);
   const escalationPath =
     typeof data.escalation_path === "object" &&
@@ -176,7 +137,6 @@ function normalizeContract(
     description: typeof data.description === "string" ? data.description : undefined,
     tags: normalizeStringList(data.tags),
     antiTags,
-    triggers,
     dispatch,
     tools: {
       required,
@@ -257,45 +217,6 @@ export function tightenContract(
       ? Math.min(base.maxParallel ?? override.maxParallel, override.maxParallel)
       : base.maxParallel;
 
-  const triggers = (() => {
-    if (!override.triggers) return base.triggers;
-    const baseTriggers = base.triggers;
-    const overrideTriggers =
-      typeof override.triggers === "object" && override.triggers !== null
-        ? (override.triggers as unknown as Record<string, unknown>)
-        : {};
-
-    const pickStringList = (value: unknown, fallback: string[]): string[] => {
-      if (value === undefined) return [...fallback];
-      return normalizeStringList(value);
-    };
-
-    const pickNegativeRules = (
-      value: unknown,
-      fallback: NonNullable<SkillContract["triggers"]>["negatives"],
-    ): NonNullable<SkillContract["triggers"]>["negatives"] => {
-      if (value === undefined) return [...fallback];
-      return normalizeNegatives(value);
-    };
-
-    const merged = {
-      intents: pickStringList(overrideTriggers.intents, baseTriggers?.intents ?? []),
-      topics: pickStringList(overrideTriggers.topics, baseTriggers?.topics ?? []),
-      phrases: pickStringList(overrideTriggers.phrases, baseTriggers?.phrases ?? []),
-      negatives: pickNegativeRules(overrideTriggers.negatives, baseTriggers?.negatives ?? []),
-    };
-
-    if (
-      merged.intents.length === 0 &&
-      merged.topics.length === 0 &&
-      merged.phrases.length === 0 &&
-      merged.negatives.length === 0
-    ) {
-      return undefined;
-    }
-    return merged;
-  })();
-
   const dispatch = (() => {
     const baseDispatch = base.dispatch ?? {
       gateThreshold: 10,
@@ -329,7 +250,6 @@ export function tightenContract(
     ...base,
     tags: override.tags ?? base.tags,
     antiTags: override.antiTags ?? base.antiTags,
-    triggers,
     dispatch,
     outputs: override.outputs ?? base.outputs,
     composableWith: override.composableWith ?? base.composableWith,

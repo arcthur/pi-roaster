@@ -146,47 +146,7 @@ describe("S-006 three-layer contract tightening", () => {
   });
 });
 
-describe("skill contract triggers and dispatch parsing", () => {
-  test("parses triggers frontmatter when present", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-trigger-"));
-    const filePath = join(workspace, "skills", "base", "review", "SKILL.md");
-    mkdirSync(join(workspace, "skills", "base", "review"), { recursive: true });
-    writeFileSync(
-      filePath,
-      [
-        "---",
-        "name: review",
-        "description: review skill",
-        "tags: [review]",
-        "triggers:",
-        "  intents: [review, 审查]",
-        "  topics: [project]",
-        "  phrases: ['code review']",
-        "  negatives:",
-        "    - scope: intent",
-        "      terms: [implement]",
-        "tools:",
-        "  required: [read]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 10",
-        "  max_tokens: 10000",
-        "---",
-        "# review",
-      ].join("\n"),
-      "utf8",
-    );
-
-    const parsed = parseSkillDocument(filePath, "base");
-    expect(parsed.contract.triggers?.intents).toEqual(["review", "审查"]);
-    expect(parsed.contract.triggers?.topics).toEqual(["project"]);
-    expect(parsed.contract.triggers?.phrases).toEqual(["code review"]);
-    expect(parsed.contract.triggers?.negatives).toEqual([
-      { scope: "intent", terms: ["implement"] },
-    ]);
-  });
-
+describe("skill contract and dispatch parsing", () => {
   test("parses dispatch frontmatter with defaults", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-dispatch-"));
     const filePath = join(workspace, "skills", "base", "verify", "SKILL.md");
@@ -219,17 +179,11 @@ describe("skill contract triggers and dispatch parsing", () => {
     });
   });
 
-  test("normalizes scoped negatives and tightens dispatch thresholds", () => {
+  test("tightens dispatch thresholds from override", () => {
     const base: SkillContract = {
       name: "review",
       tier: "base",
       tags: ["review"],
-      triggers: {
-        intents: ["review"],
-        topics: [],
-        phrases: [],
-        negatives: [{ scope: "topic", terms: ["feature"] }],
-      },
       dispatch: {
         gateThreshold: 10,
         autoThreshold: 16,
@@ -247,12 +201,6 @@ describe("skill contract triggers and dispatch parsing", () => {
     };
 
     const merged = tightenContract(base, {
-      triggers: {
-        intents: ["audit"],
-        topics: ["risk"],
-        phrases: [],
-        negatives: [{ scope: "intent", terms: ["implement"] }],
-      },
       dispatch: {
         gateThreshold: 12,
         autoThreshold: 20,
@@ -260,12 +208,6 @@ describe("skill contract triggers and dispatch parsing", () => {
       },
     });
 
-    expect(merged.triggers).toEqual({
-      intents: ["audit"],
-      topics: ["risk"],
-      phrases: [],
-      negatives: [{ scope: "intent", terms: ["implement"] }],
-    });
     expect(merged.dispatch).toEqual({
       gateThreshold: 12,
       autoThreshold: 20,
@@ -273,58 +215,14 @@ describe("skill contract triggers and dispatch parsing", () => {
     });
   });
 
-  test("keeps unspecified trigger fields when override provides partial trigger object", () => {
-    const base: SkillContract = {
-      name: "planning",
-      tier: "base",
-      tags: ["plan"],
-      triggers: {
-        intents: ["plan"],
-        topics: ["scope"],
-        phrases: ["execution plan"],
-        negatives: [{ scope: "topic", terms: ["quick-fix"] }],
-      },
-      tools: {
-        required: ["read"],
-        optional: [],
-        denied: [],
-      },
-      budget: {
-        maxToolCalls: 10,
-        maxTokens: 10_000,
-      },
-    };
-
-    const merged = tightenContract(base, {
-      triggers: {
-        intents: ["roadmap"],
-      } as unknown as SkillContract["triggers"],
-    });
-
-    expect(merged.triggers).toEqual({
-      intents: ["roadmap"],
-      topics: ["scope"],
-      phrases: ["execution plan"],
-      negatives: [{ scope: "topic", terms: ["quick-fix"] }],
-    });
-  });
-
-  test("repository skills define explicit trigger metadata", () => {
+  test("repository skills parse without trigger metadata field", () => {
     const skillFiles = listSkillDocuments(join(repoRoot(), "skills"));
     expect(skillFiles.length).toBe(22);
 
-    const missingTriggers: string[] = [];
     for (const filePath of skillFiles) {
       const parsed = parseSkillDocument(filePath, inferSkillTier(filePath));
-      const triggerCount =
-        (parsed.contract.triggers?.intents.length ?? 0) +
-        (parsed.contract.triggers?.topics.length ?? 0) +
-        (parsed.contract.triggers?.phrases.length ?? 0);
-      if (triggerCount === 0) {
-        missingTriggers.push(parsed.name);
-      }
+      expect((parsed.contract as unknown as Record<string, unknown>).triggers).toBeUndefined();
+      expect(parsed.contract.dispatch).toBeDefined();
     }
-
-    expect(missingTriggers).toEqual([]);
   });
 });

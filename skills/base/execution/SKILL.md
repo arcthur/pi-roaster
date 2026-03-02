@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [execute, dispatch, subagent, batch, parallel, orchestration]
 anti_tags: [explore, plan]
-triggers:
-  intents: ["execute plan", "dispatch tasks", "parallelize execution", "run implementation plan"]
-  topics: ["execution steps", "subagent", "batching", "orchestration"]
-  phrases: ["execute plan", "parallel execution"]
 tools:
   required: [read, exec]
   optional: [grep, edit, skill_complete]

@@ -6,10 +6,6 @@ stability: stable
 tier: project
 tags: [learning, self-improvement, feedback, promotion, skill-extraction]
 anti_tags: []
-triggers:
-  intents: ["capture learning", "record failure lesson", "self improve workflow", "promote pattern"]
-  topics: ["learning loop", "retrospective", "pattern promotion"]
-  phrases: ["self improve", "record learning"]
 tools:
   required: [read, grep]
   optional: [exec, edit, skill_load, skill_complete]

@@ -6,10 +6,6 @@ stability: stable
 tier: pack
 tags: [frontend, ui, ux, design, motion, typography, layout]
 anti_tags: [backend, api-only]
-triggers:
-  intents: ["design ui","improve ux","build frontend interface","polish interaction"]
-  topics: ["layout","typography","motion","accessibility"]
-  phrases: ["ui redesign","frontend component"]
 tools:
   required: [read]
   optional: [look_at, lsp_diagnostics, ast_grep_search, skill_complete]

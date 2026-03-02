@@ -151,6 +151,7 @@ to avoid polluting audit-level streams with high-frequency search telemetry.
 - `context_arena_slo_enforced`
 - `context_injection_dropped`
 - `context_external_recall_decision`
+- `context_external_recall_decision_debug`
 - `context_compaction_requested`
 - `context_compaction_skipped`
 - `context_compaction_gate_armed`
@@ -306,7 +307,7 @@ Single external-recall decision summary event.
 Common payload fields include:
 
 - `outcome` (`skipped | injected | filtered_out`)
-- `reason` (`pressure_gated | skill_tag_missing | internal_score_sufficient | provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
+- `reason` (`pressure_gated | internal_score_sufficient | provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
 - `query`
 - `internalTopScore`
 - `threshold`
@@ -315,6 +316,16 @@ Common payload fields include:
 
 Note: `outcome="filtered_out"` means external recall was accepted into the arena but removed by
 final injection planning; write-back does not occur.
+
+### `context_external_recall_decision_debug`
+
+Debug-level external-recall decision event for low-signal skip reasons that would otherwise be noisy
+at ops level. Common payload fields include:
+
+- `outcome` (`skipped`)
+- `reason` (`skill_tag_missing`)
+- `query`
+- `threshold`
 
 ### `memory_recall_query_expanded`
 

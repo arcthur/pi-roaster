@@ -22,10 +22,16 @@ describe("Task status alignment", () => {
     expect(injection1.text.includes("status.health=needs_spec")).toBe(true);
 
     runtime.task.setSpec(sessionId, { schema: "brewva.task.v1", goal: "Do a thing" });
+    const stateAfterSpec = runtime.task.getState(sessionId);
+    expect(stateAfterSpec.status?.phase).toBe("investigate");
+    expect(stateAfterSpec.status?.health).toBe("ok");
     const injection2 = await runtime.context.buildInjection(sessionId, "next");
     expect(injection2.text.includes("status.phase=investigate")).toBe(true);
 
     runtime.task.addItem(sessionId, { text: "Implement the fix" });
+    const stateAfterItem = runtime.task.getState(sessionId);
+    expect(stateAfterItem.status?.phase).toBe("execute");
+    expect(stateAfterItem.status?.health).toBe("ok");
     const injection3 = await runtime.context.buildInjection(sessionId, "next");
     expect(injection3.text.includes("status.phase=execute")).toBe(true);
   });

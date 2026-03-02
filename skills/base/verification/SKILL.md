@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [verify, test, lint, quality]
 anti_tags: [explore]
-triggers:
-  intents: ["verify changes", "run tests", "validate fix", "check lint and typecheck"]
-  topics: ["test results", "lint", "typecheck", "verification evidence"]
-  phrases: ["run test suite", "verification report"]
 tools:
   required: [exec, lsp_diagnostics, ledger_query]
   optional: [read, skill_complete]

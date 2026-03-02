@@ -6,10 +6,6 @@ stability: stable
 tier: base
 tags: [complex, multi-step, architecture, orchestration]
 anti_tags: [quick-fix, trivial]
-triggers:
-  intents: ["compose skills", "orchestrate skills", "chain skills", "multi skill plan"]
-  topics: ["multi-step workflow", "skill sequencing", "skill dependencies"]
-  phrases: ["multi skill", "skill chain"]
 consumes: []
 escalation_path:
   all_skills_insufficient: planning

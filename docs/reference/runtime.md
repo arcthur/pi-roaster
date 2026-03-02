@@ -43,9 +43,8 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `getCompactionGateStatus(sessionId, usage?)`
 - `checkCompactionGate(sessionId, toolName, usage?)`
 - `buildInjection(sessionId, prompt, usage?, injectionScopeId?)`
-- `planSupplementalInjection(sessionId, inputText, usage?, injectionScopeId?)`
-- `commitSupplementalInjection(sessionId, finalTokens, injectionScopeId?)`
-- `shouldRequestCompaction(sessionId, usage)`
+- `appendSupplementalInjection(sessionId, inputText, usage?, injectionScopeId?)`
+- `checkAndRequestCompaction(sessionId, usage)`
 - `requestCompaction(sessionId, reason)`
 - `getPendingCompactionReason(sessionId)`
 - `getCompactionInstructions()`
@@ -80,6 +79,9 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `getState(sessionId)`
 - `getLedgerDigest(sessionId)`
 - `queryLedger(sessionId, query)`
+- `listLedgerRows(sessionId?)`
+- `verifyLedgerChain(sessionId)`
+- `getLedgerPath()`
 - `upsertFact(sessionId, input)`
 - `resolveFact(sessionId, truthFactId)`
 

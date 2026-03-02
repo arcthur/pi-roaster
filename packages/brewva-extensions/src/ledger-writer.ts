@@ -1,4 +1,9 @@
-import type { BrewvaRuntime } from "@brewva/brewva-runtime";
+import {
+  TOOL_OUTPUT_ARTIFACT_PERSISTED_EVENT_TYPE,
+  TOOL_OUTPUT_DISTILLED_EVENT_TYPE,
+  TOOL_OUTPUT_OBSERVED_EVENT_TYPE,
+  type BrewvaRuntime,
+} from "@brewva/brewva-runtime";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { persistToolOutputArtifact } from "./tool-output-artifact-store.js";
 import { distillToolOutput, estimateTokens } from "./tool-output-distiller.js";
@@ -71,7 +76,7 @@ export function registerLedgerWriter(pi: ExtensionAPI, runtime: BrewvaRuntime): 
 
     runtime.events.record({
       sessionId,
-      type: "tool_output_observed",
+      type: TOOL_OUTPUT_OBSERVED_EVENT_TYPE,
       payload: {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
@@ -83,7 +88,7 @@ export function registerLedgerWriter(pi: ExtensionAPI, runtime: BrewvaRuntime): 
     if (outputArtifact) {
       runtime.events.record({
         sessionId,
-        type: "tool_output_artifact_persisted",
+        type: TOOL_OUTPUT_ARTIFACT_PERSISTED_EVENT_TYPE,
         payload: {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -98,7 +103,7 @@ export function registerLedgerWriter(pi: ExtensionAPI, runtime: BrewvaRuntime): 
     if (outputDistillation.distillationApplied) {
       runtime.events.record({
         sessionId,
-        type: "tool_output_distilled",
+        type: TOOL_OUTPUT_DISTILLED_EVENT_TYPE,
         payload: {
           toolCallId: event.toolCallId,
           toolName: event.toolName,

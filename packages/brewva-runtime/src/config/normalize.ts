@@ -195,6 +195,11 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
   const toolFailureInjectionInput = isRecord(infrastructureInput.toolFailureInjection)
     ? infrastructureInput.toolFailureInjection
     : {};
+  const toolOutputDistillationInjectionInput = isRecord(
+    infrastructureInput.toolOutputDistillationInjection,
+  )
+    ? infrastructureInput.toolOutputDistillationInjection
+    : {};
   const interruptRecoveryInput = isRecord(infrastructureInput.interruptRecovery)
     ? infrastructureInput.interruptRecovery
     : {};
@@ -205,6 +210,8 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
 
   const defaultContextBudget = defaults.infrastructure.contextBudget;
   const defaultToolFailureInjection = defaults.infrastructure.toolFailureInjection;
+  const defaultToolOutputDistillationInjection =
+    defaults.infrastructure.toolOutputDistillationInjection;
   const defaultContextCompaction = defaultContextBudget.compaction;
   const defaultContextArena = defaultContextBudget.arena;
   const normalizedHardLimitPercent = normalizeUnitInterval(
@@ -555,6 +562,20 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         maxOutputChars: normalizePositiveInteger(
           toolFailureInjectionInput.maxOutputChars,
           defaultToolFailureInjection.maxOutputChars,
+        ),
+      },
+      toolOutputDistillationInjection: {
+        enabled: normalizeBoolean(
+          toolOutputDistillationInjectionInput.enabled,
+          defaultToolOutputDistillationInjection.enabled,
+        ),
+        maxEntries: normalizePositiveInteger(
+          toolOutputDistillationInjectionInput.maxEntries,
+          defaultToolOutputDistillationInjection.maxEntries,
+        ),
+        maxOutputChars: normalizePositiveInteger(
+          toolOutputDistillationInjectionInput.maxOutputChars,
+          defaultToolOutputDistillationInjection.maxOutputChars,
         ),
       },
       interruptRecovery: {

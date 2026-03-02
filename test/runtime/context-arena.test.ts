@@ -112,7 +112,7 @@ describe("ContextArena", () => {
     expect(sources).toEqual(["brewva.truth-facts", "brewva.task-state", "brewva.memory-working"]);
   });
 
-  test("resetEpoch clears the whole session arena", () => {
+  test("clearSession clears the whole session arena", () => {
     const arena = new ContextArena();
     arena.append(sessionId, {
       source: "brewva.truth-facts",
@@ -121,7 +121,7 @@ describe("ContextArena", () => {
       priority: "critical",
     });
 
-    arena.resetEpoch(sessionId);
+    arena.clearSession(sessionId);
     const plan = arena.plan(sessionId, 10_000);
     const snapshot = arena.snapshot(sessionId);
     expect(plan.entries).toHaveLength(0);
