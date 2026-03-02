@@ -446,14 +446,14 @@ export interface BrewvaConfig {
       recency: number;
       confidence: number;
     };
-    recallMode: "primary" | "fallback";
+    recallMode: "always" | "pressure-aware";
     externalRecall: {
       enabled: boolean;
       minInternalScore: number;
       queryTopK: number;
       injectedConfidence: number;
     };
-    evolvesMode: "off" | "shadow";
+    evolvesMode: "off" | "review-gated";
     cognitive: {
       mode: "off" | "shadow" | "active";
       maxTokensPerTurn: number;

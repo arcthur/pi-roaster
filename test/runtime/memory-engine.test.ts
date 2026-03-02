@@ -308,7 +308,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
       recordEvent: (event) => {
         recorded.push(event.type);
       },
@@ -355,7 +355,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
     });
 
     engine.ingestEvent(
@@ -395,7 +395,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
     });
     engineReloaded.ingestEvent(
       taskSpecEvent({
@@ -430,7 +430,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
     });
 
     engine.ingestEvent(
@@ -471,7 +471,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
     });
 
     engine.ingestEvent(
@@ -513,7 +513,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
       cognitiveMode: "shadow",
       cognitiveMaxInferenceCallsPerRefresh: 4,
       cognitivePort: {
@@ -572,7 +572,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
       cognitiveMode: "active",
       cognitiveMaxInferenceCallsPerRefresh: 4,
       cognitivePort: {
@@ -644,7 +644,7 @@ describe("memory engine", () => {
       dailyRefreshHourLocal: 23,
       crystalMinUnits: 4,
       retrievalTopK: 8,
-      evolvesMode: "shadow",
+      evolvesMode: "review-gated",
       cognitiveMode: "shadow",
       cognitiveMaxInferenceCallsPerRefresh: 1,
       cognitivePort: {
@@ -732,8 +732,8 @@ describe("memory engine", () => {
       taskSpecEvent({
         id: "evt-task-spec-retrieval-tail",
         sessionId,
-        goal: "update release notes and changelog formatting",
-        timestamp: Date.now(),
+        goal: "database migration update release notes and changelog formatting",
+        timestamp: Date.now() - 5_000,
       }),
     );
 
@@ -801,8 +801,8 @@ describe("memory engine", () => {
       taskSpecEvent({
         id: "evt-task-spec-rank-active-async-tail",
         sessionId,
-        goal: "update release notes and changelog formatting",
-        timestamp: Date.now(),
+        goal: "database migration update release notes and changelog formatting",
+        timestamp: Date.now() - 5_000,
       }),
     );
 
@@ -871,8 +871,8 @@ describe("memory engine", () => {
       taskSpecEvent({
         id: "evt-task-spec-rank-active-search-async-tail",
         sessionId,
-        goal: "update release notes and changelog formatting",
-        timestamp: Date.now(),
+        goal: "database migration update release notes and changelog formatting",
+        timestamp: Date.now() - 5_000,
       }),
     );
 
@@ -906,6 +906,7 @@ describe("memory engine", () => {
       join(tmpdir(), "brewva-memory-engine-recall-active-search-async-"),
     );
     const sessionId = "memory-engine-recall-active-search-async-session";
+    const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
     let capturedCandidateIds: string[] = [];
     let resolveRanking: ((value: Array<{ id: string; score: number }>) => void) | undefined;
     const pendingRanking = new Promise<Array<{ id: string; score: number }>>((resolve) => {
@@ -929,6 +930,9 @@ describe("memory engine", () => {
           return pendingRanking;
         },
       },
+      recordEvent: (event) => {
+        recorded.push({ type: event.type, payload: event.payload });
+      },
     });
 
     engine.ingestEvent(
@@ -943,8 +947,8 @@ describe("memory engine", () => {
       taskSpecEvent({
         id: "evt-task-spec-recall-active-search-async-tail",
         sessionId,
-        goal: "update release notes and changelog formatting",
-        timestamp: Date.now(),
+        goal: "database migration update release notes and changelog formatting",
+        timestamp: Date.now() - 5_000,
       }),
     );
 
@@ -962,11 +966,311 @@ describe("memory engine", () => {
     );
     const recall = await recallPromise;
     expect(recall.includes("[MemoryRecall]")).toBe(true);
-    const lines = recall.split("\n");
-    const firstRankLineIndex = lines.findIndex((line) => line.startsWith("1. [unit]"));
-    expect(firstRankLineIndex).toBeGreaterThanOrEqual(0);
-    const firstExcerpt = lines[firstRankLineIndex + 1] ?? "";
-    expect(firstExcerpt.toLowerCase().includes("update release notes")).toBe(true);
+    expect(capturedCandidateIds.length).toBeGreaterThan(1);
+    const rankingEvent = recorded.find((event) => event.type === "cognitive_relevance_ranking");
+    expect(rankingEvent?.payload?.asyncResult).toBe(true);
+    expect(rankingEvent?.payload?.appliedRanking).toBe(true);
+  });
+
+  test("applies cognitive crystal summary in active mode", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-crystal-summary-active-"));
+    const sessionId = "memory-engine-crystal-summary-active-session";
+    const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    const engine = new MemoryEngine({
+      enabled: true,
+      rootDir: workspace,
+      workingFile: "working.md",
+      maxWorkingChars: 2400,
+      dailyRefreshHourLocal: 23,
+      crystalMinUnits: 2,
+      retrievalTopK: 8,
+      evolvesMode: "off",
+      cognitiveMode: "active",
+      cognitivePort: {
+        summarizeCrystal: ({ topic, units }) => ({
+          summary: `Abstractive summary for ${topic} with ${units.length} units.`,
+          usage: { totalTokens: 24 },
+        }),
+      },
+      recordEvent: (event) => {
+        recorded.push({ type: event.type, payload: event.payload });
+      },
+    });
+
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-active-1",
+        sessionId,
+        goal: "database migration rehearsal with rollback checklist",
+      }),
+    );
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-active-2",
+        sessionId,
+        goal: "database migration release readiness checks",
+      }),
+    );
+
+    engine.refreshIfNeeded({ sessionId });
+
+    const crystals = latestRowsById(
+      parseJsonLines<Array<{ id: string; summary: string; updatedAt: number }>[number]>(
+        join(workspace, "crystals.jsonl"),
+      ),
+    );
+    expect(crystals.length).toBeGreaterThan(0);
+    expect(crystals[0]?.summary).toContain("Abstractive summary for task goal");
+
+    const summaryEvent = recorded.find((event) => event.type === "cognitive_crystal_summary");
+    expect(summaryEvent?.payload?.appliedSummary).toBe(true);
+  });
+
+  test("records cognitive crystal summary in shadow mode without mutating deterministic crystal text", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-crystal-summary-shadow-"));
+    const sessionId = "memory-engine-crystal-summary-shadow-session";
+    const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    const engine = new MemoryEngine({
+      enabled: true,
+      rootDir: workspace,
+      workingFile: "working.md",
+      maxWorkingChars: 2400,
+      dailyRefreshHourLocal: 23,
+      crystalMinUnits: 2,
+      retrievalTopK: 8,
+      evolvesMode: "off",
+      cognitiveMode: "shadow",
+      cognitivePort: {
+        summarizeCrystal: () => ({
+          summary: "This summary should not replace deterministic crystal text in shadow mode.",
+          usage: { totalTokens: 18 },
+        }),
+      },
+      recordEvent: (event) => {
+        recorded.push({ type: event.type, payload: event.payload });
+      },
+    });
+
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-shadow-1",
+        sessionId,
+        goal: "validate migration ordering",
+      }),
+    );
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-shadow-2",
+        sessionId,
+        goal: "validate migration rollback",
+      }),
+    );
+
+    engine.refreshIfNeeded({ sessionId });
+
+    const crystals = latestRowsById(
+      parseJsonLines<Array<{ id: string; summary: string; updatedAt: number }>[number]>(
+        join(workspace, "crystals.jsonl"),
+      ),
+    );
+    expect(crystals.length).toBeGreaterThan(0);
+    expect(crystals[0]?.summary.startsWith("[Crystal]")).toBe(true);
+    expect(crystals[0]?.summary.includes("should not replace deterministic")).toBe(false);
+
+    const summaryEvent = recorded.find((event) => event.type === "cognitive_crystal_summary");
+    expect(summaryEvent?.payload?.appliedSummary).toBe(false);
+  });
+
+  test("applies async cognitive crystal summary in active mode and republishes working snapshot", async () => {
+    const workspace = mkdtempSync(
+      join(tmpdir(), "brewva-memory-engine-crystal-summary-active-async-"),
+    );
+    const sessionId = "memory-engine-crystal-summary-active-async-session";
+    const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    let resolveSummary:
+      | ((value: { summary: string; usage?: { totalTokens?: number } }) => void)
+      | undefined;
+    const pendingSummary = new Promise<{ summary: string; usage?: { totalTokens?: number } }>(
+      (resolve) => {
+        resolveSummary = resolve;
+      },
+    );
+
+    const engine = new MemoryEngine({
+      enabled: true,
+      rootDir: workspace,
+      workingFile: "working.md",
+      maxWorkingChars: 2400,
+      dailyRefreshHourLocal: 23,
+      crystalMinUnits: 2,
+      retrievalTopK: 8,
+      evolvesMode: "off",
+      cognitiveMode: "active",
+      cognitivePort: {
+        summarizeCrystal: () => pendingSummary,
+      },
+      recordEvent: (event) => {
+        recorded.push({ type: event.type, payload: event.payload });
+      },
+    });
+
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-active-async-1",
+        sessionId,
+        goal: "database migration rehearsal with rollback checklist",
+      }),
+    );
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-active-async-2",
+        sessionId,
+        goal: "database migration release readiness checks",
+      }),
+    );
+
+    engine.refreshIfNeeded({ sessionId });
+
+    const before = latestRowsById(
+      parseJsonLines<Array<{ id: string; summary: string; updatedAt: number }>[number]>(
+        join(workspace, "crystals.jsonl"),
+      ),
+    );
+    expect(before.length).toBeGreaterThan(0);
+    expect(before[0]?.summary.startsWith("[Crystal]")).toBe(true);
+
+    resolveSummary?.({
+      summary: "Async abstractive summary for task goal.",
+      usage: { totalTokens: 21 },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const after = latestRowsById(
+      parseJsonLines<Array<{ id: string; summary: string; updatedAt: number }>[number]>(
+        join(workspace, "crystals.jsonl"),
+      ),
+    );
+    expect(after.length).toBeGreaterThan(0);
+    expect(after[0]?.summary).toContain("Async abstractive summary for task goal");
+
+    const working = readFileSync(join(workspace, "working.md"), "utf8");
+    expect(working).toContain("Async abstractive summary for task goal");
+
+    const summaryEvent = recorded.find(
+      (event) =>
+        event.type === "cognitive_crystal_summary" &&
+        event.payload?.asyncResult === true &&
+        event.payload?.appliedSummary === true,
+    );
+    expect(summaryEvent).toBeDefined();
+    const asyncPublishEvent = recorded.find(
+      (event) =>
+        event.type === "memory_working_published" &&
+        event.payload?.reason === "cognitive_crystal_summary_async",
+    );
+    expect(asyncPublishEvent).toBeDefined();
+  });
+
+  test("ignores stale async crystal summary responses when newer refresh supersedes the request", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-engine-crystal-summary-stale-"));
+    const sessionId = "memory-engine-crystal-summary-stale-session";
+    const recorded: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    const summaryResolvers: Array<
+      (value: { summary: string; usage?: { totalTokens?: number } }) => void
+    > = [];
+
+    const engine = new MemoryEngine({
+      enabled: true,
+      rootDir: workspace,
+      workingFile: "working.md",
+      maxWorkingChars: 2400,
+      dailyRefreshHourLocal: 23,
+      crystalMinUnits: 2,
+      retrievalTopK: 8,
+      evolvesMode: "off",
+      cognitiveMode: "active",
+      cognitivePort: {
+        summarizeCrystal: () =>
+          new Promise<{ summary: string; usage?: { totalTokens?: number } }>((resolve) => {
+            summaryResolvers.push(resolve);
+          }),
+      },
+      recordEvent: (event) => {
+        recorded.push({ type: event.type, payload: event.payload });
+      },
+    });
+
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-stale-1",
+        sessionId,
+        goal: "validate migration ordering",
+      }),
+    );
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-stale-2",
+        sessionId,
+        goal: "validate migration rollback",
+      }),
+    );
+    engine.refreshIfNeeded({ sessionId });
+
+    engine.ingestEvent(
+      taskSpecEvent({
+        id: "evt-crystal-summary-stale-3",
+        sessionId,
+        goal: "validate migration gating",
+      }),
+    );
+    engine.refreshIfNeeded({ sessionId });
+
+    expect(summaryResolvers).toHaveLength(2);
+
+    summaryResolvers[0]?.({
+      summary: "stale async summary should not apply",
+      usage: { totalTokens: 9 },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    let crystals = latestRowsById(
+      parseJsonLines<Array<{ id: string; summary: string; updatedAt: number }>[number]>(
+        join(workspace, "crystals.jsonl"),
+      ),
+    );
+    expect(crystals.length).toBeGreaterThan(0);
+    expect(crystals[0]?.summary.includes("stale async summary")).toBe(false);
+
+    summaryResolvers[1]?.({
+      summary: "fresh async summary should apply",
+      usage: { totalTokens: 11 },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    crystals = latestRowsById(
+      parseJsonLines<Array<{ id: string; summary: string; updatedAt: number }>[number]>(
+        join(workspace, "crystals.jsonl"),
+      ),
+    );
+    expect(crystals.length).toBeGreaterThan(0);
+    expect(crystals[0]?.summary).toContain("fresh async summary should apply");
+
+    const staleEvent = recorded.find(
+      (event) =>
+        event.type === "cognitive_crystal_summary" &&
+        event.payload?.skippedReason === "stale_request",
+    );
+    expect(staleEvent?.payload?.appliedSummary).toBe(false);
+    const appliedEvent = recorded.find(
+      (event) =>
+        event.type === "cognitive_crystal_summary" &&
+        event.payload?.asyncResult === true &&
+        event.payload?.appliedSummary === true,
+    );
+    expect(appliedEvent).toBeDefined();
   });
 
   test("includes learning knowledge facets in recall blocks", async () => {

@@ -5,9 +5,9 @@ const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
 const VALID_SECURITY_MODES = new Set(["permissive", "standard", "strict"]);
 const VALID_EXECUTION_BACKENDS = new Set(["host", "sandbox", "auto"]);
 const VALID_EVENT_LEVELS = new Set(["audit", "ops", "debug"]);
-const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "shadow"]);
+const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "review-gated"]);
 const VALID_MEMORY_COGNITIVE_MODES = new Set(["off", "shadow", "active"]);
-const VALID_MEMORY_RECALL_MODES = new Set(["primary", "fallback"]);
+const VALID_MEMORY_RECALL_MODES = new Set(["always", "pressure-aware"]);
 const VALID_VERIFICATION_LEVELS = new Set<VerificationLevel>(["quick", "standard", "strict"]);
 const VALID_CHANNEL_SCOPE_STRATEGIES = new Set(["chat", "thread"]);
 const VALID_CHANNEL_ACL_MODES = new Set(["open", "closed"]);
@@ -77,6 +77,27 @@ function normalizeVerificationLevel(
   return VALID_VERIFICATION_LEVELS.has(value as VerificationLevel)
     ? (value as VerificationLevel)
     : fallback;
+}
+
+function normalizeStrictStringEnum<T extends string>(
+  value: unknown,
+  fallback: T,
+  validSet: Set<string>,
+  fieldPath: string,
+): T {
+  if (value === undefined) return fallback;
+  if (typeof value !== "string") {
+    throw new Error(
+      `Invalid config value for ${fieldPath}: expected one of [${[...validSet].join(", ")}], received non-string.`,
+    );
+  }
+  const normalized = value.trim();
+  if (validSet.has(normalized)) {
+    return normalized as T;
+  }
+  throw new Error(
+    `Invalid config value for ${fieldPath}: expected one of [${[...validSet].join(", ")}], received "${value}".`,
+  );
 }
 
 function normalizeStringRecord(
@@ -296,9 +317,12 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         memoryInput.retrievalWeights,
         defaults.memory.retrievalWeights,
       ),
-      recallMode: VALID_MEMORY_RECALL_MODES.has(memoryInput.recallMode as string)
-        ? (memoryInput.recallMode as BrewvaConfig["memory"]["recallMode"])
-        : defaults.memory.recallMode,
+      recallMode: normalizeStrictStringEnum(
+        memoryInput.recallMode,
+        defaults.memory.recallMode,
+        VALID_MEMORY_RECALL_MODES,
+        "memory.recallMode",
+      ),
       externalRecall: {
         enabled: normalizeBoolean(
           memoryExternalRecallInput.enabled,
@@ -317,9 +341,12 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
           defaults.memory.externalRecall.injectedConfidence,
         ),
       },
-      evolvesMode: VALID_MEMORY_EVOLVES_MODES.has(memoryInput.evolvesMode as string)
-        ? (memoryInput.evolvesMode as BrewvaConfig["memory"]["evolvesMode"])
-        : defaults.memory.evolvesMode,
+      evolvesMode: normalizeStrictStringEnum(
+        memoryInput.evolvesMode,
+        defaults.memory.evolvesMode,
+        VALID_MEMORY_EVOLVES_MODES,
+        "memory.evolvesMode",
+      ),
       cognitive: {
         mode: VALID_MEMORY_COGNITIVE_MODES.has(memoryCognitiveInput.mode as string)
           ? (memoryCognitiveInput.mode as BrewvaConfig["memory"]["cognitive"]["mode"])

@@ -217,8 +217,9 @@ Cognitive behavior follows a tri-mode model:
 - `memory.cognitive.mode="active"`: cognition can influence decisions within
   budget, with deterministic fallback on error/exhaustion.
 
-Runtime default is `off`. Additionally, `memory.cognitive.maxTokensPerTurn<=0`
-hard-disables cognitive port calls even if mode is not `off`.
+Runtime default is `shadow` with `memory.cognitive.maxTokensPerTurn=4096`.
+Additionally, `memory.cognitive.maxTokensPerTurn<=0` hard-disables cognitive
+port calls even if mode is not `off`.
 
 Implementation anchors:
 

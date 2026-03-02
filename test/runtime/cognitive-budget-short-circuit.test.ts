@@ -58,7 +58,7 @@ describe("cognitive budget short-circuit", () => {
     runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
-      args: { command: "false" },
+      args: { command: "false --second-check" },
       outputText: "memory ranking test second failure",
       success: false,
     });

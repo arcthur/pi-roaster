@@ -36,16 +36,16 @@ function patchMemory(runtime: BrewvaRuntime): void {
     "[MemoryRecall]\nquery: deterministic recall";
 }
 
-describe("recall fallback mode", () => {
-  test("skips recall under high pressure when recallMode=fallback", async () => {
+describe("recall pressure-aware mode", () => {
+  test("skips recall under high pressure when recallMode=pressure-aware", async () => {
     const runtime = new BrewvaRuntime({
       cwd: mkdtempSync(join(tmpdir(), "brewva-recall-fallback-high-")),
-      config: createConfig("fallback"),
+      config: createConfig("pressure-aware"),
     });
     patchMemory(runtime);
 
     const result = await runtime.context.buildInjection(
-      "recall-fallback-high",
+      "recall-pressure-aware-high",
       "memory recall gating",
       { tokens: 900, contextWindow: 1000, percent: 0.9 },
     );
@@ -54,15 +54,15 @@ describe("recall fallback mode", () => {
     expect(result.text.includes("[MemoryRecall]")).toBe(false);
   });
 
-  test("includes recall under low pressure when recallMode=fallback", async () => {
+  test("includes recall under low pressure when recallMode=pressure-aware", async () => {
     const runtime = new BrewvaRuntime({
       cwd: mkdtempSync(join(tmpdir(), "brewva-recall-fallback-low-")),
-      config: createConfig("fallback"),
+      config: createConfig("pressure-aware"),
     });
     patchMemory(runtime);
 
     const result = await runtime.context.buildInjection(
-      "recall-fallback-low",
+      "recall-pressure-aware-low",
       "memory recall gating",
       { tokens: 100, contextWindow: 1000, percent: 0.1 },
     );
@@ -71,15 +71,15 @@ describe("recall fallback mode", () => {
     expect(result.text.includes("[MemoryRecall]")).toBe(true);
   });
 
-  test("keeps recall enabled under high pressure when recallMode=primary", async () => {
+  test("keeps recall enabled under high pressure when recallMode=always", async () => {
     const runtime = new BrewvaRuntime({
       cwd: mkdtempSync(join(tmpdir(), "brewva-recall-primary-high-")),
-      config: createConfig("primary"),
+      config: createConfig("always"),
     });
     patchMemory(runtime);
 
     const result = await runtime.context.buildInjection(
-      "recall-primary-high",
+      "recall-always-high",
       "memory recall gating",
       { tokens: 900, contextWindow: 1000, percent: 0.9 },
     );

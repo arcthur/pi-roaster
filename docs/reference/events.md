@@ -180,11 +180,16 @@ to avoid polluting audit-level streams with high-frequency search telemetry.
 - `cognitive_relevance_ranking`
 - `cognitive_relevance_ranking_skipped`
 - `cognitive_relevance_ranking_failed`
+- `cognitive_crystal_summary`
+- `cognitive_crystal_summary_skipped`
+- `cognitive_crystal_summary_failed`
 - `cognitive_outcome_reflection`
 - `cognitive_outcome_reflection_skipped`
 - `cognitive_outcome_reflection_failed`
 
-Note: runtime API is async-first, but cognitive ranking can still emit `asyncResult` and skip metadata for internal non-applied ranking paths.
+Note: runtime API is async-first. `cognitive_relevance_ranking` and
+`cognitive_crystal_summary` can emit `asyncResult`, and `applied*` fields indicate
+whether async results were actually applied to runtime state.
 
 ### Tape
 
@@ -301,7 +306,7 @@ Single external-recall decision summary event.
 Common payload fields include:
 
 - `outcome` (`skipped | injected | filtered_out`)
-- `reason` (`skill_tag_missing | internal_score_sufficient | provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
+- `reason` (`pressure_gated | skill_tag_missing | internal_score_sufficient | provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
 - `query`
 - `internalTopScore`
 - `threshold`

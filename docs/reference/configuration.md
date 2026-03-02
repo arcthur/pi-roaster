@@ -68,14 +68,14 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `memory.retrievalWeights.lexical`: `0.55`
 - `memory.retrievalWeights.recency`: `0.25`
 - `memory.retrievalWeights.confidence`: `0.20`
-- `memory.recallMode`: `primary`
+- `memory.recallMode`: `always`
 - `memory.externalRecall.enabled`: `false`
 - `memory.externalRecall.minInternalScore`: `0.62`
 - `memory.externalRecall.queryTopK`: `5`
 - `memory.externalRecall.injectedConfidence`: `0.6`
-- `memory.evolvesMode`: `shadow`
-- `memory.cognitive.mode`: `off`
-- `memory.cognitive.maxTokensPerTurn`: `0` (`<=0` disables cognitive port calls)
+- `memory.evolvesMode`: `review-gated`
+- `memory.cognitive.mode`: `shadow`
+- `memory.cognitive.maxTokensPerTurn`: `4096` (`<=0` disables cognitive port calls)
 - `memory.global.enabled`: `true`
 - `memory.global.minConfidence`: `0.8`
 
@@ -239,7 +239,7 @@ Runtime behavior:
 
 - Context injection uses a single deterministic path:
   global cap + hard-limit gate + arena SLO (`arena.maxEntriesPerSession`).
-- Memory recall can be pressure-gated by `memory.recallMode="fallback"`.
+- Memory recall can be pressure-gated by `memory.recallMode="pressure-aware"`.
 - External recall boundary is explicit and disabled by default:
   set `memory.externalRecall.enabled=true` and inject a custom
   `externalRecallPort`.
@@ -250,7 +250,8 @@ Normalization details from `normalizeBrewvaConfig(...)`:
 - `compactionThresholdPercent` is clamped to `<= hardLimitPercent`.
 - Percent-like ratios are clamped into `[0, 1]` (`alertThresholdRatio`, memory/global confidence).
 - `memory.retrievalWeights` are normalized to sum to `1` when total weight is positive; otherwise defaults are used.
-- `memory.recallMode` is normalized to `primary | fallback` (invalid values fall back to defaults).
+- `memory.recallMode` only accepts `always | pressure-aware`; invalid values fail config load.
+- `memory.evolvesMode` only accepts `off | review-gated`; invalid values fail config load.
 - `memory.externalRecall.*` is normalized to bounded numeric/boolean defaults.
 - Compaction cooldown settings are clamped to safe numeric ranges.
 - Most numeric fields are floor-normalized to positive/non-negative integers (invalid values fall back to defaults).

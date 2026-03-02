@@ -42,7 +42,7 @@ function createWorkspace(name: string): string {
 function createConfig(): BrewvaConfig {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.memory.enabled = true;
-  config.memory.recallMode = "primary";
+  config.memory.recallMode = "always";
   config.infrastructure.contextBudget.enabled = true;
   config.infrastructure.contextBudget.maxInjectionTokens = 4_000;
   config.infrastructure.toolFailureInjection.enabled = true;

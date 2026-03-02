@@ -188,8 +188,10 @@ Memory split behavior:
 - `brewva.memory-working` carries the latest working-memory snapshot and is
   registered as `critical`.
 - `brewva.memory-recall` carries retrieval hits and is registered as `normal`.
-- `memory.recallMode="primary"` always enables recall.
-- `memory.recallMode="fallback"` skips recall under `high`/`critical` context pressure.
+- `memory.recallMode="always"` always enables recall.
+- `memory.recallMode="pressure-aware"` skips recall under `high`/`critical` context pressure.
+- Under `memory.recallMode="pressure-aware"`, external recall is also skipped when pressure is
+  `high`/`critical` (`context_external_recall_decision` with `reason="pressure_gated"`).
 - Open memory insights can expand recall query terms (`memory_recall_query_expanded` event).
 - `brewva.rag-external` is injected only when `memory.externalRecall.enabled=true`,
   active skill carries tag `external-knowledge`, internal recall top score is below

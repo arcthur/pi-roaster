@@ -66,6 +66,24 @@ export interface CognitiveReflectOutput {
   usage?: CognitiveUsage;
 }
 
+export interface CognitiveCrystalUnit {
+  id: string;
+  statement: string;
+  confidence: number;
+  lastSeenAt: number;
+}
+
+export interface CognitiveSummarizeCrystalInput {
+  topic: string;
+  units: CognitiveCrystalUnit[];
+  fallbackSummary: string;
+}
+
+export interface CognitiveSummarizeCrystalOutput {
+  summary: string;
+  usage?: CognitiveUsage;
+}
+
 export interface CognitivePort {
   inferRelation?(
     input: CognitiveInferRelationInput,
@@ -74,6 +92,9 @@ export interface CognitivePort {
   reflectOnOutcome?(
     input: CognitiveReflectInput,
   ): CognitiveReflectOutput | Promise<CognitiveReflectOutput>;
+  summarizeCrystal?(
+    input: CognitiveSummarizeCrystalInput,
+  ): CognitiveSummarizeCrystalOutput | Promise<CognitiveSummarizeCrystalOutput>;
 }
 
 /**

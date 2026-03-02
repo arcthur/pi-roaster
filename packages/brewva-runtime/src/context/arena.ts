@@ -398,12 +398,24 @@ export class ContextArena {
     }
 
     if (isDropRecallDegradableSource(entry.source)) {
+      const evictedForIncomingRecall = this.evictActiveEntry(state, (candidate) =>
+        isDropRecallDegradableSource(candidate.source),
+      );
       state.lastDegradationApplied = true;
+      if (!evictedForIncomingRecall) {
+        return {
+          allow: false,
+          entriesBefore: before,
+          entriesAfter: state.entries.length,
+          dropped: true,
+          degradationApplied: true,
+        };
+      }
       return {
-        allow: false,
+        allow: true,
         entriesBefore: before,
         entriesAfter: state.entries.length,
-        dropped: true,
+        dropped: false,
         degradationApplied: true,
       };
     }

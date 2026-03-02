@@ -4,6 +4,7 @@ import { format, getHours } from "date-fns";
 import type {
   CognitiveInferRelationOutput,
   CognitivePort,
+  CognitiveSummarizeCrystalOutput,
   CognitiveTokenBudgetStatus,
   CognitiveUsage,
 } from "../cognitive/port.js";
@@ -16,7 +17,7 @@ import {
 import type { BrewvaEventRecord } from "../types.js";
 import { writeFileAtomic } from "../utils/fs.js";
 import { normalizeJsonRecord } from "../utils/json.js";
-import { compileCrystalDrafts } from "./crystal.js";
+import { compileCrystalDrafts, type CrystalSummarizeInput } from "./crystal.js";
 import { extractMemoryFromEvent } from "./extractor.js";
 import {
   GlobalMemoryTier,
@@ -35,12 +36,14 @@ import type {
   WorkingMemorySnapshot,
 } from "./types.js";
 import { MEMORY_RANKING_SIGNAL_SCHEMA, MEMORY_SEARCH_RESULT_SCHEMA } from "./types.js";
+import { formatRecallQueryHint } from "./utils.js";
 import { buildWorkingMemorySnapshot } from "./working-memory.js";
 
 const GLOBAL_LIFECYCLE_COOLDOWN_MS = 60_000;
 const GLOBAL_SYNC_SNAPSHOT_DIR = "global-sync";
 const COGNITIVE_MAX_INFERENCE_CALLS_PER_REFRESH = 6;
 const COGNITIVE_MAX_RANK_CANDIDATES_PER_SEARCH = 8;
+const MIN_EXTERNAL_PROVIDER_CONFIDENCE = 0.25;
 
 function toDayKey(date: Date): string {
   return format(date, "yyyy-MM-dd");
@@ -72,6 +75,14 @@ function sanitizeRationale(value: string | undefined): string | null {
   return compact.length > maxChars ? `${compact.slice(0, maxChars - 3)}...` : compact;
 }
 
+function sanitizeCrystalSummary(value: string | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return null;
+  const maxChars = 700;
+  return compact.length > maxChars ? `${compact.slice(0, maxChars - 3)}...` : compact;
+}
+
 function sanitizeRankScore(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.round(Math.max(0, value) * 1000) / 1000;
@@ -79,6 +90,26 @@ function sanitizeRankScore(value: number): number {
 
 function normalizeTopicKey(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeUniqueIds(ids: string[]): string[] {
+  const unique = new Set<string>();
+  for (const id of ids) {
+    const normalized = id.trim();
+    if (!normalized) continue;
+    unique.add(normalized);
+  }
+  return [...unique].toSorted();
+}
+
+function hasSameNormalizedIdSet(left: string[], right: string[]): boolean {
+  const normalizedLeft = normalizeUniqueIds(left);
+  const normalizedRight = normalizeUniqueIds(right);
+  if (normalizedLeft.length !== normalizedRight.length) return false;
+  for (let index = 0; index < normalizedLeft.length; index += 1) {
+    if (normalizedLeft[index] !== normalizedRight[index]) return false;
+  }
+  return true;
 }
 
 function formatRecallKnowledgeFacets(facets: MemoryKnowledgeFacets | undefined): string | null {
@@ -105,7 +136,7 @@ function inferEvolvesRelation(input: {
   olderFingerprint: string;
   newer: string;
   older: string;
-}): MemoryEvolvesEdge["relation"] {
+}): MemoryEvolvesEdge["relation"] | null {
   if (input.newerFingerprint === input.olderFingerprint) return "confirms";
   const newer = input.newer.toLowerCase().replace(/\s+/g, " ").trim();
   const older = input.older.toLowerCase().replace(/\s+/g, " ").trim();
@@ -131,7 +162,7 @@ function inferEvolvesRelation(input: {
     /(?:^|[;,.]\s+)(however|but|in contrast|on the other hand|rather than)\b/;
   if (challengePattern.test(newer) && jaccard >= 0.2) return "challenges";
   if (jaccard >= 0.45) return "enriches";
-  return "enriches";
+  return null;
 }
 
 function normalizeRetrievalWeights(
@@ -164,7 +195,7 @@ export interface MemoryEngineOptions {
   crystalMinUnits: number;
   retrievalTopK: number;
   retrievalWeights?: MemoryRetrievalWeights;
-  evolvesMode: "off" | "shadow";
+  evolvesMode: "off" | "review-gated";
   cognitiveMode?: "off" | "shadow" | "active";
   cognitiveMaxInferenceCallsPerRefresh?: number;
   cognitiveMaxRankCandidatesPerSearch?: number;
@@ -208,7 +239,7 @@ export class MemoryEngine {
   private readonly crystalMinUnits: number;
   private readonly retrievalTopK: number;
   private readonly retrievalWeights: MemoryRetrievalWeights;
-  private readonly evolvesMode: "off" | "shadow";
+  private readonly evolvesMode: "off" | "review-gated";
   private readonly cognitiveMode: "off" | "shadow" | "active";
   private readonly cognitiveMaxInferenceCallsPerRefresh: number;
   private readonly cognitiveMaxRankCandidatesPerSearch: number;
@@ -227,6 +258,7 @@ export class MemoryEngine {
   private readonly globalPruneBelowConfidence: number;
   private readonly globalLifecycleCooldownMs: number;
   private readonly recordEvent?: MemoryEngineOptions["recordEvent"];
+  private readonly cognitiveCrystalSummarySeqByKey = new Map<string, number>();
   private store: MemoryStore | null = null;
   private globalTier: GlobalMemoryTier | null = null;
   private globalLifecycleLastRunAt = 0;
@@ -450,6 +482,11 @@ export class MemoryEngine {
         sessionId: input.sessionId,
         units,
         minUnits: this.crystalMinUnits,
+        summarize: (summaryInput) =>
+          this.maybeSummarizeCrystalDraft({
+            sessionId: input.sessionId,
+            draft: summaryInput,
+          }),
       });
       const crystals = drafts.map((draft) => {
         const crystal = store.upsertCrystal(draft);
@@ -467,7 +504,7 @@ export class MemoryEngine {
         return crystal;
       });
 
-      if (this.evolvesMode === "shadow") {
+      if (this.evolvesMode === "review-gated") {
         this.maybeCreateEvolvesEdges(input.sessionId, units);
       }
 
@@ -654,7 +691,6 @@ export class MemoryEngine {
               weightedLexical: hit.ranking.weightedLexical,
               weightedRecency: hit.ranking.weightedRecency,
               weightedConfidence: hit.ranking.weightedConfidence,
-              weakSemantic: hit.ranking.weakSemantic,
             })),
           },
         });
@@ -681,15 +717,20 @@ export class MemoryEngine {
     sessionId: string;
     query: string;
     limit?: number;
+    searchResult?: MemorySearchResult;
   }): Promise<string> {
-    const result = await this.search(input.sessionId, {
-      query: input.query,
-      limit: input.limit,
-    });
+    const result =
+      input.searchResult ??
+      (await this.search(input.sessionId, {
+        query: input.query,
+        limit: input.limit,
+      }));
     if (result.hits.length === 0) return "";
+    const queryHint = formatRecallQueryHint(result.query);
     const lines: string[] = [
       "[MemoryRecall]",
-      `query: ${result.query}`,
+      `query_hint: ${queryHint.hint}`,
+      `query_terms: ${queryHint.terms}`,
       `scanned: ${result.scanned}`,
     ];
     result.hits.forEach((hit, index) => {
@@ -731,7 +772,17 @@ export class MemoryEngine {
         typeof hit.confidence === "number" && Number.isFinite(hit.confidence)
           ? clampProbability(hit.confidence)
           : null;
+      if (providerConfidence !== null && providerConfidence < MIN_EXTERNAL_PROVIDER_CONFIDENCE) {
+        return;
+      }
       const providerScore = sanitizeRankScore(hit.score);
+      const effectiveConfidence =
+        providerConfidence === null
+          ? injectedConfidence
+          : clampProbability(
+              providerConfidence * 0.7 + injectedConfidence * 0.3,
+              injectedConfidence,
+            );
       const metadataInput: Record<string, unknown> = {};
       if (hit.metadata) {
         Object.assign(metadataInput, hit.metadata);
@@ -749,7 +800,7 @@ export class MemoryEngine {
         status: "active",
         topic,
         statement,
-        confidence: injectedConfidence,
+        confidence: effectiveConfidence,
         metadata,
         sourceRefs: [
           {
@@ -871,6 +922,11 @@ export class MemoryEngine {
 
   clearSessionCache(sessionId: string): void {
     this.store?.clearSessionCache(sessionId);
+    const keyPrefix = `${sessionId}:`;
+    for (const key of this.cognitiveCrystalSummarySeqByKey.keys()) {
+      if (!key.startsWith(keyPrefix)) continue;
+      this.cognitiveCrystalSummarySeqByKey.delete(key);
+    }
   }
 
   rebuildSessionFromTape(input: {
@@ -1186,6 +1242,276 @@ export class MemoryEngine {
       this.cognitiveMaxRankCandidatesPerSearch > 1 &&
       typeof this.cognitivePort?.rankRelevance === "function"
     );
+  }
+
+  private shouldRunCognitiveCrystalSummary(): boolean {
+    return (
+      this.cognitiveMode !== "off" && typeof this.cognitivePort?.summarizeCrystal === "function"
+    );
+  }
+
+  private cognitiveCrystalSummaryKey(sessionId: string, topic: string): string {
+    return `${sessionId}:${normalizeTopicKey(topic)}`;
+  }
+
+  private registerCognitiveCrystalSummaryRequest(sessionId: string, topic: string): number {
+    const key = this.cognitiveCrystalSummaryKey(sessionId, topic);
+    const nextSeq = (this.cognitiveCrystalSummarySeqByKey.get(key) ?? 0) + 1;
+    this.cognitiveCrystalSummarySeqByKey.set(key, nextSeq);
+    return nextSeq;
+  }
+
+  private isCurrentCognitiveCrystalSummaryRequest(
+    sessionId: string,
+    topic: string,
+    requestSeq: number,
+  ): boolean {
+    const key = this.cognitiveCrystalSummaryKey(sessionId, topic);
+    return this.cognitiveCrystalSummarySeqByKey.get(key) === requestSeq;
+  }
+
+  private publishWorkingSnapshot(input: {
+    sessionId: string;
+    clearDirtyEntries: boolean;
+    reason?: string;
+  }): WorkingMemorySnapshot {
+    const store = this.getStore();
+    const units = store.listUnits(input.sessionId);
+    const crystals = store.listCrystals(input.sessionId);
+    const insights = store.listInsights(input.sessionId);
+    const snapshot = buildWorkingMemorySnapshot({
+      sessionId: input.sessionId,
+      units,
+      crystals,
+      insights,
+      maxChars: this.maxWorkingChars,
+    });
+    store.publishWorking(snapshot, this.maxWorkingChars);
+    store.markPublished({
+      at: snapshot.generatedAt,
+      dayKey: toDayKey(new Date(snapshot.generatedAt)),
+      clearDirtyEntries: input.clearDirtyEntries,
+    });
+    this.recordEvent?.({
+      sessionId: input.sessionId,
+      type: "memory_working_published",
+      payload: {
+        generatedAt: snapshot.generatedAt,
+        units: snapshot.sourceUnitIds.length,
+        crystals: snapshot.crystalIds.length,
+        insights: snapshot.insightIds.length,
+        chars: snapshot.content.length,
+        reason: input.reason ?? null,
+        working: snapshot as unknown as Record<string, unknown>,
+      },
+    });
+    return snapshot;
+  }
+
+  private maybeApplyAsyncCrystalSummary(input: {
+    sessionId: string;
+    draft: CrystalSummarizeInput;
+    summary: string;
+    requestSeq: number;
+  }): { appliedSummary: boolean; skippedReason: string | null } {
+    if (this.cognitiveMode !== "active") {
+      return {
+        appliedSummary: false,
+        skippedReason: "mode_not_active",
+      };
+    }
+    if (
+      !this.isCurrentCognitiveCrystalSummaryRequest(
+        input.sessionId,
+        input.draft.topic,
+        input.requestSeq,
+      )
+    ) {
+      return {
+        appliedSummary: false,
+        skippedReason: "stale_request",
+      };
+    }
+    const store = this.getStore();
+    const topicKey = normalizeTopicKey(input.draft.topic);
+    const crystal = store
+      .listCrystals(input.sessionId)
+      .find((entry) => normalizeTopicKey(entry.topic) === topicKey);
+    if (!crystal) {
+      return {
+        appliedSummary: false,
+        skippedReason: "crystal_not_found",
+      };
+    }
+    const expectedUnitIds = input.draft.units.map((unit) => unit.id);
+    if (!hasSameNormalizedIdSet(crystal.unitIds, expectedUnitIds)) {
+      return {
+        appliedSummary: false,
+        skippedReason: "unit_ids_drifted",
+      };
+    }
+    if (crystal.summary.trim() !== input.draft.fallbackSummary.trim()) {
+      return {
+        appliedSummary: false,
+        skippedReason: "summary_drifted",
+      };
+    }
+    const updated = store.upsertCrystal({
+      sessionId: crystal.sessionId,
+      topic: crystal.topic,
+      summary: input.summary,
+      unitIds: crystal.unitIds,
+      confidence: crystal.confidence,
+      sourceRefs: crystal.sourceRefs,
+      metadata: crystal.metadata,
+    });
+    this.recordEvent?.({
+      sessionId: input.sessionId,
+      type: "memory_crystal_compiled",
+      payload: {
+        crystalId: updated.id,
+        topic: updated.topic,
+        unitCount: updated.unitIds.length,
+        confidence: updated.confidence,
+        source: "cognitive_async_summary",
+        crystal: updated as unknown as Record<string, unknown>,
+      },
+    });
+    this.publishWorkingSnapshot({
+      sessionId: input.sessionId,
+      clearDirtyEntries: false,
+      reason: "cognitive_crystal_summary_async",
+    });
+    return {
+      appliedSummary: true,
+      skippedReason: null,
+    };
+  }
+
+  private maybeSummarizeCrystalDraft(input: {
+    sessionId: string;
+    draft: CrystalSummarizeInput;
+  }): string | null {
+    if (!this.shouldRunCognitiveCrystalSummary()) return null;
+    const cognitivePort = this.cognitivePort;
+    if (!cognitivePort?.summarizeCrystal) return null;
+
+    const tokenBudgetBefore = this.resolveCognitiveBudgetStatus(input.sessionId);
+    if ((tokenBudgetBefore?.maxTokensPerTurn ?? 1) <= 0) {
+      return null;
+    }
+    if (tokenBudgetBefore?.exhausted) {
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_crystal_summary_skipped",
+        payload: {
+          stage: "memory_crystal_summary",
+          mode: this.cognitiveMode,
+          reason: "token_budget_exhausted",
+          topic: input.draft.topic,
+          unitCount: input.draft.units.length,
+          budget: cognitiveBudgetPayload(tokenBudgetBefore),
+        },
+      });
+      return null;
+    }
+
+    const requestSeq = this.registerCognitiveCrystalSummaryRequest(
+      input.sessionId,
+      input.draft.topic,
+    );
+
+    const commit = (inputCommit: {
+      output: CognitiveSummarizeCrystalOutput;
+      asyncResult: boolean;
+      skippedReason?: string | null;
+    }): string | null => {
+      const output = inputCommit.output;
+      const usage = normalizeCognitiveUsage(output?.usage);
+      const budgetAfter = this.recordCognitiveUsageWithBudget({
+        sessionId: input.sessionId,
+        stage: "memory_crystal_summary",
+        usage,
+      });
+      const summary = sanitizeCrystalSummary(output?.summary);
+      let appliedSummary = false;
+      let skippedReason: string | null = inputCommit.skippedReason ?? null;
+      if (!summary) {
+        skippedReason = skippedReason ?? "empty_summary";
+      } else if (this.cognitiveMode !== "active") {
+        skippedReason = skippedReason ?? "mode_not_active";
+      } else if (inputCommit.asyncResult) {
+        const applied = this.maybeApplyAsyncCrystalSummary({
+          sessionId: input.sessionId,
+          draft: input.draft,
+          summary,
+          requestSeq,
+        });
+        appliedSummary = applied.appliedSummary;
+        skippedReason = applied.skippedReason;
+      } else {
+        appliedSummary = true;
+        skippedReason = null;
+      }
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_crystal_summary",
+        payload: {
+          stage: "memory_crystal_summary",
+          mode: this.cognitiveMode,
+          topic: input.draft.topic,
+          unitCount: input.draft.units.length,
+          asyncResult: inputCommit.asyncResult,
+          appliedSummary,
+          skippedReason,
+          summaryPreview: summary ? summary.slice(0, 160) : null,
+          usage: cognitiveUsagePayload(usage),
+          budget: cognitiveBudgetPayload(budgetAfter),
+        },
+      });
+      return !inputCommit.asyncResult && appliedSummary ? summary : null;
+    };
+
+    const fail = (error: unknown): void => {
+      this.recordEvent?.({
+        sessionId: input.sessionId,
+        type: "cognitive_crystal_summary_failed",
+        payload: {
+          stage: "memory_crystal_summary",
+          mode: this.cognitiveMode,
+          topic: input.draft.topic,
+          unitCount: input.draft.units.length,
+          budget: cognitiveBudgetPayload(this.resolveCognitiveBudgetStatus(input.sessionId)),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    };
+
+    try {
+      const result = cognitivePort.summarizeCrystal({
+        topic: input.draft.topic,
+        units: input.draft.units,
+        fallbackSummary: input.draft.fallbackSummary,
+      });
+      if (isPromiseLike<CognitiveSummarizeCrystalOutput>(result)) {
+        void result
+          .then((output) => {
+            commit({
+              output,
+              asyncResult: true,
+            });
+          })
+          .catch(fail);
+        return null;
+      }
+      return commit({
+        output: result,
+        asyncResult: false,
+      });
+    } catch (error) {
+      fail(error);
+      return null;
+    }
   }
 
   private async maybeRecordCognitiveRelevanceRanking(input: {
@@ -1612,6 +1938,7 @@ export class MemoryEngine {
           newer: newer.statement,
           older: older.statement,
         });
+        if (!relation) continue;
         const key = `${newer.id}:${older.id}`;
         if (existingKeys.has(key)) continue;
         const edge = store.addEvolvesEdge({
@@ -1621,7 +1948,7 @@ export class MemoryEngine {
           relation,
           status: "proposed",
           confidence: 0.58,
-          rationale: `shadow relation inferred from topic=${newer.topic}`,
+          rationale: `review-gated relation inferred from topic=${newer.topic}`,
         });
         existingKeys.add(key);
         this.maybeRecordCognitiveRelationInference({

@@ -47,17 +47,17 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       recency: 0.25,
       confidence: 0.2,
     },
-    recallMode: "primary",
+    recallMode: "always",
     externalRecall: {
       enabled: false,
       minInternalScore: 0.62,
       queryTopK: 5,
       injectedConfidence: 0.6,
     },
-    evolvesMode: "shadow",
+    evolvesMode: "review-gated",
     cognitive: {
-      mode: "off",
-      maxTokensPerTurn: 0,
+      mode: "shadow",
+      maxTokensPerTurn: 4096,
     },
     global: {
       enabled: true,

@@ -19,7 +19,7 @@ export type MemoryInsightStatus = "open" | "dismissed";
 export type MemoryEvolvesRelation = "replaces" | "enriches" | "confirms" | "challenges";
 
 export type MemoryEvolvesEdgeStatus =
-  | "proposed" // Route A: shadow-only candidate edges
+  | "proposed" // Route A: review-gated candidate edges
   | "accepted" // Manual review accepted (may apply side-effects like superseding units)
   | "rejected"; // Manual review rejected
 
@@ -77,7 +77,6 @@ export interface MemorySearchRankingSignal {
   weightedLexical: number;
   weightedRecency: number;
   weightedConfidence: number;
-  weakSemantic: boolean;
   rank: number;
 }
 

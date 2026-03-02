@@ -73,9 +73,10 @@ on extension hooks (e.g. `agent_end`).
 **Behavior:**
 
 - Compile crystals per topic once units reach a minimum density (`crystalMinUnits`)
-- Crystal `summary` is currently an extract of the highest-signal unit statements,
-  not an abstractive/LLM-generated summary. This keeps the system deterministic
-  and cheap, but increases redundancy; treat it as a future optimization lever.
+- Crystal `summary` defaults to deterministic extractive text from high-signal
+  unit statements, and upgrades to an abstractive summary when
+  `CognitivePort.summarizeCrystal` is available and enabled (`memory.cognitive.mode=active`).
+  If cognitive summary is unavailable or rejected, the extractive fallback is kept.
 - Generate insights (`conflict` and `evolves_pending`)
 - Build a fixed-template working snapshot and publish `working.md`
 - Emit `memory_working_published` and `memory_crystal_compiled` events
@@ -96,7 +97,7 @@ Code pointers:
   - `brewva.memory-working` from `working.md` snapshot content
   - `brewva.memory-recall` from task-aware recall hits derived from `{task.goal + user prompt (+ open insight terms)}`
 - Open insight terms emit `memory_recall_query_expanded` and are intentionally bounded to keep lexical recall stable.
-- `memory.recallMode="fallback"` can skip `brewva.memory-recall` under high context pressure.
+- `memory.recallMode="pressure-aware"` can skip `brewva.memory-recall` under high context pressure.
 - Both sources respect global context budget policies (zone caps + truncation/drop decisions).
 
 Code pointers:
@@ -111,6 +112,7 @@ The retrieval pipeline is intentionally “Route A simple”:
 
 - Candidate pool: units + crystals for the current session
 - Scoring: lexical overlap + recency + confidence, with a small alias/stemming layer.
+  Candidates with zero lexical overlap are excluded.
   Coefficients are configured via `memory.retrievalWeights.*` and normalized to
   sum to 1 during config loading.
 - Superseded units are excluded from recall to prevent stale guidance
@@ -119,9 +121,9 @@ Code pointer:
 
 - Retrieval scoring: `packages/brewva-runtime/src/memory/retrieval.ts`
 
-### 5) EVOLVES (shadow): propose → review → apply
+### 5) EVOLVES (review-gated): propose → review → apply
 
-When `memory.evolvesMode="shadow"`, the engine proposes small “evolves” edges for
+When `memory.evolvesMode="review-gated"`, the engine proposes small “evolves” edges for
 recent units within the same topic. Edges are stored in `evolves.jsonl` and are
 reviewed explicitly via tool/runtime API.
 
@@ -130,8 +132,8 @@ reviewed explicitly via tool/runtime API.
 - Generate a limited set of candidate edges (newer → older) per topic
 - Only create `evolves_pending` insights for actionable relations (`replaces` / `challenges`)
 - Relation inference is heuristic and intentionally conservative in its impact:
-  proposals are always manual-review gated. If you ever add an auto-accept mode,
-  tighten `inferEvolvesRelation()` to avoid defaulting to `replaces` on weak signals.
+  proposals are always manual-review gated. Low-similarity pairs do not produce
+  evolves edges.
 
 **Review:**
 

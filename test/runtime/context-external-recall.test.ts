@@ -18,7 +18,7 @@ type RuntimeWithInternals = {
 function createConfig(): BrewvaConfig {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.memory.enabled = true;
-  config.memory.recallMode = "primary";
+  config.memory.recallMode = "always";
   config.memory.externalRecall.enabled = true;
   config.memory.externalRecall.minInternalScore = 0.62;
   config.memory.externalRecall.queryTopK = 3;
@@ -60,6 +60,44 @@ describe("context external recall boundary", () => {
     expect(payload?.reason).toBe("provider_unavailable");
   });
 
+  test("skips external recall under high pressure when recallMode=pressure-aware", async () => {
+    const config = createConfig();
+    config.memory.recallMode = "pressure-aware";
+    const runtime = new BrewvaRuntime({
+      cwd: mkdtempSync(join(tmpdir(), "brewva-external-recall-pressure-gated-")),
+      config,
+      externalRecallPort: {
+        search: async () => [
+          {
+            topic: "Remote docs",
+            excerpt: "This hit should be skipped due to pressure gating.",
+            score: 0.93,
+            confidence: 0.91,
+          },
+        ],
+      },
+    });
+    patchExternalKnowledgeSkill(runtime);
+
+    const sessionId = "context-external-recall-pressure-gated";
+    runtime.context.onTurnStart(sessionId, 1);
+    const injection = await runtime.context.buildInjection(
+      sessionId,
+      "Need external API references",
+      { tokens: 950, contextWindow: 1_000, percent: 0.95 },
+    );
+
+    expect(injection.text.includes("[ExternalRecall]")).toBe(false);
+    const event = runtime.events.query(sessionId, {
+      type: "context_external_recall_decision",
+      last: 1,
+    })[0];
+    expect(event).toBeDefined();
+    const payload = event?.payload as { outcome?: string; reason?: string } | undefined;
+    expect(payload?.outcome).toBe("skipped");
+    expect(payload?.reason).toBe("pressure_gated");
+  });
+
   test("injects external recall block and writes back external source-tier memory", async () => {
     const runtime = new BrewvaRuntime({
       cwd: mkdtempSync(join(tmpdir(), "brewva-external-recall-injected-")),
@@ -86,6 +124,9 @@ describe("context external recall boundary", () => {
 
     expect(injection.accepted).toBe(true);
     expect(injection.text.includes("[ExternalRecall]")).toBe(true);
+    expect(injection.text.includes("query_hint:")).toBe(true);
+    expect(injection.text.includes("query_terms:")).toBe(true);
+    expect(injection.text.includes("\nquery: ")).toBe(false);
 
     const injectedEvent = runtime.events.query(sessionId, {
       type: "context_external_recall_decision",

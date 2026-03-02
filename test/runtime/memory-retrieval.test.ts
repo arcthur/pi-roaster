@@ -173,27 +173,27 @@ describe("memory retrieval", () => {
     expect(result.scanned).toBe(0);
   });
 
-  test("supports retrieval weight tuning for non-lexical recall", () => {
+  test("supports retrieval weight tuning for low-overlap recall", () => {
     const units = [
       unit({
         id: "u1",
-        topic: "database architecture",
-        statement: "database migration strategy and schema rollout",
+        topic: "migration checklist",
+        statement: "migration rollout checklist for schema changes",
         confidence: 0.2,
         updatedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
       }),
       unit({
         id: "u2",
         topic: "recent execution",
-        statement: "cache invalidation strategy for hot paths",
-        confidence: 0.95,
+        statement: "rollout notes for hot paths",
+        confidence: 0.6,
         updatedAt: Date.now(),
       }),
     ];
 
     const defaultWeighted = searchMemory({
       sessionId: "mem-retrieval-session",
-      query: "database migration",
+      query: "migration rollout checklist",
       limit: 2,
       units,
       crystals: [],
@@ -202,7 +202,7 @@ describe("memory retrieval", () => {
 
     const recallWeighted = searchMemory({
       sessionId: "mem-retrieval-session",
-      query: "database migration",
+      query: "migration rollout checklist",
       limit: 2,
       units,
       crystals: [],

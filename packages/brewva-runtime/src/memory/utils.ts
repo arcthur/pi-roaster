@@ -21,3 +21,15 @@ export function mergeSourceRefs(
   }
   return [...merged.values()].toSorted((left, right) => left.timestamp - right.timestamp);
 }
+
+export function formatRecallQueryHint(query: string): { hint: string; terms: number } {
+  const compact = query.replace(/\s+/g, " ").trim();
+  if (!compact) return { hint: "", terms: 0 };
+  const terms = compact.split(" ").filter((token) => token.length > 0);
+  const hint = terms.slice(0, 12).join(" ");
+  const maxChars = 160;
+  return {
+    hint: hint.length > maxChars ? `${hint.slice(0, maxChars - 3)}...` : hint,
+    terms: terms.length,
+  };
+}

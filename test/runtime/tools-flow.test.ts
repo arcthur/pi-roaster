@@ -648,7 +648,7 @@ describe("S-013 memory insight tool flow", () => {
   test("memory_review_evolves_edge reviews proposed edges", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-review-edge-tool-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
-    config.memory.evolvesMode = "shadow";
+    config.memory.evolvesMode = "review-gated";
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "s13e";
 

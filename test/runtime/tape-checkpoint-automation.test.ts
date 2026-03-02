@@ -376,7 +376,7 @@ describe("tape checkpoint automation", () => {
   test("given accepted evolves edge before restart, when runtime rebuilds from tape, then accepted edge status is preserved", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-review-rebuild-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
-    config.memory.evolvesMode = "shadow";
+    config.memory.evolvesMode = "review-gated";
     const sessionId = "memory-review-rebuild-1";
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });

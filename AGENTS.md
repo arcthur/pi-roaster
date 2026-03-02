@@ -106,7 +106,8 @@ brewva/
   - **Arena SLO**: entry ceiling (`maxEntriesPerSession`) with deterministic `drop_recall` degradation.
   - **External recall boundary**: triggered by low internal score + skill tag. Runtime queries `ExternalRecallPort`, injects `brewva.rag-external`, and writes back only if the final injection includes `[ExternalRecall]` (filtered-out results do not pollute memory). Write-back uses configured injected confidence; provider score/confidence are persisted as metadata.
 - Cognitive defaults are explicit:
-  - `memory.cognitive.mode: off` (default)
+  - `memory.cognitive.mode: shadow` (default)
+  - `memory.cognitive.maxTokensPerTurn: 4096` (default)
   - `memory.cognitive.maxTokensPerTurn <= 0` disables cognitive port calls.
 - Turn durability/recovery is WAL-based through `runtime.turnWal.*` and
   `infrastructure.turnWal.*` configuration.

@@ -254,7 +254,7 @@
             },
             "evolvesMode": {
               "type": "string",
-              "enum": ["off", "shadow"]
+              "enum": ["off", "review-gated"]
             },
             "externalRecall": {
               "type": "object",
@@ -291,7 +291,7 @@
             },
             "recallMode": {
               "type": "string",
-              "enum": ["primary", "fallback"]
+              "enum": ["always", "pressure-aware"]
             },
             "retrievalTopK": {
               "type": "number"

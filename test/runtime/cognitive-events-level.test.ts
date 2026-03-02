@@ -34,7 +34,7 @@ describe("cognitive relevance ranking event level", () => {
     });
     runtime.task.setSpec(sessionId, {
       schema: "brewva.task.v1",
-      goal: "update release notes and changelog formatting",
+      goal: "prepare migration rollout notes for database cutover",
     });
 
     const result = await runtime.memory.search(sessionId, {

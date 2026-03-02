@@ -129,7 +129,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.schedule.maxRecoveryCatchUps).toBe(defaults.schedule.maxRecoveryCatchUps);
   });
 
-  test("given malformed memory config, when loading config, then bounds and enums are normalized", () => {
+  test("given malformed memory config, when loading config, then bounds are normalized", () => {
     const workspace = createWorkspace("memory-normalize");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -148,7 +148,7 @@ describe("Brewva config loader normalization", () => {
               recency: 2,
               confidence: 2,
             },
-            evolvesMode: "unsupported",
+            evolvesMode: "review-gated",
             cognitive: {
               mode: "unsupported",
               maxTokensPerTurn: -50,
@@ -182,6 +182,28 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.memory.cognitive.maxTokensPerTurn).toBe(0);
     expect(loaded.memory.global.enabled).toBe(defaults.global.enabled);
     expect(loaded.memory.global.minConfidence).toBe(1);
+  });
+
+  test("given removed memory mode values, when loading config, then load fails fast", () => {
+    const workspace = createWorkspace("memory-removed-modes");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          memory: {
+            recallMode: "fallback",
+            evolvesMode: "shadow",
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    expect(() => loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" })).toThrow(
+      /memory\.(recallMode|evolvesMode)/,
+    );
   });
 
   test("given whitespace-padded string fields, when loading config, then values are trimmed", () => {

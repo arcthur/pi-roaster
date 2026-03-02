@@ -124,10 +124,6 @@ function normalizeWeights(input?: MemoryRetrievalWeights): MemoryRetrievalWeight
   };
 }
 
-function weakSemanticFloor(weights: MemoryRetrievalWeights): number {
-  return Math.max(0.05, Math.min(0.2, (weights.recency + weights.confidence) * 0.35));
-}
-
 function sourceTierForSession(
   sessionId: string,
   metadata?: Record<string, unknown>,
@@ -142,18 +138,15 @@ function buildRankingSignal(input: {
   recency: number;
   confidence: number;
   weights: MemoryRetrievalWeights;
-  weakSemantic: boolean;
 }): MemorySearchRankingSignal {
-  const semanticScale = input.weakSemantic ? 0.45 : 1;
   return {
     schema: MEMORY_RANKING_SIGNAL_SCHEMA,
     lexical: input.lexical,
     recency: input.recency,
     confidence: input.confidence,
-    weightedLexical: input.weakSemantic ? 0 : input.weights.lexical * input.lexical,
-    weightedRecency: input.weights.recency * input.recency * semanticScale,
-    weightedConfidence: input.weights.confidence * input.confidence * semanticScale,
-    weakSemantic: input.weakSemantic,
+    weightedLexical: input.weights.lexical * input.lexical,
+    weightedRecency: input.weights.recency * input.recency,
+    weightedConfidence: input.weights.confidence * input.confidence,
     rank: 0,
   };
 }
@@ -178,6 +171,7 @@ function scoreUnit(
   const taskKind = unit.metadata?.["taskKind"];
   if (taskKind === "status_set" && unit.metadata?.["memorySignal"] !== "verification") return null;
   const lexical = lexicalScore(queryTokens, tokenize(`${unit.topic} ${unit.statement}`));
+  if (lexical <= 0) return null;
   const recency = recencyScore(unit.updatedAt);
   const confidence = clampConfidence(unit.confidence);
   const ranking = buildRankingSignal({
@@ -185,10 +179,8 @@ function scoreUnit(
     recency,
     confidence,
     weights,
-    weakSemantic: lexical <= 0,
   });
   const score = rankSignalScore(ranking);
-  if (ranking.weakSemantic && score < weakSemanticFloor(weights)) return null;
   if (score <= 0) return null;
   const lessonProtocol =
     unit.sessionId === GLOBAL_SESSION_ID && unit.type === "learning"
@@ -221,6 +213,7 @@ function scoreCrystal(
   weights: MemoryRetrievalWeights,
 ): MemorySearchHit | null {
   const lexical = lexicalScore(queryTokens, tokenize(`${crystal.topic} ${crystal.summary}`));
+  if (lexical <= 0) return null;
   const recency = recencyScore(crystal.updatedAt);
   const confidence = clampConfidence(crystal.confidence);
   const ranking = buildRankingSignal({
@@ -228,10 +221,8 @@ function scoreCrystal(
     recency,
     confidence,
     weights,
-    weakSemantic: lexical <= 0,
   });
   const score = rankSignalScore(ranking);
-  if (ranking.weakSemantic && score < weakSemanticFloor(weights)) return null;
   if (score <= 0) return null;
   const protocol = readGlobalCrystalProtocol(crystal.metadata) ?? undefined;
   return {

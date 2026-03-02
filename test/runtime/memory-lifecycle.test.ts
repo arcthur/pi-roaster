@@ -94,7 +94,7 @@ describe("memory lifecycle", () => {
   test("reviewMemoryEvolvesEdge accepts proposed edge and emits event", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-memory-review-edge-"));
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
-    config.memory.evolvesMode = "shadow";
+    config.memory.evolvesMode = "review-gated";
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = `memory-review-edge-${Date.now()}`;
 

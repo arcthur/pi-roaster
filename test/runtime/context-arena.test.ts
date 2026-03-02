@@ -170,7 +170,7 @@ describe("ContextArena", () => {
     expect(dropped.sloEnforced?.dropped).toBe(true);
   });
 
-  test("drop_recall policy does not evict existing recall entries when incoming entry is also recall", () => {
+  test("drop_recall policy prefers fresher incoming recall by evicting older recall entries", () => {
     const arena = new ContextArena({
       maxEntriesPerSession: 1,
     });
@@ -180,18 +180,19 @@ describe("ContextArena", () => {
       content: "old-recall",
       priority: "normal",
     });
-    const dropped = arena.append(sessionId, {
+    const result = arena.append(sessionId, {
       source: "brewva.memory-recall",
       id: "memory-recall-next",
       content: "new-recall",
       priority: "normal",
     });
-    expect(dropped.accepted).toBe(false);
+    expect(result.accepted).toBe(true);
+    expect(result.sloEnforced?.dropped).toBe(false);
 
     const plan = arena.plan(sessionId, 500);
     expect(plan.entries).toHaveLength(1);
-    expect(plan.entries[0]?.id).toBe("memory-recall");
-    expect(plan.entries[0]?.content).toBe("old-recall");
+    expect(plan.entries[0]?.id).toBe("memory-recall-next");
+    expect(plan.entries[0]?.content).toBe("new-recall");
   });
 
   test("snapshot exposes append-only arena counters", () => {

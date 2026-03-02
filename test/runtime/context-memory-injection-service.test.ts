@@ -19,7 +19,7 @@ type CapturedEvent = {
 function createConfig(): BrewvaConfig {
   const config = structuredClone(DEFAULT_BREWVA_CONFIG);
   config.memory.enabled = true;
-  config.memory.recallMode = "primary";
+  config.memory.recallMode = "always";
   config.memory.retrievalTopK = 6;
   config.memory.externalRecall.enabled = true;
   config.memory.externalRecall.minInternalScore = 0.8;
@@ -69,6 +69,10 @@ function createExternalSkill(): SkillDocument {
 function createMemoryStub(options?: {
   internalTopScore?: number | null;
   recallBlock?: string;
+  counters?: {
+    searchCalls: number;
+    recallBlockCalls: number;
+  };
 }): MemoryEngine {
   const internalTopScore = options?.internalTopScore ?? 0.3;
   const recallBlock = options?.recallBlock ?? "previously known detail";
@@ -80,21 +84,31 @@ function createMemoryStub(options?: {
       updatedAt: Date.now(),
     }),
     getOpenInsightTerms: () => ["migration", "rollback"],
-    buildRecallBlock: async () => recallBlock,
-    search: async () => ({
-      hits:
-        internalTopScore === null
-          ? []
-          : [
-              {
-                id: "internal-hit",
-                text: "internal",
-                score: internalTopScore,
-                sourceTier: "session",
-              },
-            ],
-      total: internalTopScore === null ? 0 : 1,
-    }),
+    buildRecallBlock: async () => {
+      if (options?.counters) {
+        options.counters.recallBlockCalls += 1;
+      }
+      return recallBlock;
+    },
+    search: async () => {
+      if (options?.counters) {
+        options.counters.searchCalls += 1;
+      }
+      return {
+        hits:
+          internalTopScore === null
+            ? []
+            : [
+                {
+                  id: "internal-hit",
+                  text: "internal",
+                  score: internalTopScore,
+                  sourceTier: "session",
+                },
+              ],
+        total: internalTopScore === null ? 0 : 1,
+      };
+    },
   } as unknown as MemoryEngine;
 }
 
@@ -185,5 +199,33 @@ describe("ContextMemoryInjectionService", () => {
       }),
     );
     expect(events.some((event) => event.type.startsWith("context_external_recall_"))).toBe(false);
+  });
+
+  test("reuses one internal search result for recall block and external threshold probing", async () => {
+    const config = createConfig();
+    const counters = {
+      searchCalls: 0,
+      recallBlockCalls: 0,
+    };
+    const service = new ContextMemoryInjectionService({
+      workspaceRoot: "/tmp",
+      agentId: "brewva",
+      config,
+      memory: createMemoryStub({
+        internalTopScore: 0.2,
+        counters,
+      }),
+      sanitizeInput: (text) => text,
+      getTaskState: () => createTaskState("reuse internal search"),
+      getActiveSkill: () => createExternalSkill(),
+      getContextPressureLevel: (_sessionId: string, _usage?: ContextBudgetUsage) => "none",
+      registerContextInjection: () => ({ accepted: true }),
+      recordEvent: () => undefined,
+    });
+
+    const outcome = await service.registerMemoryContextInjection("reused-search", "find docs");
+    expect(outcome.status).toBe("skipped");
+    expect(counters.searchCalls).toBe(1);
+    expect(counters.recallBlockCalls).toBe(1);
   });
 });

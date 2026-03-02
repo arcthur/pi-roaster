@@ -6,6 +6,7 @@ import type {
 import { CONTEXT_SOURCES } from "../context/sources.js";
 import type { ExternalRecallHit, ExternalRecallPort } from "../external-recall/types.js";
 import { MemoryEngine } from "../memory/engine.js";
+import { formatRecallQueryHint } from "../memory/utils.js";
 import type {
   BrewvaConfig,
   BrewvaEventRecord,
@@ -24,6 +25,7 @@ export interface ExternalRecallInjectionOutcome {
 }
 
 export type ExternalRecallSkipReason =
+  | "pressure_gated"
   | "skill_tag_missing"
   | "internal_score_sufficient"
   | "provider_unavailable"
@@ -172,12 +174,15 @@ export class ContextMemoryInjectionService {
       });
     }
 
-    const recallMode = this.config.memory.recallMode ?? "primary";
+    const recallMode = this.config.memory.recallMode ?? "always";
     let shouldIncludeRecall = true;
-    if (recallMode === "fallback") {
-      const pressureLevel = this.getContextPressureLevel(sessionId, usage);
+    let shouldIncludeExternalRecall = true;
+    let pressureLevel: ContextPressureLevel | null = null;
+    if (recallMode === "pressure-aware") {
+      pressureLevel = this.getContextPressureLevel(sessionId, usage);
       if (pressureLevel === "high" || pressureLevel === "critical") {
         shouldIncludeRecall = false;
+        shouldIncludeExternalRecall = false;
       }
     }
 
@@ -194,11 +199,25 @@ export class ContextMemoryInjectionService {
       });
     }
     let recallContent = "";
+    let internalTopScore: number | null = null;
+    const shouldProbeInternalRecall = shouldIncludeRecall || shouldIncludeExternalRecall;
+    let recallSearchResult: Awaited<
+      ReturnType<ContextMemoryInjectionService["memory"]["search"]>
+    > | null = null;
+    if (shouldProbeInternalRecall) {
+      recallSearchResult = await this.memory.search(sessionId, {
+        query: recallQuery,
+        limit: shouldIncludeRecall ? this.config.memory.retrievalTopK : 1,
+      });
+      internalTopScore = recallSearchResult.hits[0]?.score ?? null;
+    }
+
     if (shouldIncludeRecall) {
       const recall = await this.memory.buildRecallBlock({
         sessionId,
         query: recallQuery,
         limit: this.config.memory.retrievalTopK,
+        searchResult: recallSearchResult ?? undefined,
       });
       recallContent = recall.trim();
     }
@@ -215,6 +234,9 @@ export class ContextMemoryInjectionService {
     const externalRecall = await this.decideExternalRecall({
       sessionId,
       query: recallQuery,
+      allowed: shouldIncludeExternalRecall,
+      pressureLevel,
+      internalTopScore,
     });
     return externalRecall;
   }
@@ -222,10 +244,25 @@ export class ContextMemoryInjectionService {
   private async decideExternalRecall(input: {
     sessionId: string;
     query: string;
+    allowed: boolean;
+    pressureLevel: ContextPressureLevel | null;
+    internalTopScore: number | null;
   }): Promise<ExternalRecallDecision> {
     const externalRecallConfig = this.config.memory.externalRecall;
     if (!externalRecallConfig.enabled) {
       return { status: "disabled" };
+    }
+
+    if (!input.allowed) {
+      return {
+        status: "skipped",
+        payload: {
+          reason: "pressure_gated",
+          query: input.query,
+          pressureLevel: input.pressureLevel,
+          threshold: externalRecallConfig.minInternalScore,
+        },
+      };
     }
 
     const activeSkill = this.getActiveSkill(input.sessionId);
@@ -242,18 +279,16 @@ export class ContextMemoryInjectionService {
       };
     }
 
-    const probe = await this.memory.search(input.sessionId, {
-      query: input.query,
-      limit: 1,
-    });
-    const internalTopScore = probe.hits[0]?.score ?? null;
-    if (internalTopScore !== null && internalTopScore >= externalRecallConfig.minInternalScore) {
+    if (
+      input.internalTopScore !== null &&
+      input.internalTopScore >= externalRecallConfig.minInternalScore
+    ) {
       return {
         status: "skipped",
         payload: {
           reason: "internal_score_sufficient",
           query: input.query,
-          internalTopScore,
+          internalTopScore: input.internalTopScore,
           threshold: externalRecallConfig.minInternalScore,
         },
       };
@@ -265,7 +300,7 @@ export class ContextMemoryInjectionService {
         payload: {
           reason: "provider_unavailable",
           query: input.query,
-          internalTopScore,
+          internalTopScore: input.internalTopScore,
           threshold: externalRecallConfig.minInternalScore,
         },
       };
@@ -282,7 +317,7 @@ export class ContextMemoryInjectionService {
         payload: {
           reason: "no_hits",
           query: input.query,
-          internalTopScore,
+          internalTopScore: input.internalTopScore,
           threshold: externalRecallConfig.minInternalScore,
         },
       };
@@ -313,7 +348,7 @@ export class ContextMemoryInjectionService {
           reason: "arena_rejected",
           query: input.query,
           hitCount: externalHits.length,
-          internalTopScore,
+          internalTopScore: input.internalTopScore,
           threshold: externalRecallConfig.minInternalScore,
         },
       };
@@ -324,7 +359,7 @@ export class ContextMemoryInjectionService {
       outcome: {
         query: input.query,
         hits: externalHits,
-        internalTopScore,
+        internalTopScore: input.internalTopScore,
         threshold: externalRecallConfig.minInternalScore,
       },
     };
@@ -333,7 +368,12 @@ export class ContextMemoryInjectionService {
   private buildExternalRecallBlock(query: string, hits: ExternalRecallHit[]): string {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return "";
-    const lines: string[] = ["[ExternalRecall]", `query: ${trimmedQuery}`];
+    const queryHint = formatRecallQueryHint(trimmedQuery);
+    const lines: string[] = [
+      "[ExternalRecall]",
+      `query_hint: ${queryHint.hint}`,
+      `query_terms: ${queryHint.terms}`,
+    ];
     const normalizedHits = hits
       .map((hit) => ({
         topic: this.sanitizeInput(hit.topic).trim(),
