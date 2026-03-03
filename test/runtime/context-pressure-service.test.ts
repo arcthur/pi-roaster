@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { cpSync, mkdtempSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { DEFAULT_BREWVA_CONFIG } from "@brewva/brewva-runtime";
+import { BrewvaRuntime } from "@brewva/brewva-runtime";
 import { ContextBudgetManager } from "../../packages/brewva-runtime/src/context/budget.js";
 import { ContextPressureService } from "../../packages/brewva-runtime/src/services/context-pressure.js";
 import type {
@@ -13,6 +17,15 @@ function createUsage(percent: number): ContextBudgetUsage {
     contextWindow: 1_000,
     percent,
   };
+}
+
+function createWorkspace(name: string): string {
+  const workspace = mkdtempSync(join(tmpdir(), `brewva-${name}-`));
+  mkdirSync(join(workspace, ".brewva"), { recursive: true });
+
+  const repoRoot = resolve(import.meta.dirname, "../..");
+  cpSync(resolve(repoRoot, "skills"), resolve(workspace, "skills"), { recursive: true });
+  return workspace;
 }
 
 describe("ContextPressureService", () => {
@@ -133,5 +146,59 @@ describe("ContextPressureService", () => {
 
     const decision = service.checkContextCompactionGate("pressure-session", "exec", mediumUsage);
     expect(decision.allowed).toBe(true);
+  });
+
+  test("allows control-plane tools during critical pressure when configured as always allowed", () => {
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.infrastructure.contextBudget.enabled = true;
+    config.infrastructure.contextBudget.hardLimitPercent = 0.8;
+
+    const budget = new ContextBudgetManager(config.infrastructure.contextBudget);
+    budget.beginTurn("pressure-session", 12);
+
+    const service = new ContextPressureService({
+      config,
+      contextBudget: budget,
+      alwaysAllowedTools: ["skill_complete", "skill_load", "session_compact"],
+      getCurrentTurn: () => 12,
+      recordEvent: () => undefined as BrewvaEventRecord | undefined,
+    });
+
+    const usage = createUsage(0.9);
+    const controlDecision = service.checkContextCompactionGate(
+      "pressure-session",
+      "skill_complete",
+      usage,
+    );
+    expect(controlDecision.allowed).toBe(true);
+
+    const dataPlaneDecision = service.checkContextCompactionGate("pressure-session", "exec", usage);
+    expect(dataPlaneDecision.allowed).toBe(false);
+  });
+
+  test("runtime wiring blocks diagnostic tools during critical pressure while allowing completion", () => {
+    const workspace = createWorkspace("pressure-runtime-wiring");
+    const config = structuredClone(DEFAULT_BREWVA_CONFIG);
+    config.infrastructure.contextBudget.enabled = true;
+    config.infrastructure.contextBudget.hardLimitPercent = 0.8;
+    config.infrastructure.contextBudget.compactionThresholdPercent = 0.7;
+    config.infrastructure.events.enabled = true;
+    config.infrastructure.events.dir = ".orchestrator/events";
+    config.ledger.path = ".orchestrator/ledger/evidence.jsonl";
+    const runtime = new BrewvaRuntime({ cwd: workspace, config });
+
+    const sessionId = "pressure-runtime-wiring-1";
+    runtime.context.onTurnStart(sessionId, 1);
+    const usage = createUsage(0.9);
+    runtime.context.observeUsage(sessionId, usage);
+
+    expect(runtime.context.checkCompactionGate(sessionId, "tape_info", usage).allowed).toBe(false);
+    expect(runtime.context.checkCompactionGate(sessionId, "exec", usage).allowed).toBe(false);
+    expect(runtime.context.checkCompactionGate(sessionId, "skill_complete", usage).allowed).toBe(
+      true,
+    );
+    expect(runtime.context.checkCompactionGate(sessionId, "session_compact", usage).allowed).toBe(
+      true,
+    );
   });
 });

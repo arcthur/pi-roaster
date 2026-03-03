@@ -200,6 +200,7 @@ export class SkillLifecycleService {
     decision: SkillDispatchDecision,
     options: { emitEvent?: boolean } = {},
   ): void {
+    const activeSkillName = this.sessionState.activeSkillsBySession.get(sessionId) ?? null;
     const shouldStorePending = decision.mode === "gate" || decision.mode === "auto";
     if (!shouldStorePending) {
       this.sessionState.pendingDispatchBySession.delete(sessionId);
@@ -213,6 +214,17 @@ export class SkillLifecycleService {
       turn: this.getCurrentTurn(sessionId),
       payload: this.buildDispatchPayload(decision),
     });
+    if (activeSkillName && shouldStorePending) {
+      this.recordEvent({
+        sessionId,
+        type: "skill_routing_deferred",
+        turn: this.getCurrentTurn(sessionId),
+        payload: this.buildDispatchPayload(decision, {
+          deferredBy: activeSkillName,
+          deferredAtTurn: this.getCurrentTurn(sessionId),
+        }),
+      });
+    }
   }
 
   getPendingDispatch(sessionId: string): SkillDispatchDecision | undefined {

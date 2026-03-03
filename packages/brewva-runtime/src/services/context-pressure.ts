@@ -14,6 +14,7 @@ import type { RuntimeCallback } from "./callback.js";
 interface ContextPressureServiceOptions {
   config: BrewvaConfig;
   contextBudget: ContextBudgetManager;
+  alwaysAllowedTools?: string[];
   getCurrentTurn: RuntimeCallback<[sessionId: string], number>;
   recordEvent: RuntimeCallback<
     [
@@ -33,12 +34,18 @@ interface ContextPressureServiceOptions {
 export class ContextPressureService {
   private readonly config: BrewvaConfig;
   private readonly contextBudget: ContextBudgetManager;
+  private readonly alwaysAllowedToolSet: Set<string>;
   private readonly getCurrentTurn: ContextPressureServiceOptions["getCurrentTurn"];
   private readonly recordEvent: ContextPressureServiceOptions["recordEvent"];
 
   constructor(options: ContextPressureServiceOptions) {
     this.config = options.config;
     this.contextBudget = options.contextBudget;
+    this.alwaysAllowedToolSet = new Set(
+      (options.alwaysAllowedTools ?? [])
+        .map((toolName) => normalizeToolName(toolName))
+        .filter((toolName) => toolName.length > 0),
+    );
     this.getCurrentTurn = options.getCurrentTurn;
     this.recordEvent = options.recordEvent;
   }
@@ -191,14 +198,22 @@ export class ContextPressureService {
     if (normalizedToolName === "session_compact") {
       return { allowed: true };
     }
+    if (this.alwaysAllowedToolSet.has(normalizedToolName)) {
+      return { allowed: true };
+    }
 
     const gate = this.getContextCompactionGateStatus(sessionId, usage);
     if (!gate.required) {
       return { allowed: true };
     }
 
-    const reason =
-      "Context usage is critical. Call tool 'session_compact' first, then continue with other tools.";
+    const usageRatio =
+      typeof gate.pressure.usageRatio === "number"
+        ? gate.pressure.usageRatio
+        : gate.pressure.hardLimitRatio;
+    const usagePercent = Math.max(0, Math.min(1, usageRatio)) * 100;
+    const hardLimitPercent = Math.max(0, Math.min(1, gate.pressure.hardLimitRatio)) * 100;
+    const reason = `Context usage is critical (${usagePercent.toFixed(1)}% >= hard limit ${hardLimitPercent.toFixed(1)}%). Call tool 'session_compact' first, then continue with other tools. Allowed during gate: session_compact, skill_complete.`;
     this.recordEvent({
       sessionId,
       type: "context_compaction_gate_blocked_tool",

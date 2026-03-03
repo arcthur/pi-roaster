@@ -96,6 +96,28 @@ describe("tool contract policy modes", () => {
     expect(runtime.tools.checkAccess(sessionId, "session_compact").allowed).toBe(true);
     expect(runtime.tools.checkAccess(sessionId, "rollback_last_patch").allowed).toBe(true);
   });
+
+  test("given standard mode with allowed-tools enforcement override, when disallowed tool is checked, then tool is blocked", () => {
+    const workspace = createWorkspace("tool-contract-standard-override");
+    const runtime = createRuntime(workspace, {
+      security: {
+        mode: "standard",
+        enforcement: {
+          allowedToolsMode: "enforce",
+          skillMaxTokensMode: "inherit",
+          skillMaxToolCallsMode: "inherit",
+          skillMaxParallelMode: "inherit",
+          skillDispatchGateMode: "inherit",
+        },
+      },
+    });
+    const sessionId = "tool-contract-standard-override-1";
+
+    expect(runtime.skills.activate(sessionId, "patching").ok).toBe(true);
+    const blocked = runtime.tools.checkAccess(sessionId, "look_at");
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.reason?.includes("not allowed")).toBe(true);
+  });
 });
 
 describe("skill maxTokens contract modes", () => {

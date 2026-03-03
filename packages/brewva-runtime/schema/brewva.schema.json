@@ -478,6 +478,32 @@
                 }
               }
             },
+            "enforcement": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "allowedToolsMode": {
+                  "type": "string",
+                  "enum": ["off", "warn", "enforce", "inherit"]
+                },
+                "skillDispatchGateMode": {
+                  "type": "string",
+                  "enum": ["off", "warn", "enforce", "inherit"]
+                },
+                "skillMaxParallelMode": {
+                  "type": "string",
+                  "enum": ["off", "warn", "enforce", "inherit"]
+                },
+                "skillMaxTokensMode": {
+                  "type": "string",
+                  "enum": ["off", "warn", "enforce", "inherit"]
+                },
+                "skillMaxToolCallsMode": {
+                  "type": "string",
+                  "enum": ["off", "warn", "enforce", "inherit"]
+                }
+              }
+            },
             "mode": {
               "type": "string",
               "enum": ["permissive", "standard", "strict"]

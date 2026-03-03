@@ -1,5 +1,10 @@
 import { recordAssistantUsageFromMessage, type BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import {
+  clearRuntimeTurnClock,
+  getCurrentRuntimeTurn,
+  observeRuntimeTurnStart,
+} from "./runtime-turn-clock.js";
 
 type MessageHealth = {
   score: number;
@@ -235,6 +240,7 @@ export function registerEventStream(pi: ExtensionAPI, runtime: BrewvaRuntime): v
     lastAssistantTextBySession.delete(sessionId);
     assistantWindowBySession.delete(sessionId);
     observedToolCallsBySession.delete(sessionId);
+    clearRuntimeTurnClock(sessionId);
     runtime.session.clearState(sessionId);
     return undefined;
   });
@@ -261,11 +267,14 @@ export function registerEventStream(pi: ExtensionAPI, runtime: BrewvaRuntime): v
   });
 
   pi.on("turn_start", (event, ctx) => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const runtimeTurn = observeRuntimeTurnStart(sessionId, event.turnIndex, event.timestamp);
     runtime.events.record({
-      sessionId: ctx.sessionManager.getSessionId(),
+      sessionId,
       type: "turn_start",
-      turn: event.turnIndex,
+      turn: runtimeTurn,
       payload: {
+        localTurn: event.turnIndex,
         timestamp: event.timestamp,
       },
     });
@@ -274,12 +283,14 @@ export function registerEventStream(pi: ExtensionAPI, runtime: BrewvaRuntime): v
 
   pi.on("turn_end", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
-    runtime.skills.reconcilePendingDispatch(sessionId, event.turnIndex);
+    const runtimeTurn = getCurrentRuntimeTurn(sessionId);
+    runtime.skills.reconcilePendingDispatch(sessionId, runtimeTurn);
     runtime.events.record({
       sessionId,
       type: "turn_end",
-      turn: event.turnIndex,
+      turn: runtimeTurn,
       payload: {
+        localTurn: event.turnIndex,
         message: summarizeMessage(event.message),
         toolResults: event.toolResults.length,
       },

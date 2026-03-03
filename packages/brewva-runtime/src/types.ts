@@ -43,6 +43,10 @@ export interface SkillContractOverride extends Omit<Partial<SkillContract>, "too
   budget?: Partial<SkillContract["budget"]>;
 }
 
+export type SecurityEnforcementMode = "off" | "warn" | "enforce";
+
+export type SecurityEnforcementPreference = SecurityEnforcementMode | "inherit";
+
 export interface SkillDocument {
   name: string;
   description: string;
@@ -444,6 +448,13 @@ export interface BrewvaConfig {
   security: {
     mode: "permissive" | "standard" | "strict";
     sanitizeContext: boolean;
+    enforcement: {
+      allowedToolsMode: SecurityEnforcementPreference;
+      skillMaxTokensMode: SecurityEnforcementPreference;
+      skillMaxToolCallsMode: SecurityEnforcementPreference;
+      skillMaxParallelMode: SecurityEnforcementPreference;
+      skillDispatchGateMode: SecurityEnforcementPreference;
+    };
     execution: {
       backend: "host" | "sandbox" | "best_available";
       enforceIsolation: boolean;

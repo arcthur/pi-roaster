@@ -130,7 +130,10 @@ export async function createGatewaySession(
     });
 
   if (options.activePacks && options.activePacks.length > 0) {
-    runtime.config.skills.packs = [...options.activePacks];
+    const mergedActivePacks = [
+      ...new Set([...runtime.config.skills.packs, ...options.activePacks]),
+    ];
+    runtime.config.skills.packs = mergedActivePacks;
     runtime.skills.refresh();
   }
   const skillLoadReport = runtime.skills.getLoadReport();

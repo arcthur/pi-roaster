@@ -46,6 +46,7 @@ export interface ContextServiceOptions {
   workspaceRoot: string;
   agentId: string;
   config: BrewvaConfig;
+  alwaysAllowedTools: string[];
   contextBudget: ContextBudgetManager;
   contextInjection: ContextInjectionCollector;
   memory: MemoryEngine;
@@ -161,6 +162,7 @@ export class ContextService {
     this.contextPressure = new ContextPressureService({
       config: this.config,
       contextBudget: this.contextBudget,
+      alwaysAllowedTools: options.alwaysAllowedTools,
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
       recordEvent: (input) => this.recordEvent(input),
     });

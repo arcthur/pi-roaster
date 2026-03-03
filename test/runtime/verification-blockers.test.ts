@@ -321,5 +321,9 @@ describe("Verification blockers", () => {
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]?.payload?.outcome).toBe("skipped");
     expect(typeof outcomes[0]?.payload?.lessonKey).toBe("string");
+    expect(outcomes[0]?.payload?.provenanceVersion).toBe("v2");
+    expect(outcomes[0]?.payload?.evidenceFreshness).toBe("none");
+    expect(Array.isArray(outcomes[0]?.payload?.commandsExecuted)).toBe(true);
+    expect(Array.isArray(outcomes[0]?.payload?.checkProvenance)).toBe(true);
   });
 });

@@ -89,6 +89,11 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 
 - `security.mode`: `standard`
 - `security.sanitizeContext`: `true`
+- `security.enforcement.allowedToolsMode`: `inherit`
+- `security.enforcement.skillMaxTokensMode`: `inherit`
+- `security.enforcement.skillMaxToolCallsMode`: `inherit`
+- `security.enforcement.skillMaxParallelMode`: `inherit`
+- `security.enforcement.skillDispatchGateMode`: `inherit`
 - `security.execution.backend`: `best_available`
 - `security.execution.enforceIsolation`: `false`
 - `security.execution.fallbackToHost`: `false`
@@ -98,6 +103,13 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `security.execution.sandbox.memory`: `512`
 - `security.execution.sandbox.cpus`: `1`
 - `security.execution.sandbox.timeout`: `180`
+
+`security.enforcement.*` controls per-policy behavior on top of `security.mode`:
+
+- `inherit` (default): follow mode baseline
+- `off`: disable that enforcement lane
+- `warn`: emit warning events only
+- `enforce`: block on violations
 
 ### `schedule`
 
@@ -181,6 +193,8 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 
 `security.sanitizeContext` independently controls user-text sanitization before skill selection and context injection.
 
+Runtime reserves a small set of control-plane tools (for example `skill_complete`, `session_compact`, and tape/ledger inspection tools) that bypass skill allowlists and per-skill budget enforcement to avoid deadlocks during recovery. These tools may still be blocked by the critical context compaction gate.
+
 `security.execution` controls command isolation for `exec`:
 
 - `backend=best_available` prefers sandbox first; host fallback is implicit (always allowed unless strict/enforced isolation).
@@ -225,6 +239,7 @@ Notes:
 - `backend=best_available` implicitly enables host fallback; `fallbackToHost` controls fallback for explicit `backend=sandbox`.
 - Sandbox background process mode is unsupported; with fallback disabled this is fail-closed.
 - When sandbox execution fails and host fallback is enabled, runtime applies a short backoff window before retrying sandbox (`exec_fallback_host.reason=sandbox_unavailable_cached`) to avoid repeated sandbox error churn.
+- Repeated sandbox failures in the same session can trigger a temporary session pin (`exec_fallback_host.reason=sandbox_unavailable_session_pinned`) so subsequent exec calls bypass sandbox until the pin TTL expires.
 - If `exec.workdir` is omitted, sandbox execution defaults to `/` and does not inherit host runtime cwd.
 - `commandDenyList` is a best-effort UX guard and is evaluated before backend execution; the hard boundary is sandbox isolation.
 
@@ -252,6 +267,8 @@ Runtime behavior:
 
 - Context injection uses a single deterministic path:
   global cap + hard-limit gate + arena SLO (`arena.maxEntriesPerSession`).
+- When pressure is `critical` and no recent compaction has been performed, runtime arms a compaction gate:
+  tool calls are blocked until `session_compact` is performed (only `session_compact` and `skill_complete` bypass the gate).
 - Memory recall can be pressure-gated by `memory.recallMode="pressure-aware"`.
 - External recall boundary is explicit and disabled by default:
   set `memory.externalRecall.enabled=true` and inject a custom

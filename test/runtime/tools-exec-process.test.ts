@@ -312,6 +312,80 @@ describe("exec/process tool flow", () => {
     expect(routedEvents).toHaveLength(1);
   });
 
+  test("standard mode pins session after repeated sandbox failures and bypasses sandbox retries", async () => {
+    const firstAttempt = createRuntimeForExecTests({
+      mode: "standard",
+      backend: "sandbox",
+      fallbackToHost: true,
+      serverUrl: "http://127.0.0.1:11",
+    });
+    const secondAttempt = createRuntimeForExecTests({
+      mode: "standard",
+      backend: "sandbox",
+      fallbackToHost: true,
+      serverUrl: "http://127.0.0.1:12",
+    });
+    const thirdAttempt = createRuntimeForExecTests({
+      mode: "standard",
+      backend: "sandbox",
+      fallbackToHost: true,
+      serverUrl: "http://127.0.0.1:13",
+    });
+
+    const sessionId = "s13-exec-session-pinned";
+
+    const firstExec = createExecTool({ runtime: firstAttempt.runtime });
+    const secondExec = createExecTool({ runtime: secondAttempt.runtime });
+    const thirdExec = createExecTool({ runtime: thirdAttempt.runtime });
+
+    const first = await firstExec.execute(
+      "tc-exec-session-pinned-1",
+      {
+        command: "echo first-session-pin",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    expect(extractTextContent(first).includes("first-session-pin")).toBe(true);
+
+    const second = await secondExec.execute(
+      "tc-exec-session-pinned-2",
+      {
+        command: "echo second-session-pin",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    expect(extractTextContent(second).includes("second-session-pin")).toBe(true);
+
+    const secondFallback = secondAttempt.events.find(
+      (event) => event.type === "exec_fallback_host",
+    );
+    expect(secondFallback?.payload?.reason).toBe("sandbox_execution_error");
+    expect(typeof secondFallback?.payload?.sessionPinnedUntil).toBe("number");
+    expect(typeof secondFallback?.payload?.sessionPinTtlMs).toBe("number");
+    expect((secondFallback?.payload?.sessionPinTtlMs as number) > 0).toBe(true);
+
+    const third = await thirdExec.execute(
+      "tc-exec-session-pinned-3",
+      {
+        command: "echo third-session-pin",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    expect(extractTextContent(third).includes("third-session-pin")).toBe(true);
+
+    expect(thirdAttempt.events.some((event) => event.type === "exec_sandbox_error")).toBe(false);
+    const thirdFallback = thirdAttempt.events.find((event) => event.type === "exec_fallback_host");
+    expect(thirdFallback?.payload?.reason).toBe("sandbox_unavailable_session_pinned");
+    expect(typeof thirdFallback?.payload?.sessionPinMsRemaining).toBe("number");
+    expect((thirdFallback?.payload?.sessionPinMsRemaining as number) > 0).toBe(true);
+  });
+
   test("strict mode fails closed when sandbox backend is unavailable", async () => {
     const { runtime, events } = createRuntimeForExecTests({
       mode: "strict",

@@ -7,20 +7,6 @@ import type {
   TaskState,
 } from "./types.js";
 
-export const ALWAYS_ALLOWED_TOOLS = [
-  "skill_complete",
-  "skill_load",
-  "skill_route_override",
-  "ledger_query",
-  "cost_view",
-  "tape_handoff",
-  "tape_info",
-  "tape_search",
-  "session_compact",
-  "rollback_last_patch",
-  "schedule_intent",
-];
-
 export function inferEventCategory(type: string): BrewvaEventCategory {
   if (type === TAPE_ANCHOR_EVENT_TYPE || type === TAPE_CHECKPOINT_EVENT_TYPE) {
     return "state";

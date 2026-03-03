@@ -13,6 +13,7 @@ import {
   formatPercent,
   resolveInjectionScopeId,
 } from "./context-shared.js";
+import { clearRuntimeTurnClock, observeRuntimeTurnStart } from "./runtime-turn-clock.js";
 
 const CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
 const CONTEXT_CONTRACT_MARKER = "[Brewva Context Contract]";
@@ -628,8 +629,9 @@ export function registerContextTransform(
   pi.on("turn_start", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     const state = getOrCreateGateState(gateStateBySession, sessionId);
-    state.turnIndex = Math.max(state.turnIndex, event.turnIndex);
-    runtime.context.onTurnStart(sessionId, event.turnIndex);
+    const runtimeTurn = observeRuntimeTurnStart(sessionId, event.turnIndex, event.timestamp);
+    state.turnIndex = runtimeTurn;
+    runtime.context.onTurnStart(sessionId, runtimeTurn);
     return undefined;
   });
 
@@ -694,6 +696,7 @@ export function registerContextTransform(
   pi.on("session_shutdown", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     gateStateBySession.delete(sessionId);
+    clearRuntimeTurnClock(sessionId);
     return undefined;
   });
 

@@ -24,13 +24,16 @@ import type { MemorySearchResult, WorkingMemorySnapshot } from "./memory/types.j
 import { ParallelBudgetManager } from "./parallel/budget.js";
 import { ParallelResultStore } from "./parallel/results.js";
 import {
-  ALWAYS_ALLOWED_TOOLS,
   buildSkillCandidateBlock,
   buildSkillDispatchGateBlock,
   buildTaskStateBlock,
   inferEventCategory,
 } from "./runtime-helpers.js";
 import { SchedulerService } from "./schedule/service.js";
+import {
+  CONTEXT_CRITICAL_ALLOWED_TOOLS,
+  CONTROL_PLANE_TOOLS,
+} from "./security/control-plane-tools.js";
 import { sanitizeContextText } from "./security/sanitize.js";
 import { ContextService } from "./services/context.js";
 import { CostService } from "./services/cost.js";
@@ -705,6 +708,7 @@ export class BrewvaRuntime {
       workspaceRoot: this.workspaceRoot,
       agentId: this.agentId,
       config: this.config,
+      alwaysAllowedTools: CONTEXT_CRITICAL_ALLOWED_TOOLS,
       contextBudget: this.contextBudget,
       contextInjection: this.contextInjection,
       memory: this.memoryEngine,
@@ -804,7 +808,7 @@ export class BrewvaRuntime {
       securityConfig: this.config.security,
       costTracker: this.costTracker,
       sessionState: this.sessionState,
-      alwaysAllowedTools: ALWAYS_ALLOWED_TOOLS,
+      alwaysAllowedTools: CONTROL_PLANE_TOOLS,
       getActiveSkill: (sessionId) => skillLifecycleService.getActiveSkill(sessionId),
       getPendingDispatch: (sessionId) => skillLifecycleService.getPendingDispatch(sessionId),
       getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),

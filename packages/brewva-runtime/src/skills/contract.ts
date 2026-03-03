@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { CONTROL_PLANE_TOOLS } from "../security/control-plane-tools.js";
 import type { SkillContract, SkillContractOverride, SkillDocument, SkillTier } from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
 
@@ -99,7 +100,10 @@ function normalizeContract(
 
   const required = toToolNameArray(tools.required);
   const optional = toToolNameArray(tools.optional);
-  const denied = toToolNameArray(tools.denied);
+  const controlPlaneToolSet = new Set(
+    CONTROL_PLANE_TOOLS.map((tool) => normalizeToolName(tool)).filter((tool) => tool.length > 0),
+  );
+  const denied = toToolNameArray(tools.denied).filter((tool) => !controlPlaneToolSet.has(tool));
 
   const maxToolCalls =
     typeof budget.max_tool_calls === "number"

@@ -136,6 +136,7 @@ to avoid polluting audit-level streams with high-frequency search telemetry.
 - `skill_activated`
 - `skill_completed`
 - `skill_routing_decided`
+- `skill_routing_deferred`
 - `skill_routing_followed`
 - `skill_routing_overridden`
 - `skill_routing_ignored`
@@ -163,6 +164,7 @@ to avoid polluting audit-level streams with high-frequency search telemetry.
 - `context_compaction_gate_cleared`
 - `critical_without_compact`
 - `context_compacted`
+- `session_compact`
 - `session_compact_requested`
 - `session_compact_request_failed`
 
@@ -334,8 +336,23 @@ Common payload fields include:
 - `missingEvidence`
 - `skipped` (boolean)
 - `reason` (`read_only` | `null`)
+- `provenanceVersion` (currently `v2`)
+- `activeSkill`
+- `referenceWriteAt`
+- `evidenceFreshness` (`none` | `fresh` | `stale` | `mixed`)
+- `commandsExecuted` / `commandsFresh` / `commandsStale` / `commandsMissing`
+- `checkProvenance` (per-check command/freshness/ledger linkage)
 
 Read-only sessions emit `outcome="skipped"` with `reason="read_only"`.
+
+### `skill_routing_deferred`
+
+Emitted when a new skill routing decision is recorded while another skill is still active and the decision is queued (pending dispatch gate).
+
+Payload fields include the normal routing decision shape plus:
+
+- `deferredBy` (active skill name)
+- `deferredAtTurn` (runtime turn when deferral was observed)
 
 ### `skill_completed`
 
@@ -348,6 +365,15 @@ Common payload fields include:
 - `outputKeys`
 - `outputs`
 - `completedAt`
+
+### `session_compact`
+
+Emitted when the SDK reports a session compaction has been performed.
+
+Common payload fields include:
+
+- `entryId` (compaction entry id when available)
+- `fromExtension` (boolean, when compaction was triggered by an extension)
 
 ### `context_injected` and `context_injection_dropped`
 
@@ -379,6 +405,47 @@ Common payload fields include:
 
 Note: `outcome="filtered_out"` means external recall was accepted into the arena but removed by
 final injection planning; write-back does not occur.
+
+### `context_compaction_gate_armed`
+
+Emitted when runtime detects `critical` context pressure and requires compaction before non-exempt tools can proceed.
+
+Common payload fields include:
+
+- `reason` (`hard_limit`)
+- `usagePercent` (ratio in `[0, 1]`, legacy field name)
+- `hardLimitPercent` (ratio in `[0, 1]`, legacy field name)
+
+### `context_compaction_gate_blocked_tool`
+
+Emitted when a tool call is blocked because the compaction gate is armed.
+
+Common payload fields include:
+
+- `blockedTool`
+- `reason` (`critical_context_pressure_without_compaction`)
+- `usagePercent` (ratio in `[0, 1]`, legacy field name)
+- `hardLimitPercent` (ratio in `[0, 1]`, legacy field name)
+
+### `context_compaction_gate_cleared`
+
+Emitted when the compaction gate is cleared after compaction is performed.
+
+Common payload fields include:
+
+- `reason` (`session_compact_performed`)
+
+### `critical_without_compact`
+
+Operational event emitted when `critical` pressure is observed and compaction is required but has not been performed yet.
+
+Common payload fields include:
+
+- `reason` (`hard_limit`)
+- `usagePercent` (ratio in `[0, 1]`, legacy field name)
+- `hardLimitPercent` (ratio in `[0, 1]`, legacy field name)
+- `contextPressure` (`critical`)
+- `requiredTool` (`session_compact`)
 
 ### `memory_recall_query_expanded`
 
@@ -424,10 +491,12 @@ Records sandbox-to-host downgrade decisions when fallback is allowed. Common pay
 - `configuredBackend`
 - `enforceIsolation`
 - `denyListBestEffort`
-- `reason`
+- `reason` (`sandbox_execution_error` | `sandbox_unavailable_cached` | `sandbox_unavailable_session_pinned`)
 - `commandHash`
 - `commandRedacted`
 - `error` (when fallback is triggered by sandbox execution errors)
+- `backoffMs`, `backoffUntil`, `backoffMsRemaining` (cache/backoff diagnostics)
+- `sessionPinnedUntil`, `sessionPinTtlMs`, `sessionPinMsRemaining` (session-level pin diagnostics)
 
 ### `exec_blocked_isolation`
 

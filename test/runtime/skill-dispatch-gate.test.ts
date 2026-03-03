@@ -207,6 +207,35 @@ describe("skill dispatch gate", () => {
     ).toHaveLength(1);
   });
 
+  test("routing decision is marked deferred while another skill is active", () => {
+    const runtime = new BrewvaRuntime({
+      cwd: createWorkspace("deferred"),
+      config: createConfig("strict"),
+    });
+    const sessionId = "skill-dispatch-deferred-1";
+
+    runtime.context.onTurnStart(sessionId, 1);
+    expect(runtime.skills.activate(sessionId, "execution").ok).toBe(true);
+    runtime.skills.setNextSelection(sessionId, [
+      {
+        name: "review",
+        score: 10,
+        reason: "semantic:review request",
+        breakdown: [{ signal: "semantic_match", term: "review", delta: 10 }],
+      },
+    ]);
+    runtime.skills.prepareDispatch(sessionId, "review the latest implementation");
+
+    const deferred = runtime.events.query(sessionId, {
+      type: "skill_routing_deferred",
+      last: 1,
+    })[0];
+    expect(deferred).toBeDefined();
+    expect((deferred?.payload as { deferredBy?: string } | undefined)?.deferredBy).toBe(
+      "execution",
+    );
+  });
+
   test("turn-end reconciliation uses current session turn when event turn lags behind", () => {
     const runtime = new BrewvaRuntime({
       cwd: createWorkspace("ignored-lagging-turn"),

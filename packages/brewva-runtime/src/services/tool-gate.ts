@@ -117,7 +117,7 @@ export class ToolGateService {
   private readonly trackToolCallEnd: ToolGateServiceOptions["trackToolCallEnd"];
 
   constructor(options: ToolGateServiceOptions) {
-    this.securityPolicy = resolveSecurityPolicy(options.securityConfig.mode);
+    this.securityPolicy = resolveSecurityPolicy(options.securityConfig);
     this.costTracker = options.costTracker;
     this.sessionState = options.sessionState;
     this.alwaysAllowedTools = options.alwaysAllowedTools;
@@ -362,9 +362,6 @@ export class ToolGateService {
       return { allowed: true };
     }
     if (this.alwaysAllowedToolSet.has(normalizedToolName)) {
-      return { allowed: true };
-    }
-    if (normalizedToolName === "skill_load" || normalizedToolName === "skill_route_override") {
       return { allowed: true };
     }
 

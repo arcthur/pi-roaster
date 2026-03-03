@@ -43,7 +43,7 @@ export class ParallelService {
   private readonly recordEvent: ParallelServiceOptions["recordEvent"];
 
   constructor(options: ParallelServiceOptions) {
-    this.securityPolicy = resolveSecurityPolicy(options.securityConfig.mode);
+    this.securityPolicy = resolveSecurityPolicy(options.securityConfig);
     this.parallel = options.parallel;
     this.parallelResults = options.parallelResults;
     this.sessionState = options.sessionState;

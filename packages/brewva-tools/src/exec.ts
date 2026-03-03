@@ -40,6 +40,8 @@ const DEFAULT_SANDBOX_WORKDIR = "/";
 const SANDBOX_STOP_TIMEOUT_MS = 5_000;
 const DEFAULT_AUDIT_COMMAND_PREVIEW_LENGTH = 240;
 const SANDBOX_FAILURE_BACKOFF_MS = 60_000;
+const SANDBOX_SESSION_PIN_TTL_MS = 15 * 60_000;
+const SANDBOX_SESSION_PIN_FAILURE_THRESHOLD = 2;
 const VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const DENY_LIST_BEST_EFFORT_MESSAGE =
   "security.execution.commandDenyList is best-effort and must not be treated as a hard security boundary.";
@@ -98,6 +100,8 @@ interface SandboxExecutionResult {
 
 let microsandboxSdkPromise: Promise<MicrosandboxSdk> | null = null;
 const sandboxBackoffUntilByTarget = new Map<string, number>();
+const sandboxSessionFailureCount = new Map<string, number>();
+const sandboxSessionPinnedUntil = new Map<string, number>();
 
 class SandboxCommandFailedError extends Error {
   readonly exitCode: number;
@@ -527,6 +531,40 @@ function markSandboxBackoff(policy: ResolvedExecutionPolicy, now: number): numbe
 
 function clearSandboxBackoff(policy: ResolvedExecutionPolicy): void {
   sandboxBackoffUntilByTarget.delete(resolveSandboxBackoffKey(policy));
+}
+
+function getSandboxSessionPinRemainingMs(sessionId: string, now: number): number {
+  const pinnedUntil = sandboxSessionPinnedUntil.get(sessionId);
+  if (typeof pinnedUntil !== "number" || !Number.isFinite(pinnedUntil)) {
+    sandboxSessionPinnedUntil.delete(sessionId);
+    return 0;
+  }
+  const remaining = pinnedUntil - now;
+  if (remaining <= 0) {
+    sandboxSessionPinnedUntil.delete(sessionId);
+    sandboxSessionFailureCount.delete(sessionId);
+    return 0;
+  }
+  return remaining;
+}
+
+function noteSandboxSessionFailure(
+  sessionId: string,
+  now: number,
+): { pinned: boolean; until?: number } {
+  const failures = (sandboxSessionFailureCount.get(sessionId) ?? 0) + 1;
+  sandboxSessionFailureCount.set(sessionId, failures);
+  if (failures < SANDBOX_SESSION_PIN_FAILURE_THRESHOLD) {
+    return { pinned: false };
+  }
+  const until = now + SANDBOX_SESSION_PIN_TTL_MS;
+  sandboxSessionPinnedUntil.set(sessionId, until);
+  return { pinned: true, until };
+}
+
+function clearSandboxSessionFailureState(sessionId: string): void {
+  sandboxSessionFailureCount.delete(sessionId);
+  sandboxSessionPinnedUntil.delete(sessionId);
 }
 
 function redactCommandForAudit(command: string): string {
@@ -994,6 +1032,24 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
 
       if (policy.allowHostFallback) {
         const now = Date.now();
+        const sessionPinRemainingMs = getSandboxSessionPinRemainingMs(ownerSessionId, now);
+        if (sessionPinRemainingMs > 0) {
+          recordExecEvent(
+            options?.runtime,
+            ownerSessionId,
+            EXEC_FALLBACK_HOST_EVENT_TYPE,
+            buildExecAuditPayload({
+              toolCallId,
+              policy,
+              command,
+              payload: {
+                reason: "sandbox_unavailable_session_pinned",
+                sessionPinMsRemaining: sessionPinRemainingMs,
+              },
+            }),
+          );
+          return await runHost();
+        }
         const backoffMsRemaining = getRemainingSandboxBackoffMs(policy, now);
         if (backoffMsRemaining > 0) {
           recordExecEvent(
@@ -1076,6 +1132,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
           signal,
         });
         clearSandboxBackoff(policy);
+        clearSandboxSessionFailureState(ownerSessionId);
         return textResult(result.output, {
           status: "completed",
           exitCode: result.exitCode,
@@ -1100,6 +1157,9 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         const message = error instanceof Error ? error.message : String(error);
         const now = Date.now();
         const backoffUntil = policy.allowHostFallback ? markSandboxBackoff(policy, now) : null;
+        const sessionPin = policy.allowHostFallback
+          ? noteSandboxSessionFailure(ownerSessionId, now)
+          : { pinned: false };
         recordExecEvent(
           options?.runtime,
           ownerSessionId,
@@ -1128,6 +1188,11 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
                 error: message,
                 backoffMs: SANDBOX_FAILURE_BACKOFF_MS,
                 backoffUntil,
+                sessionPinnedUntil: sessionPin.until,
+                sessionPinTtlMs:
+                  sessionPin.pinned && typeof sessionPin.until === "number"
+                    ? Math.max(0, sessionPin.until - now)
+                    : undefined,
               },
             }),
           );

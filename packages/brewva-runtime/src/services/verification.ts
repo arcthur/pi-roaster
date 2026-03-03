@@ -273,6 +273,41 @@ export class VerificationService {
     const failedChecks = report.checks
       .filter((check) => check.status === "fail")
       .map((check) => check.name);
+    const referenceWriteAt = verificationState.lastWriteAt ?? 0;
+    const checkProvenance = report.checks.map((check) => {
+      const run = verificationState.checkRuns[check.name];
+      const hasRun = Boolean(run);
+      const freshSinceWrite = run ? run.timestamp >= referenceWriteAt : false;
+      return {
+        check: check.name,
+        status: check.status,
+        command: run?.command ?? null,
+        hasRun,
+        freshSinceWrite,
+        runTimestamp: run?.timestamp ?? null,
+        ledgerId: run?.ledgerId ?? null,
+      };
+    });
+    const commandsExecuted = checkProvenance
+      .filter((entry) => entry.hasRun)
+      .map((entry) => entry.check);
+    const commandsFresh = checkProvenance
+      .filter((entry) => entry.hasRun && entry.freshSinceWrite)
+      .map((entry) => entry.check);
+    const commandsStale = checkProvenance
+      .filter((entry) => entry.hasRun && !entry.freshSinceWrite)
+      .map((entry) => entry.check);
+    const commandsMissing = report.checks
+      .filter((check) => check.status !== "skip" && !commandsExecuted.includes(check.name))
+      .map((check) => check.name);
+    const evidenceFreshness =
+      commandsExecuted.length === 0
+        ? "none"
+        : commandsFresh.length === commandsExecuted.length
+          ? "fresh"
+          : commandsFresh.length === 0
+            ? "stale"
+            : "mixed";
 
     const statusSummary = report.checks
       .map((check) => `${check.name}:${check.status}`)
@@ -285,7 +320,6 @@ export class VerificationService {
 
     const evidenceParts: string[] = [];
     const evidenceIds: string[] = [];
-    const referenceWriteAt = verificationState.lastWriteAt ?? 0;
     for (const checkName of failedChecks) {
       const run = verificationState.checkRuns[checkName];
       if (!run) continue;
@@ -345,6 +379,15 @@ export class VerificationService {
         reason: report.reason ?? null,
         evidence,
         evidenceIds: [...new Set(evidenceIds)],
+        provenanceVersion: "v2",
+        activeSkill: activeSkillName ?? null,
+        referenceWriteAt: referenceWriteAt > 0 ? referenceWriteAt : null,
+        evidenceFreshness,
+        commandsExecuted,
+        commandsFresh,
+        commandsStale,
+        commandsMissing,
+        checkProvenance,
       },
     });
 

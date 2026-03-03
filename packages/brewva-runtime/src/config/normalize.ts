@@ -3,6 +3,7 @@ import type { BrewvaConfig, VerificationLevel } from "../types.js";
 const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "drop-low-fidelity", "tail"]);
 const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
 const VALID_SECURITY_MODES = new Set(["permissive", "standard", "strict"]);
+const VALID_SECURITY_ENFORCEMENT_MODES = new Set(["off", "warn", "enforce", "inherit"]);
 const VALID_EXECUTION_BACKENDS = new Set(["host", "sandbox", "best_available"]);
 const VALID_EVENT_LEVELS = new Set(["audit", "ops", "debug"]);
 const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "review-gated"]);
@@ -173,6 +174,9 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
     ? memoryInput.externalRecall
     : {};
   const securityInput = isRecord(input.security) ? input.security : {};
+  const securityEnforcementInput = isRecord(securityInput.enforcement)
+    ? securityInput.enforcement
+    : {};
   const securityExecutionInput = isRecord(securityInput.execution) ? securityInput.execution : {};
   const securityExecutionSandboxInput = isRecord(securityExecutionInput.sandbox)
     ? securityExecutionInput.sandbox
@@ -387,6 +391,38 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         securityInput.sanitizeContext,
         defaults.security.sanitizeContext,
       ),
+      enforcement: {
+        allowedToolsMode: normalizeStrictStringEnum(
+          securityEnforcementInput.allowedToolsMode,
+          defaults.security.enforcement.allowedToolsMode,
+          VALID_SECURITY_ENFORCEMENT_MODES,
+          "security.enforcement.allowedToolsMode",
+        ),
+        skillMaxTokensMode: normalizeStrictStringEnum(
+          securityEnforcementInput.skillMaxTokensMode,
+          defaults.security.enforcement.skillMaxTokensMode,
+          VALID_SECURITY_ENFORCEMENT_MODES,
+          "security.enforcement.skillMaxTokensMode",
+        ),
+        skillMaxToolCallsMode: normalizeStrictStringEnum(
+          securityEnforcementInput.skillMaxToolCallsMode,
+          defaults.security.enforcement.skillMaxToolCallsMode,
+          VALID_SECURITY_ENFORCEMENT_MODES,
+          "security.enforcement.skillMaxToolCallsMode",
+        ),
+        skillMaxParallelMode: normalizeStrictStringEnum(
+          securityEnforcementInput.skillMaxParallelMode,
+          defaults.security.enforcement.skillMaxParallelMode,
+          VALID_SECURITY_ENFORCEMENT_MODES,
+          "security.enforcement.skillMaxParallelMode",
+        ),
+        skillDispatchGateMode: normalizeStrictStringEnum(
+          securityEnforcementInput.skillDispatchGateMode,
+          defaults.security.enforcement.skillDispatchGateMode,
+          VALID_SECURITY_ENFORCEMENT_MODES,
+          "security.enforcement.skillDispatchGateMode",
+        ),
+      },
       execution: {
         backend: normalizedExecutionBackend,
         enforceIsolation: normalizedExecutionEnforceIsolation,

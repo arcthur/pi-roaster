@@ -67,6 +67,13 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
   security: {
     mode: "standard",
     sanitizeContext: true,
+    enforcement: {
+      allowedToolsMode: "inherit",
+      skillMaxTokensMode: "inherit",
+      skillMaxToolCallsMode: "inherit",
+      skillMaxParallelMode: "inherit",
+      skillDispatchGateMode: "inherit",
+    },
     execution: {
       backend: "best_available",
       enforceIsolation: false,
