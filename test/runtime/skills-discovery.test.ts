@@ -149,7 +149,7 @@ describe("skill discovery and loading", () => {
     expect(runtime.skills.get("relativecraft")).toBeDefined();
   });
 
-  test("does not load workspace pack skills when not listed in skills.packs", () => {
+  test("loads workspace pack skills when skills.packs is empty (no filter)", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-workspace-pack-"));
     writeSkill(join(workspace, ".brewva/skills/packs/custom-pack/SKILL.md"), {
       name: "packcraft",
@@ -160,17 +160,13 @@ describe("skill discovery and loading", () => {
     config.skills.packs = [];
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
-    expect(runtime.skills.get("packcraft")).toBeUndefined();
+    expect(runtime.skills.get("packcraft")).toBeDefined();
     const loadReport = runtime.skills.getLoadReport();
-    expect(loadReport.skippedPacks.some((entry) => entry.pack === "custom-pack")).toBe(true);
-    expect(
-      loadReport.skippedPacks.some(
-        (entry) => entry.pack === "custom-pack" && entry.reason === "not_in_skills.packs",
-      ),
-    ).toBe(true);
+    expect(loadReport.skippedPacks.some((entry) => entry.pack === "custom-pack")).toBe(false);
+    expect(loadReport.activePacks).toContain("custom-pack");
   });
 
-  test("does not load config_root pack skills when not listed in skills.packs", () => {
+  test("does not load config_root pack skills when not listed in non-empty skills.packs", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-config-pack-workspace-"));
     const external = mkdtempSync(join(tmpdir(), "brewva-skill-config-pack-external-"));
     writeSkill(join(external, "skills/packs/custom-pack/SKILL.md"), {
@@ -180,7 +176,7 @@ describe("skill discovery and loading", () => {
 
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
     config.skills.roots = [external];
-    config.skills.packs = [];
+    config.skills.packs = ["skill-creator"];
 
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     expect(runtime.skills.get("external-packcraft")).toBeUndefined();

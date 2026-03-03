@@ -10,7 +10,5 @@
 - PatchSet: tracked file change set used for rollback
 - Context Budget: policy for context injection and compaction
 - Cost Budget: threshold policy for session and skill spend
-- Viewport: compact, file-grounded context block injected to guide edits
-- SNR (Signal-to-Noise Ratio): heuristic score used to judge viewport quality
 - Channel Gateway: external channel ingress/egress gateway used by `--channel` mode
 - Gateway (Control Plane): local daemon exposed via `brewva gateway ...`, providing a typed WebSocket API to control-plane clients

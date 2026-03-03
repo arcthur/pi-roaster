@@ -292,6 +292,7 @@ function extractSkillCompleted(event: BrewvaEventRecord): MemoryExtractionResult
     | {
         skillName?: unknown;
         outputKeys?: unknown;
+        outputs?: unknown;
       }
     | undefined;
   const skillName =
@@ -300,11 +301,19 @@ function extractSkillCompleted(event: BrewvaEventRecord): MemoryExtractionResult
       : null;
   if (!skillName) return emptyResult();
 
-  const outputKeys = Array.isArray(payload?.outputKeys)
+  const keyedOutputs =
+    payload?.outputs && typeof payload.outputs === "object" && !Array.isArray(payload.outputs)
+      ? (payload.outputs as Record<string, unknown>)
+      : {};
+  const outputKeysFromOutputs = Object.keys(keyedOutputs)
+    .map((key) => key.trim())
+    .filter((key) => key.length > 0);
+  const outputKeysFromPayload = Array.isArray(payload?.outputKeys)
     ? payload.outputKeys
         .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
         .map((item) => item.trim())
     : [];
+  const outputKeys = [...new Set([...outputKeysFromPayload, ...outputKeysFromOutputs])].toSorted();
   const statement =
     outputKeys.length > 0
       ? `skill '${skillName}' completed; outputs=${outputKeys.join(", ")}`
@@ -379,7 +388,9 @@ function extractVerificationOutcomeRecorded(event: BrewvaEventRecord): MemoryExt
       ? (event.payload as Record<string, unknown>)
       : {};
   const outcome =
-    payload.outcome === "pass" || payload.outcome === "fail" ? payload.outcome : ("fail" as const);
+    payload.outcome === "pass" || payload.outcome === "fail" || payload.outcome === "skipped"
+      ? payload.outcome
+      : ("fail" as const);
   const level = readOptionalString(payload.level) ?? "unknown";
   const strategy = readOptionalString(payload.strategy) ?? "unspecified";
   const lessonKey =
@@ -389,12 +400,18 @@ function extractVerificationOutcomeRecorded(event: BrewvaEventRecord): MemoryExt
     readOptionalString(payload.pattern) ?? `verification:${normalizeLessonKeyToken(level)}`;
   const rootCause =
     readOptionalString(payload.rootCause) ??
-    (outcome === "fail" ? "verification checks failed" : "verification checks passed");
+    (outcome === "fail"
+      ? "verification checks failed"
+      : outcome === "skipped"
+        ? "verification skipped for read-only session"
+        : "verification checks passed");
   const recommendation =
     readOptionalString(payload.recommendation) ??
     (outcome === "fail"
       ? "adjust strategy and rerun verification"
-      : "reuse successful verification strategy");
+      : outcome === "skipped"
+        ? "resume with verification after writable changes"
+        : "reuse successful verification strategy");
   const failedChecks = toStringArray(payload.failedChecks);
   const missingEvidence = toStringArray(payload.missingEvidence);
 
@@ -407,8 +424,10 @@ function extractVerificationOutcomeRecorded(event: BrewvaEventRecord): MemoryExt
     if (missingEvidence.length > 0) {
       statementParts.push(`Missing evidence: ${missingEvidence.join(", ")}.`);
     }
-  } else {
+  } else if (outcome === "pass") {
     statementParts.push(`Verification passed at ${level} level.`);
+  } else {
+    statementParts.push(`Verification skipped at ${level} level (read-only session).`);
   }
   statementParts.push(`Root cause: ${rootCause}.`);
   statementParts.push(`Recommendation: ${recommendation}.`);
@@ -420,12 +439,16 @@ function extractVerificationOutcomeRecorded(event: BrewvaEventRecord): MemoryExt
         status: "active",
         topic: "verification lessons",
         statement: statementParts.join("; "),
-        confidence: outcome === "pass" ? 0.82 : 0.9,
+        confidence: outcome === "pass" ? 0.82 : outcome === "skipped" ? 0.7 : 0.9,
         sourceRefs: [createSourceRef(event)],
         metadata: {
           source: "verification_outcome_recorded",
           memorySignal:
-            outcome === "pass" ? "verification_outcome_pass" : "verification_outcome_fail",
+            outcome === "pass"
+              ? "verification_outcome_pass"
+              : outcome === "skipped"
+                ? "verification_outcome_skipped"
+                : "verification_outcome_fail",
           lessonKey,
           lessonOutcome: outcome,
           pattern,

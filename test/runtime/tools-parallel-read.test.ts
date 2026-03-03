@@ -555,6 +555,57 @@ describe("tool parallel read runtime integration", () => {
     expect(getParallelReadPayloads(runtime, sessionId)).toHaveLength(0);
   });
 
+  test("lsp_diagnostics returns unavailable for same-basename scope mismatch", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-lsp-diag-scope-mismatch-"));
+    const runtime = createRuntime(workspace);
+    const sessionId = "parallel-read-lsp-diagnostics-scope-mismatch";
+    mkdirSync(join(workspace, "src/a"), { recursive: true });
+    mkdirSync(join(workspace, "src/b"), { recursive: true });
+    writeFileSync(
+      join(workspace, "tsconfig.json"),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            strict: true,
+            noEmit: true,
+            target: "ES2022",
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+          },
+          include: ["src/**/*.ts"],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    writeFileSync(join(workspace, "src/a/foo.ts"), "export const ok: string = 'ok';\n", "utf8");
+    writeFileSync(join(workspace, "src/b/foo.ts"), "export const broken: string = 1;\n", "utf8");
+
+    const tools = createLspTools({ runtime });
+    const lspDiagnostics = tools.find((tool) => tool.name === "lsp_diagnostics");
+    expect(lspDiagnostics).toBeDefined();
+
+    const result = await lspDiagnostics!.execute(
+      "tc-lsp-diagnostics-scope-mismatch",
+      {
+        filePath: join(workspace, "src/a/foo.ts"),
+        severity: "all",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId, workspace),
+    );
+
+    const text = extractTextContent(result as { content: Array<{ type: string; text?: string }> });
+    expect(text).toContain("No matching diagnostics for the requested file/severity scope.");
+    const details = (result as { details?: Record<string, unknown> }).details;
+    expect(details?.status).toBe("unavailable");
+    expect(details?.reason).toBe("diagnostics_scope_mismatch");
+    expect(typeof details?.exitCode).toBe("number");
+    expect((details?.exitCode as number) !== 0).toBe(true);
+  });
+
   test("resolveParallelReadConfig falls back to runtime_unavailable defaults", () => {
     const config = resolveParallelReadConfig(undefined);
     expect(config.reason).toBe("runtime_unavailable");

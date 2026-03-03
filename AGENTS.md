@@ -89,7 +89,8 @@ brewva/
   - `security.mode: permissive | standard | strict`
   - `security.sanitizeContext: boolean`
 - Execution routing is policy-explicit:
-  - `security.execution.backend=auto` is best-available (`sandbox -> host`).
+  - `security.execution.backend=best_available` prefers sandbox first.
+  - Host fallback is controlled by `security.execution.fallbackToHost`.
   - `security.execution.backend=sandbox` is isolation-first; `fallbackToHost`
     defaults to `false`.
   - `strict` or `enforceIsolation=true` always fail-closed.

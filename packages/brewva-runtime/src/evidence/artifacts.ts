@@ -165,6 +165,35 @@ export function extractEvidenceArtifacts(input: {
   }
 
   if (toolName === "lsp_diagnostics") {
+    const detailsRecord =
+      input.details && typeof input.details === "object" && !Array.isArray(input.details)
+        ? (input.details as Record<string, unknown>)
+        : null;
+    const detailsExitCode =
+      detailsRecord &&
+      typeof detailsRecord.exitCode === "number" &&
+      Number.isFinite(detailsRecord.exitCode)
+        ? Math.trunc(detailsRecord.exitCode)
+        : null;
+    const detailsReason =
+      detailsRecord && typeof detailsRecord.reason === "string" ? detailsRecord.reason : null;
+
+    if (
+      detailsReason === "diagnostics_scope_mismatch" &&
+      detailsExitCode !== null &&
+      detailsExitCode !== 0
+    ) {
+      const target = getDiagnosticTarget(input.args);
+      artifacts.push({
+        kind: "tsc_scope_mismatch",
+        tool: input.toolName,
+        filePath: target.filePath ?? null,
+        severityFilter: target.severityFilter ?? null,
+        exitCode: detailsExitCode,
+      });
+      return artifacts;
+    }
+
     const outputLower = input.outputText.toLowerCase().trimStart();
     if (outputLower.includes("no diagnostics found")) {
       return artifacts;

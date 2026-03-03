@@ -75,8 +75,31 @@ describe("Brewva config loader normalization", () => {
     );
   });
 
-  test("given malformed memory config, when loading config, then bounds are normalized", () => {
-    const workspace = createWorkspace("memory-normalize");
+  test("given removed truncation strategy summarize, when loading config, then load fails fast", () => {
+    const workspace = createWorkspace("removed-truncation-summarize");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          infrastructure: {
+            contextBudget: {
+              truncationStrategy: "summarize",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    expect(() => loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" })).toThrow(
+      /Config does not match schema/,
+    );
+  });
+
+  test("given out-of-range memory config, when loading config, then load fails fast", () => {
+    const workspace = createWorkspace("memory-range-invalid");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
       JSON.stringify(
@@ -111,23 +134,54 @@ describe("Brewva config loader normalization", () => {
       "utf8",
     );
 
+    expect(() => loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" })).toThrow(
+      /Config does not match schema/,
+    );
+  });
+
+  test("given in-range memory config with fractional counters, when loading config, then counters are normalized deterministically", () => {
+    const workspace = createWorkspace("memory-counter-normalize");
+    writeFileSync(
+      join(workspace, ".brewva/brewva.json"),
+      JSON.stringify(
+        {
+          memory: {
+            enabled: true,
+            maxWorkingChars: 2400.9,
+            dailyRefreshHourLocal: 12.7,
+            crystalMinUnits: 4.9,
+            retrievalTopK: 8.4,
+            retrievalWeights: {
+              lexical: 2,
+              recency: 2,
+              confidence: 2,
+            },
+            cognitive: {
+              mode: "shadow",
+              maxTokensPerTurn: 1024.6,
+            },
+            global: {
+              enabled: true,
+              minConfidence: 0.95,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
     const loaded = loadBrewvaConfig({ cwd: workspace, configPath: ".brewva/brewva.json" });
-    const defaults = DEFAULT_BREWVA_CONFIG.memory;
-    expect(loaded.memory.enabled).toBe(defaults.enabled);
-    expect(loaded.memory.dir).toBe(defaults.dir);
-    expect(loaded.memory.workingFile).toBe(defaults.workingFile);
-    expect(loaded.memory.maxWorkingChars).toBe(defaults.maxWorkingChars);
-    expect(loaded.memory.dailyRefreshHourLocal).toBe(23);
-    expect(loaded.memory.crystalMinUnits).toBe(defaults.crystalMinUnits);
-    expect(loaded.memory.retrievalTopK).toBe(defaults.retrievalTopK);
-    expect(loaded.memory.retrievalWeights.lexical).toBe(0);
-    expect(loaded.memory.retrievalWeights.recency).toBe(0.5);
-    expect(loaded.memory.retrievalWeights.confidence).toBe(0.5);
-    expect(loaded.memory.evolvesMode).toBe(defaults.evolvesMode);
-    expect(loaded.memory.cognitive.mode).toBe(defaults.cognitive.mode);
-    expect(loaded.memory.cognitive.maxTokensPerTurn).toBe(0);
-    expect(loaded.memory.global.enabled).toBe(defaults.global.enabled);
-    expect(loaded.memory.global.minConfidence).toBe(1);
+    expect(loaded.memory.maxWorkingChars).toBe(2400);
+    expect(loaded.memory.dailyRefreshHourLocal).toBe(12);
+    expect(loaded.memory.crystalMinUnits).toBe(4);
+    expect(loaded.memory.retrievalTopK).toBe(8);
+    expect(loaded.memory.retrievalWeights.lexical).toBeCloseTo(1 / 3, 6);
+    expect(loaded.memory.retrievalWeights.recency).toBeCloseTo(1 / 3, 6);
+    expect(loaded.memory.retrievalWeights.confidence).toBeCloseTo(1 / 3, 6);
+    expect(loaded.memory.cognitive.maxTokensPerTurn).toBe(1024);
+    expect(loaded.memory.global.minConfidence).toBe(0.95);
   });
 
   test("given removed memory mode values, when loading config, then load fails fast", () => {
@@ -188,7 +242,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.infrastructure.turnWal.dir).toBe(".orchestrator/turn-wal-custom");
   });
 
-  test("given strict security config with invalid execution fields, when loading config, then execution config is normalized fail-closed", () => {
+  test("given strict security config, when loading config, then execution config is normalized fail-closed", () => {
     const workspace = createWorkspace("security-execution-normalize");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -204,9 +258,9 @@ describe("Brewva config loader normalization", () => {
                 serverUrl: "",
                 apiKey: "  ",
                 defaultImage: "",
-                memory: -1,
-                cpus: 0,
-                timeout: -1,
+                memory: 256,
+                cpus: 2,
+                timeout: 240,
               },
             },
           },
@@ -228,9 +282,9 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.security.execution.sandbox.serverUrl).toBe(defaults.sandbox.serverUrl);
     expect(loaded.security.execution.sandbox.apiKey).toBe(defaults.sandbox.apiKey);
     expect(loaded.security.execution.sandbox.defaultImage).toBe(defaults.sandbox.defaultImage);
-    expect(loaded.security.execution.sandbox.memory).toBe(defaults.sandbox.memory);
-    expect(loaded.security.execution.sandbox.cpus).toBe(defaults.sandbox.cpus);
-    expect(loaded.security.execution.sandbox.timeout).toBe(defaults.sandbox.timeout);
+    expect(loaded.security.execution.sandbox.memory).toBe(256);
+    expect(loaded.security.execution.sandbox.cpus).toBe(2);
+    expect(loaded.security.execution.sandbox.timeout).toBe(240);
   });
 
   test("given enforceIsolation enabled, when loading config, then sandbox backend is forced and host fallback is disabled", () => {
@@ -271,7 +325,7 @@ describe("Brewva config loader normalization", () => {
     expect(second.security.mode).toBe(DEFAULT_BREWVA_CONFIG.security.mode);
   });
 
-  test("given malformed skills roots and selector config, when loading config, then values are normalized", () => {
+  test("given skills roots and fractional selector config, when loading config, then values are normalized", () => {
     const workspace = createWorkspace("skills-normalize");
     const rawConfig = {
       skills: {
@@ -279,7 +333,7 @@ describe("Brewva config loader normalization", () => {
         packs: ["  typescript  ", " "],
         disabled: ["  review  ", " "],
         selector: {
-          k: 0,
+          k: 4.8,
         },
       },
     };
@@ -293,7 +347,7 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.skills.roots).toEqual([join(workspace, ".brewva/skills-extra")]);
     expect(loaded.skills.packs).toEqual(["typescript"]);
     expect(loaded.skills.disabled).toEqual(["review"]);
-    expect(loaded.skills.selector.k).toBe(DEFAULT_BREWVA_CONFIG.skills.selector.k);
+    expect(loaded.skills.selector.k).toBe(4);
   });
 
   test("given ui startup overrides in config, when loading config, then startup settings are applied", () => {
@@ -503,7 +557,7 @@ describe("Brewva config loader normalization", () => {
     }
   });
 
-  test("given channel orchestration config, when loading config, then orchestration values are normalized", () => {
+  test("given channel orchestration config with fractional limits, when loading config, then orchestration values are normalized", () => {
     const workspace = createWorkspace("channels-orchestration");
     writeFileSync(
       join(workspace, ".brewva/brewva.json"),
@@ -518,12 +572,12 @@ describe("Brewva config loader normalization", () => {
                 telegram: [" 123 ", "", "@ops"],
               },
               limits: {
-                fanoutMaxAgents: 0,
+                fanoutMaxAgents: 3.8,
                 maxDiscussionRounds: 4.8,
-                a2aMaxDepth: -1,
-                a2aMaxHops: -5,
+                a2aMaxDepth: 2.9,
+                a2aMaxHops: 6.6,
                 maxLiveRuntimes: 12,
-                idleRuntimeTtlMs: 0,
+                idleRuntimeTtlMs: 90_000.9,
               },
             },
           },
@@ -539,19 +593,11 @@ describe("Brewva config loader normalization", () => {
     expect(loaded.channels.orchestration.scopeStrategy).toBe("thread");
     expect(loaded.channels.orchestration.aclModeWhenOwnersEmpty).toBe("closed");
     expect(loaded.channels.orchestration.owners.telegram).toEqual(["123", "@ops"]);
-    expect(loaded.channels.orchestration.limits.fanoutMaxAgents).toBe(
-      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.fanoutMaxAgents,
-    );
+    expect(loaded.channels.orchestration.limits.fanoutMaxAgents).toBe(3);
     expect(loaded.channels.orchestration.limits.maxDiscussionRounds).toBe(4);
-    expect(loaded.channels.orchestration.limits.a2aMaxDepth).toBe(
-      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.a2aMaxDepth,
-    );
-    expect(loaded.channels.orchestration.limits.a2aMaxHops).toBe(
-      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.a2aMaxHops,
-    );
+    expect(loaded.channels.orchestration.limits.a2aMaxDepth).toBe(2);
+    expect(loaded.channels.orchestration.limits.a2aMaxHops).toBe(6);
     expect(loaded.channels.orchestration.limits.maxLiveRuntimes).toBe(12);
-    expect(loaded.channels.orchestration.limits.idleRuntimeTtlMs).toBe(
-      DEFAULT_BREWVA_CONFIG.channels.orchestration.limits.idleRuntimeTtlMs,
-    );
+    expect(loaded.channels.orchestration.limits.idleRuntimeTtlMs).toBe(90_000);
   });
 });

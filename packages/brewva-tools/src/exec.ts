@@ -455,7 +455,7 @@ function resolveExecutionPolicy(runtime?: BrewvaToolRuntime): ResolvedExecutionP
     backend === "sandbox" &&
     !enforceIsolation &&
     security.mode !== "strict" &&
-    (configuredBackend === "auto" || execution.fallbackToHost);
+    execution.fallbackToHost;
 
   return {
     mode: security.mode,
@@ -956,25 +956,6 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
       }
 
       const preferredBackend = policy.backend;
-      recordExecEvent(
-        options?.runtime,
-        ownerSessionId,
-        EXEC_ROUTED_EVENT_TYPE,
-        buildExecAuditPayload({
-          toolCallId,
-          policy,
-          command,
-          payload: {
-            resolvedBackend: preferredBackend,
-            fallbackToHost: policy.allowHostFallback,
-            requestedCwd: sandboxRequestedCwd,
-            effectiveSandboxCwd: sandboxRequestedCwd ?? DEFAULT_SANDBOX_WORKDIR,
-            requestedEnvKeys,
-            requestedTimeoutSec: timeoutSec,
-            sandboxDefaultTimeoutSec: policy.sandbox.timeout,
-          },
-        }),
-      );
 
       const runHost = async () =>
         executeHostCommand({
@@ -989,6 +970,25 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         });
 
       if (preferredBackend === "host") {
+        recordExecEvent(
+          options?.runtime,
+          ownerSessionId,
+          EXEC_ROUTED_EVENT_TYPE,
+          buildExecAuditPayload({
+            toolCallId,
+            policy,
+            command,
+            payload: {
+              resolvedBackend: preferredBackend,
+              fallbackToHost: policy.allowHostFallback,
+              requestedCwd: sandboxRequestedCwd,
+              effectiveSandboxCwd: sandboxRequestedCwd ?? DEFAULT_SANDBOX_WORKDIR,
+              requestedEnvKeys,
+              requestedTimeoutSec: timeoutSec,
+              sandboxDefaultTimeoutSec: policy.sandbox.timeout,
+            },
+          }),
+        );
         return await runHost();
       }
 
@@ -1013,6 +1013,26 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
           return await runHost();
         }
       }
+
+      recordExecEvent(
+        options?.runtime,
+        ownerSessionId,
+        EXEC_ROUTED_EVENT_TYPE,
+        buildExecAuditPayload({
+          toolCallId,
+          policy,
+          command,
+          payload: {
+            resolvedBackend: preferredBackend,
+            fallbackToHost: policy.allowHostFallback,
+            requestedCwd: sandboxRequestedCwd,
+            effectiveSandboxCwd: sandboxRequestedCwd ?? DEFAULT_SANDBOX_WORKDIR,
+            requestedEnvKeys,
+            requestedTimeoutSec: timeoutSec,
+            sandboxDefaultTimeoutSec: policy.sandbox.timeout,
+          },
+        }),
+      );
 
       if (background) {
         const reason = "sandbox backend does not support background process mode";

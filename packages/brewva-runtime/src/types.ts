@@ -437,7 +437,7 @@ export interface BrewvaConfig {
     mode: "permissive" | "standard" | "strict";
     sanitizeContext: boolean;
     execution: {
-      backend: "host" | "sandbox" | "auto";
+      backend: "host" | "sandbox" | "best_available";
       enforceIsolation: boolean;
       fallbackToHost: boolean;
       commandDenyList: string[];
@@ -491,7 +491,7 @@ export interface BrewvaConfig {
       maxInjectionTokens: number;
       compactionThresholdPercent: number;
       hardLimitPercent: number;
-      truncationStrategy: "drop-entry" | "summarize" | "tail";
+      truncationStrategy: "drop-entry" | "drop-low-fidelity" | "tail";
       compactionInstructions: string;
       compaction: {
         minTurnsBetween: number;
@@ -711,6 +711,9 @@ export interface VerificationEvidence {
 
 export interface VerificationReport {
   passed: boolean;
+  readOnly: boolean;
+  skipped: boolean;
+  reason?: "read_only";
   level: VerificationLevel;
   missingEvidence: string[];
   checks: Array<{ name: string; status: "pass" | "fail" | "skip"; evidence?: string }>;

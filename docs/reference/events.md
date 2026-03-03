@@ -66,7 +66,6 @@ Common operational events include:
 
 Debug level includes the full stream, including high-noise diagnostics such as:
 
-- `viewport_*`
 - `cognitive_*`
 - `tool_parallel_read`
 
@@ -132,6 +131,8 @@ to avoid polluting audit-level streams with high-frequency search telemetry.
 
 ### Skill Routing
 
+- `skill_activated`
+- `skill_completed`
 - `skill_routing_decided`
 - `skill_routing_followed`
 - `skill_routing_overridden`
@@ -153,7 +154,6 @@ to avoid polluting audit-level streams with high-frequency search telemetry.
 - `context_arena_slo_enforced`
 - `context_injection_dropped`
 - `context_external_recall_decision`
-- `context_external_recall_decision_debug`
 - `context_compaction_requested`
 - `context_compaction_skipped`
 - `context_compaction_gate_armed`
@@ -298,6 +298,32 @@ Common fields include:
 
 Verification outcome summary (`brewva.verification.outcome.v1`) used by replay and memory learning loops.
 
+Common payload fields include:
+
+- `outcome` (`pass` | `fail` | `skipped`)
+- `level`
+- `strategy`
+- `lessonKey`
+- `pattern`
+- `failedChecks`
+- `missingEvidence`
+- `skipped` (boolean)
+- `reason` (`read_only` | `null`)
+
+Read-only sessions emit `outcome="skipped"` with `reason="read_only"`.
+
+### `skill_completed`
+
+Skill lifecycle completion event emitted after contract output validation and
+verification gate pass/skip.
+
+Common payload fields include:
+
+- `skillName`
+- `outputKeys`
+- `outputs`
+- `completedAt`
+
 ### `context_injected` and `context_injection_dropped`
 
 Context planner telemetry summary. Common payload fields include:
@@ -319,7 +345,7 @@ Single external-recall decision summary event.
 Common payload fields include:
 
 - `outcome` (`skipped | injected | filtered_out`)
-- `reason` (`pressure_gated | internal_score_sufficient | provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
+- `reason` (`pressure_gated | skill_tag_missing | internal_score_sufficient | provider_unavailable | no_hits | empty_block | arena_rejected | filtered_out`)
 - `query`
 - `internalTopScore`
 - `threshold`
@@ -328,16 +354,6 @@ Common payload fields include:
 
 Note: `outcome="filtered_out"` means external recall was accepted into the arena but removed by
 final injection planning; write-back does not occur.
-
-### `context_external_recall_decision_debug`
-
-Debug-level external-recall decision event for low-signal skip reasons that would otherwise be noisy
-at ops level. Common payload fields include:
-
-- `outcome` (`skipped`)
-- `reason` (`skill_tag_missing`)
-- `query`
-- `threshold`
 
 ### `memory_recall_query_expanded`
 
@@ -443,7 +459,7 @@ Startup recovery aggregate with totals and per-source counters:
 - `compacted`
 - `bySource`
 
-### `viewport_*` and `cognitive_*`
+### `cognitive_*`
 
 These are debug diagnostics by default classification and are primarily intended for deep incident analysis.
 Exception: `cognitive_relevance_ranking*` is classified as ops-level for rerank observability.

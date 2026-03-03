@@ -6,7 +6,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
   },
   skills: {
     roots: [],
-    packs: ["skill-creator", "telegram-interactive-components"],
+    packs: [],
     disabled: [],
     overrides: {},
     selector: {
@@ -68,7 +68,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
     mode: "standard",
     sanitizeContext: true,
     execution: {
-      backend: "auto",
+      backend: "best_available",
       enforceIsolation: false,
       fallbackToHost: false,
       commandDenyList: [],
@@ -124,7 +124,7 @@ export const DEFAULT_BREWVA_CONFIG: BrewvaConfig = {
       maxInjectionTokens: 1200,
       compactionThresholdPercent: 0.82,
       hardLimitPercent: 0.94,
-      truncationStrategy: "summarize",
+      truncationStrategy: "drop-low-fidelity",
       compactionInstructions:
         "Summarize stale tool outputs and keep only active objectives, unresolved failures, and latest verification evidence.",
       compaction: {

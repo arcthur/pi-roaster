@@ -145,4 +145,41 @@ describe("Truth extraction from lsp_diagnostics", () => {
     expect(task.blockers.some((blocker) => blocker.id === ts2322?.id)).toBe(true);
     expect(task.blockers.some((blocker) => blocker.id === ts2304?.id)).toBe(false);
   });
+
+  test("scope-mismatch unavailable output does not resolve active facts", () => {
+    const workspace = createWorkspace("truth-from-lsp-diagnostics-scope-mismatch");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-lsp-diagnostics-4";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "lsp_diagnostics",
+      args: { filePath: "src/foo.ts" },
+      outputText:
+        "src/foo.ts(10,5): error TS2322: Type 'number' is not assignable to type 'string'.",
+      success: true,
+    });
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "lsp_diagnostics",
+      args: { filePath: "src/foo.ts" },
+      outputText: "No matching diagnostics for the requested file/severity scope.",
+      success: true,
+      metadata: {
+        details: {
+          status: "unavailable",
+          reason: "diagnostics_scope_mismatch",
+          exitCode: 2,
+        },
+      },
+    });
+
+    const truth = runtime.truth.getState(sessionId);
+    const fact = truth.facts.find(
+      (entry) => entry.summary.includes("src/foo.ts") && entry.summary.includes("TS2322"),
+    );
+    expect(fact).not.toBeUndefined();
+    expect(fact?.status).toBe("active");
+  });
 });

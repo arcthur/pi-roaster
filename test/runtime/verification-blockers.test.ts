@@ -314,10 +314,12 @@ describe("Verification blockers", () => {
       executeCommands: false,
     });
     expect(report.passed).toBe(true);
+    expect(report.skipped).toBe(true);
+    expect(report.reason).toBe("read_only");
 
     const outcomes = runtime.events.query(sessionId, { type: "verification_outcome_recorded" });
     expect(outcomes).toHaveLength(1);
-    expect(outcomes[0]?.payload?.outcome).toBe("pass");
+    expect(outcomes[0]?.payload?.outcome).toBe("skipped");
     expect(typeof outcomes[0]?.payload?.lessonKey).toBe("string");
   });
 });

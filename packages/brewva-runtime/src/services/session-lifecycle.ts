@@ -12,6 +12,7 @@ import type { TurnReplayEngine } from "../tape/replay-engine.js";
 import type {
   BrewvaEventRecord,
   SkillDispatchDecision,
+  SkillOutputRecord,
   SkillSelectionBreakdownEntry,
   SkillSelectionSignal,
 } from "../types.js";
@@ -149,6 +150,7 @@ export class SessionLifecycleService {
     const skillDispatchGateWarnings = new Set(
       this.sessionState.skillDispatchGateWarningsBySession.get(sessionId) ?? [],
     );
+    const skillOutputs = new Map<string, SkillOutputRecord>();
     let pendingDispatch = this.sessionState.pendingDispatchBySession.get(sessionId);
 
     for (let index = 0; index < events.length; index += 1) {
@@ -186,6 +188,15 @@ export class SessionLifecycleService {
       }
 
       if (event.type === "skill_completed") {
+        const skillName = this.readSkillName(payload);
+        const outputs = this.readSkillOutputs(payload);
+        if (skillName && outputs) {
+          skillOutputs.set(skillName, {
+            skillName,
+            completedAt: this.readNonNegativeNumber(payload?.completedAt) ?? event.timestamp,
+            outputs,
+          });
+        }
         activeSkill = undefined;
         toolCalls = 0;
         continue;
@@ -305,6 +316,12 @@ export class SessionLifecycleService {
     } else {
       this.sessionState.pendingDispatchBySession.delete(sessionId);
     }
+
+    if (skillOutputs.size > 0) {
+      this.sessionState.skillOutputsBySession.set(sessionId, skillOutputs);
+    } else {
+      this.sessionState.skillOutputsBySession.delete(sessionId);
+    }
   }
 
   private findLatestCheckpoint(events: BrewvaEventRecord[]): {
@@ -368,6 +385,16 @@ export class SessionLifecycleService {
         return { signal, term, delta };
       })
       .filter((entry): entry is SkillSelectionBreakdownEntry => entry !== null);
+  }
+
+  private readSkillOutputs(
+    payload: Record<string, unknown> | null,
+  ): Record<string, unknown> | null {
+    const outputs = payload?.outputs;
+    if (!outputs || typeof outputs !== "object" || Array.isArray(outputs)) {
+      return null;
+    }
+    return outputs as Record<string, unknown>;
   }
 
   private readPendingDispatch(

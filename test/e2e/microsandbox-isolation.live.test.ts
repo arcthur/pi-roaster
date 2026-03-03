@@ -323,9 +323,9 @@ describe("e2e: microsandbox isolation live", () => {
               mode: "standard",
               sanitizeContext: true,
               execution: {
-                backend: "auto",
+                backend: "best_available",
                 enforceIsolation: false,
-                fallbackToHost: false,
+                fallbackToHost: true,
                 commandDenyList: [],
                 sandbox: {
                   serverUrl: "http://127.0.0.1:1",
@@ -357,7 +357,7 @@ describe("e2e: microsandbox isolation live", () => {
         expect(extractTextContent(autoFallback).includes("auto-fallback-live")).toBe(true);
         expect((autoFallback.details as { backend?: string }).backend).toBe("host");
         const autoRouted = autoEvents.find((event) => event.type === "exec_routed");
-        expect(autoRouted?.payload?.configuredBackend).toBe("auto");
+        expect(autoRouted?.payload?.configuredBackend).toBe("best_available");
         expect(autoRouted?.payload?.resolvedBackend).toBe("sandbox");
         expect(autoRouted?.payload?.fallbackToHost).toBe(true);
         expect(autoEvents.some((event) => event.type === "exec_fallback_host")).toBe(true);

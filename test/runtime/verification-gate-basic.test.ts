@@ -35,6 +35,18 @@ describe("S-004/S-005 verification gate", () => {
     expect(passed.passed).toBe(true);
   });
 
+  test("read-only session skips verification checks", () => {
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
+    const sessionId = "s4-readonly";
+
+    const report = runtime.verification.evaluate(sessionId);
+    expect(report.passed).toBe(true);
+    expect(report.readOnly).toBe(true);
+    expect(report.skipped).toBe(true);
+    expect(report.reason).toBe("read_only");
+    expect(report.checks.every((c) => c.status === "skip")).toBe(true);
+  });
+
   test("treats multi_edit as a mutation tool for verification gating", async () => {
     const runtime = new BrewvaRuntime({ cwd: repoRoot() });
     const sessionId = "s4-multi-edit";

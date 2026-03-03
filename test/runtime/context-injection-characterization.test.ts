@@ -137,14 +137,14 @@ describe("ContextInjectionCollector characterization", () => {
     expect((plan.entries[0]?.estimatedTokens ?? 0) <= 5).toBe(true);
   });
 
-  test("sourceTokenLimits rejects oversized entries under summarize strategy", () => {
+  test("sourceTokenLimits rejects oversized entries under drop-low-fidelity strategy", () => {
     const collector = new ContextInjectionCollector({
-      truncationStrategy: "summarize",
+      truncationStrategy: "drop-low-fidelity",
       sourceTokenLimits: {
         "brewva.memory-working": 5,
       },
     });
-    const sessionId = "ctx-char-source-limit-summarize";
+    const sessionId = "ctx-char-source-limit-drop-low-fidelity";
 
     const register = collector.register(sessionId, {
       source: "brewva.memory-working",

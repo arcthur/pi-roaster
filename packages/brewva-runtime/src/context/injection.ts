@@ -1,7 +1,7 @@
 import { ContextArena } from "./arena.js";
 
 export type ContextInjectionPriority = "critical" | "high" | "normal" | "low";
-export type ContextInjectionTruncationStrategy = "drop-entry" | "summarize" | "tail";
+export type ContextInjectionTruncationStrategy = "drop-entry" | "drop-low-fidelity" | "tail";
 
 export interface RegisterContextInjectionInput {
   source: string;

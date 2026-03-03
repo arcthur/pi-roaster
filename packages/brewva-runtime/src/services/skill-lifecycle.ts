@@ -1,12 +1,98 @@
 import type { SkillRegistry } from "../skills/registry.js";
-import type { SkillDispatchDecision, SkillDocument } from "../types.js";
+import { parseTaskSpec } from "../task/spec.js";
+import type { SkillDispatchDecision, SkillDocument, TaskSpec, TaskState } from "../types.js";
 import type { RuntimeCallback } from "./callback.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function compactText(value: string, maxChars = 2000): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(1, maxChars - 3))}...`;
+}
+
+function deriveComposeGoal(outputs: Record<string, unknown>): string | null {
+  const analysis = outputs.compose_analysis;
+  if (typeof analysis === "string") {
+    const summaryMatch = analysis.match(/request_summary:\s*["']?(.+?)["']?(?:$|\r?\n)/i);
+    if (summaryMatch?.[1]) {
+      return compactText(summaryMatch[1], 500);
+    }
+    const firstLine = analysis
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0 && !/^compose_analysis$/i.test(line));
+    if (firstLine) {
+      return compactText(firstLine, 500);
+    }
+  }
+
+  if (isRecord(analysis)) {
+    const summary =
+      readNonEmptyString(analysis.request_summary) ??
+      readNonEmptyString(analysis.requestSummary) ??
+      readNonEmptyString(analysis.goal) ??
+      readNonEmptyString(analysis.summary);
+    if (summary) return compactText(summary, 500);
+  }
+
+  const composePlan = outputs.compose_plan;
+  if (isRecord(composePlan)) {
+    const summary =
+      readNonEmptyString(composePlan.goal) ??
+      readNonEmptyString(composePlan.summary) ??
+      readNonEmptyString(composePlan.intent);
+    if (summary) return compactText(summary, 500);
+  }
+
+  if (readNonEmptyString(composePlan)) {
+    return "Execute composed multi-step plan";
+  }
+  if (Array.isArray(outputs.skill_sequence) && outputs.skill_sequence.length > 0) {
+    return "Execute composed multi-step plan";
+  }
+  return null;
+}
+
+function deriveTaskSpecFromOutputs(
+  activeSkillName: string,
+  outputs: Record<string, unknown>,
+): TaskSpec | null {
+  if (Object.prototype.hasOwnProperty.call(outputs, "task_spec")) {
+    const parsed = parseTaskSpec(outputs.task_spec);
+    if (parsed.ok) return parsed.spec;
+  }
+
+  if (activeSkillName !== "compose") return null;
+  const hasComposeSignals =
+    Object.prototype.hasOwnProperty.call(outputs, "compose_analysis") ||
+    Object.prototype.hasOwnProperty.call(outputs, "compose_plan") ||
+    Object.prototype.hasOwnProperty.call(outputs, "skill_sequence");
+  if (!hasComposeSignals) return null;
+
+  const goal = deriveComposeGoal(outputs) ?? "Execute composed multi-step plan";
+  const expectedBehavior = readNonEmptyString(outputs.compose_plan);
+  return {
+    schema: "brewva.task.v1",
+    goal,
+    expectedBehavior: expectedBehavior ? compactText(expectedBehavior, 2000) : undefined,
+  };
+}
 
 export interface SkillLifecycleServiceOptions {
   skills: SkillRegistry;
   sessionState: RuntimeSessionStateStore;
   getCurrentTurn: RuntimeCallback<[sessionId: string], number>;
+  getTaskState?: RuntimeCallback<[sessionId: string], TaskState>;
   recordEvent: RuntimeCallback<
     [
       input: {
@@ -20,19 +106,24 @@ export interface SkillLifecycleServiceOptions {
     ],
     unknown
   >;
+  setTaskSpec?: RuntimeCallback<[sessionId: string, spec: TaskSpec]>;
 }
 
 export class SkillLifecycleService {
   private readonly skills: SkillRegistry;
   private readonly sessionState: RuntimeSessionStateStore;
   private readonly getCurrentTurn: (sessionId: string) => number;
+  private readonly getTaskState?: (sessionId: string) => TaskState;
   private readonly recordEvent: SkillLifecycleServiceOptions["recordEvent"];
+  private readonly setTaskSpec?: SkillLifecycleServiceOptions["setTaskSpec"];
 
   constructor(options: SkillLifecycleServiceOptions) {
     this.skills = options.skills;
     this.sessionState = options.sessionState;
     this.getCurrentTurn = options.getCurrentTurn;
+    this.getTaskState = options.getTaskState;
     this.recordEvent = options.recordEvent;
+    this.setTaskSpec = options.setTaskSpec;
   }
 
   activateSkill(
@@ -254,6 +345,7 @@ export class SkillLifecycleService {
         completedAt,
         outputs,
       });
+      const outputKeys = Object.keys(outputs).toSorted();
 
       this.recordEvent({
         sessionId,
@@ -261,10 +353,13 @@ export class SkillLifecycleService {
         turn: this.getCurrentTurn(sessionId),
         payload: {
           skillName: activeSkillName,
-          outputKeys: Object.keys(outputs).toSorted().slice(0, 64),
+          outputKeys,
+          outputs,
           completedAt,
         },
       });
+
+      this.maybePromoteTaskSpec(sessionId, activeSkillName, outputs);
 
       this.sessionState.activeSkillsBySession.delete(sessionId);
       this.sessionState.toolCallsBySession.delete(sessionId);
@@ -341,5 +436,21 @@ export class SkillLifecycleService {
       unresolvedConsumes: decision.unresolvedConsumes,
       ...extra,
     };
+  }
+
+  private maybePromoteTaskSpec(
+    sessionId: string,
+    activeSkillName: string,
+    outputs: Record<string, unknown>,
+  ): void {
+    if (!this.setTaskSpec || !this.getTaskState) return;
+    const taskState = this.getTaskState(sessionId);
+    if (taskState.spec) return;
+    const phase = taskState.status?.phase;
+    if (phase && phase !== "align") return;
+
+    const nextSpec = deriveTaskSpecFromOutputs(activeSkillName, outputs);
+    if (!nextSpec) return;
+    this.setTaskSpec(sessionId, nextSpec);
   }
 }

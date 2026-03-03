@@ -14,7 +14,7 @@ tools:
   optional: [grep, exec, skill_complete]
   denied: [write, edit]
 budget:
-  max_tool_calls: 40
+  max_tool_calls: 120
   max_tokens: 100000
 outputs: [compose_analysis, skill_sequence, compose_plan]
 ---

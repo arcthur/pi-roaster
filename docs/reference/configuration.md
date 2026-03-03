@@ -31,13 +31,16 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 ### `skills`
 
 - `skills.roots`: `[]`
-- `skills.packs`: `["skill-creator", "telegram-interactive-components"]`
+- `skills.packs`: `[]`
 - `skills.disabled`: `[]`
 - `skills.overrides`: `{}`
 - `skills.selector.k`: `4`
 
-`skills.packs` is a strict allowlist for pack directories across all discovered skill roots
-(`global_root`, `project_root`, and `config_root`). Packs not listed here are skipped.
+`skills.packs` is an optional allowlist for pack directories across all discovered skill roots
+(`global_root`, `project_root`, and `config_root`).
+
+- empty array (default): no pack filter, load all discovered packs
+- non-empty array: strict allowlist, packs not listed are skipped
 
 ### `verification`
 
@@ -86,7 +89,7 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 
 - `security.mode`: `standard`
 - `security.sanitizeContext`: `true`
-- `security.execution.backend`: `auto`
+- `security.execution.backend`: `best_available`
 - `security.execution.enforceIsolation`: `false`
 - `security.execution.fallbackToHost`: `false`
 - `security.execution.commandDenyList`: `[]`
@@ -134,7 +137,7 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 - `infrastructure.contextBudget.maxInjectionTokens`: `1200`
 - `infrastructure.contextBudget.compactionThresholdPercent`: `0.82`
 - `infrastructure.contextBudget.hardLimitPercent`: `0.94`
-- `infrastructure.contextBudget.truncationStrategy`: `summarize`
+- `infrastructure.contextBudget.truncationStrategy`: `drop-low-fidelity`
 - `infrastructure.contextBudget.compactionInstructions`: default operational compaction guidance string
 - `infrastructure.contextBudget.compaction.minTurnsBetween`: `2`
 - `infrastructure.contextBudget.compaction.minSecondsBetween`: `45`
@@ -180,7 +183,7 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 
 `security.execution` controls command isolation for `exec`:
 
-- `backend=auto` always prefers sandbox first; if sandbox is unavailable or unsupported for the request, runtime downgrades to host (`best available`).
+- `backend=best_available` prefers sandbox first; host fallback is controlled by `fallbackToHost`.
 - `backend=sandbox` is isolation-first; host fallback is controlled by `fallbackToHost` (`false` by default).
 - `enforceIsolation=true` forces `backend=sandbox` and disables host fallback regardless of other inputs.
 - `strict` always disables host fallback.
@@ -195,31 +198,32 @@ At runtime, execution isolation is resolved in this order:
 2. `security.execution.enforceIsolation`
 3. `security.mode === strict`
 4. configured `security.execution.backend`
-5. `security.execution.fallbackToHost` (only when `backend=sandbox`)
+5. `security.execution.fallbackToHost` (when resolved backend is `sandbox`)
 
 This yields the following invariants:
 
 - If `BREWVA_ENFORCE_EXEC_ISOLATION` is enabled, host fallback is disabled.
 - If `enforceIsolation=true`, host fallback is disabled.
 - If `security.mode=strict`, host fallback is disabled.
-- `backend=auto` is availability-first (`sandbox -> host fallback`).
+- `backend=best_available` routes `sandbox` first and follows `fallbackToHost` for host fallback.
 - `backend=host` is honored only when none of the above force sandbox.
 
 ### `security.execution` Routing Matrix
 
-| mode       | backend | enforceIsolation | fallbackToHost | resolved backend | host fallback |
-| ---------- | ------- | ---------------- | -------------- | ---------------- | ------------- |
-| permissive | auto    | false            | false          | sandbox          | true          |
-| standard   | auto    | false            | false          | sandbox          | true          |
-| standard   | sandbox | false            | false          | sandbox          | false         |
-| standard   | sandbox | false            | true           | sandbox          | true          |
-| strict     | any     | false            | any            | sandbox          | false         |
-| any        | any     | true             | any            | sandbox          | false         |
+| mode       | backend        | enforceIsolation | fallbackToHost | resolved backend | host fallback |
+| ---------- | -------------- | ---------------- | -------------- | ---------------- | ------------- |
+| permissive | best_available | false            | false          | sandbox          | false         |
+| standard   | best_available | false            | false          | sandbox          | false         |
+| standard   | best_available | false            | true           | sandbox          | true          |
+| standard   | sandbox        | false            | false          | sandbox          | false         |
+| standard   | sandbox        | false            | true           | sandbox          | true          |
+| strict     | any            | false            | any            | sandbox          | false         |
+| any        | any            | true             | any            | sandbox          | false         |
 
 Notes:
 
 - `host fallback` applies only when the resolved backend is `sandbox`.
-- In `backend=auto`, fallback is always availability-driven even if `fallbackToHost=false`.
+- `backend=best_available` no longer forces host fallback; `fallbackToHost` remains authoritative.
 - Sandbox background process mode is unsupported; with fallback disabled this is fail-closed.
 - When sandbox execution fails and host fallback is enabled, runtime applies a short backoff window before retrying sandbox (`exec_fallback_host.reason=sandbox_unavailable_cached`) to avoid repeated sandbox error churn.
 - If `exec.workdir` is omitted, sandbox execution defaults to `/` and does not inherit host runtime cwd.
@@ -231,7 +235,7 @@ Notes:
 
 - `audit`: only replay/audit-critical events
 - `ops`: audit + operational state transitions/warnings
-- `debug`: full stream (including high-noise diagnostics such as `viewport_*` and most `cognitive_*`)
+- `debug`: full stream (including high-noise diagnostics such as most `cognitive_*`)
 - `cognitive_relevance_ranking*` stays visible at `ops` for rerank evaluation.
 
 ## Context Budget Model
@@ -253,18 +257,22 @@ Runtime behavior:
 - External recall boundary is explicit and disabled by default:
   set `memory.externalRecall.enabled=true` and inject a custom
   `externalRecallPort`.
+- External recall executes only when all runtime gates pass:
+  `pressure allowed` + active skill has `external-knowledge` tag +
+  `internalTopScore < minInternalScore` + provider is available.
+- All skip outcomes (including `skill_tag_missing`) emit
+  `context_external_recall_decision` at `ops` level.
 - Runtime never auto-wires a built-in external recall provider.
 
 Normalization details from `normalizeBrewvaConfig(...)`:
 
-- `compactionThresholdPercent` is clamped to `<= hardLimitPercent`.
-- Percent-like ratios are clamped into `[0, 1]` (`alertThresholdRatio`, memory/global confidence).
+- Key numeric ranges are schema-enforced fail-fast (for example confidence ratios, schedule limits, context budget limits, and memory bounds).
+- `compactionThresholdPercent` is still clamped to `<= hardLimitPercent` after schema validation.
 - `memory.retrievalWeights` are normalized to sum to `1` when total weight is positive; otherwise defaults are used.
+- Integer-like counters are floor-normalized when already in-range (for example `dailyRefreshHourLocal: 12.7 -> 12`).
 - `memory.recallMode` only accepts `always | pressure-aware`; invalid values fail config load.
 - `memory.evolvesMode` only accepts `off | review-gated`; invalid values fail config load.
-- `memory.externalRecall.*` is normalized to bounded numeric/boolean defaults.
-- Compaction cooldown settings are clamped to safe numeric ranges.
-- Most numeric fields are floor-normalized to positive/non-negative integers (invalid values fall back to defaults).
+- `truncationStrategy` only accepts `drop-entry | drop-low-fidelity | tail`; unknown values fail config load.
 
 ## Turn WAL Model
 

@@ -82,7 +82,10 @@ describe("memory extractor", () => {
         type: "skill_completed",
         payload: {
           skillName: "debugging",
-          outputKeys: ["root_cause", "verification"],
+          outputs: {
+            root_cause: "null guard missing",
+            verification: "tests passed",
+          },
         },
       }),
     );
@@ -90,6 +93,8 @@ describe("memory extractor", () => {
     expect(result.upserts).toHaveLength(1);
     expect(result.upserts[0]?.type).toBe("learning");
     expect(result.upserts[0]?.topic).toContain("debugging");
+    expect(result.upserts[0]?.statement).toContain("root_cause");
+    expect(result.upserts[0]?.statement).toContain("verification");
   });
 
   test("promotes verification status_set into memory signal candidate", () => {
@@ -201,6 +206,28 @@ describe("memory extractor", () => {
         resolvedAt: 1_700_000_000_000,
       },
     ]);
+  });
+
+  test("extracts verification_outcome_recorded skipped into learning unit without resolve", () => {
+    const result = extractMemoryFromEvent(
+      event({
+        id: "evt-verification-outcome-skipped",
+        type: "verification_outcome_recorded",
+        payload: {
+          schema: "brewva.verification.outcome.v1",
+          level: "quick",
+          outcome: "skipped",
+          reason: "read_only",
+          strategy: "verification_level=quick",
+        },
+      }),
+    );
+
+    expect(result.upserts).toHaveLength(1);
+    expect(result.upserts[0]?.metadata?.memorySignal).toBe("verification_outcome_skipped");
+    expect(result.upserts[0]?.metadata?.lessonOutcome).toBe("skipped");
+    expect(result.upserts[0]?.statement).toContain("Verification skipped");
+    expect(result.resolves).toEqual([]);
   });
 
   test("extracts cognitive_outcome_reflection into lesson units", () => {

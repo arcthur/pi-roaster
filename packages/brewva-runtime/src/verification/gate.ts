@@ -40,7 +40,7 @@ export class VerificationGate {
 
     const checks = this.config.verification.checks[level].map((name) => {
       if (!hasWrite) {
-        return { name, status: "pass" } as const;
+        return { name, status: "skip" } as const;
       }
 
       if (name === "diff-review") {
@@ -111,6 +111,9 @@ export class VerificationGate {
 
     return {
       passed,
+      readOnly: !hasWrite,
+      skipped: !hasWrite,
+      reason: !hasWrite ? "read_only" : undefined,
       level,
       missingEvidence,
       checks,

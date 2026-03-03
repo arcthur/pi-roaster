@@ -21,7 +21,7 @@ function fakeContext(sessionId: string): any {
 
 function createRuntimeForExecTests(input?: {
   mode?: "permissive" | "standard" | "strict";
-  backend?: "host" | "sandbox" | "auto";
+  backend?: "host" | "sandbox" | "best_available";
   enforceIsolation?: boolean;
   fallbackToHost?: boolean;
   commandDenyList?: string[];
@@ -30,7 +30,7 @@ function createRuntimeForExecTests(input?: {
   const mode = input?.mode ?? "standard";
   const enforceIsolation = input?.enforceIsolation ?? false;
   const normalizedBackend =
-    enforceIsolation || mode === "strict" ? "sandbox" : (input?.backend ?? "auto");
+    enforceIsolation || mode === "strict" ? "sandbox" : (input?.backend ?? "best_available");
   const normalizedFallbackToHost =
     enforceIsolation || mode === "strict" ? false : (input?.fallbackToHost ?? false);
   const events: Array<{ type?: string; payload?: Record<string, unknown> }> = [];
@@ -212,30 +212,60 @@ describe("exec/process tool flow", () => {
     expect((redacted as string).includes("super-secret-token")).toBe(false);
   });
 
-  test("standard mode with backend=auto falls back to host when sandbox backend is unavailable", async () => {
+  test("standard mode with backend=best_available fails closed when fallbackToHost is false", async () => {
     const { runtime, events } = createRuntimeForExecTests({
       mode: "standard",
-      backend: "auto",
+      backend: "best_available",
       fallbackToHost: false,
       serverUrl: "http://127.0.0.1:2",
     });
     const execTool = createExecTool({ runtime });
-    const sessionId = "s13-exec-auto-fallback-host";
+    const sessionId = "s13-exec-best-available-fail-closed";
+
+    expect(
+      execTool.execute(
+        "tc-exec-best-available-fail-closed",
+        {
+          command: "echo best-available-fail-closed",
+        },
+        undefined,
+        undefined,
+        fakeContext(sessionId),
+      ),
+    ).rejects.toThrow("exec_blocked_isolation");
+    const routed = events.find((event) => event.type === "exec_routed");
+    expect(routed?.payload?.configuredBackend).toBe("best_available");
+    expect(routed?.payload?.resolvedBackend).toBe("sandbox");
+    expect(routed?.payload?.fallbackToHost).toBe(false);
+    expect(routed?.payload?.routingPolicy).toBe("fail_closed");
+    expect(events.some((event) => event.type === "exec_fallback_host")).toBe(false);
+    expect(events.some((event) => event.type === "exec_blocked_isolation")).toBe(true);
+  });
+
+  test("standard mode with backend=best_available falls back to host when fallbackToHost is true", async () => {
+    const { runtime, events } = createRuntimeForExecTests({
+      mode: "standard",
+      backend: "best_available",
+      fallbackToHost: true,
+      serverUrl: "http://127.0.0.1:3",
+    });
+    const execTool = createExecTool({ runtime });
+    const sessionId = "s13-exec-best-available-fallback-enabled";
 
     const result = await execTool.execute(
-      "tc-exec-auto-fallback-host",
+      "tc-exec-best-available-fallback-enabled",
       {
-        command: "echo auto-fallback-ok",
+        command: "echo best-available-fallback-enabled",
       },
       undefined,
       undefined,
       fakeContext(sessionId),
     );
 
-    expect(extractTextContent(result).includes("auto-fallback-ok")).toBe(true);
+    expect(extractTextContent(result).includes("best-available-fallback-enabled")).toBe(true);
     expect((result.details as { backend?: string }).backend).toBe("host");
     const routed = events.find((event) => event.type === "exec_routed");
-    expect(routed?.payload?.configuredBackend).toBe("auto");
+    expect(routed?.payload?.configuredBackend).toBe("best_available");
     expect(routed?.payload?.resolvedBackend).toBe("sandbox");
     expect(routed?.payload?.fallbackToHost).toBe(true);
     expect(routed?.payload?.routingPolicy).toBe("best_available");
@@ -280,12 +310,14 @@ describe("exec/process tool flow", () => {
     expect(fallbackEvents).toHaveLength(2);
     const secondFallbackPayload = fallbackEvents[1]?.payload;
     expect(secondFallbackPayload?.reason).toBe("sandbox_unavailable_cached");
+    const routedEvents = events.filter((event) => event.type === "exec_routed");
+    expect(routedEvents).toHaveLength(1);
   });
 
   test("strict mode fails closed when sandbox backend is unavailable", async () => {
     const { runtime, events } = createRuntimeForExecTests({
       mode: "strict",
-      backend: "auto",
+      backend: "best_available",
       fallbackToHost: true,
       serverUrl: "http://127.0.0.1:1",
     });

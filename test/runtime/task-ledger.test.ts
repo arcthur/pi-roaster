@@ -48,10 +48,10 @@ describe("Task ledger", () => {
     expect(state.spec?.goal).toBe("Refactor context injection");
   });
 
-  test("injects task ledger context without viewport details", async () => {
+  test("injects task ledger context without neighborhood probe details", async () => {
     const workspace = createWorkspace();
     const runtime = new BrewvaRuntime({ cwd: workspace });
-    const sessionId = "task-viewport";
+    const sessionId = "task-ledger-injection";
 
     mkdirSync(join(workspace, "src"), { recursive: true });
     writeFileSync(

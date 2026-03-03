@@ -13,6 +13,10 @@ Tool registry entrypoint: `packages/brewva-tools/src/index.ts`.
 
 Defined in `packages/brewva-tools/src/lsp.ts`.
 
+`lsp_diagnostics` returns `status=unavailable` with
+`reason=diagnostics_scope_mismatch` when `tsc` fails but no diagnostics match
+the requested file/severity scope.
+
 ## AST Tools
 
 - `ast_grep_search`
@@ -84,6 +88,7 @@ For cron intents, runtime defaults `maxRuns` to `10000` when omitted.
 - query-mode: pass `query` or `queries`; results are ranked per artifact and include compact snippets.
 - inventory-mode: omit both `query` and `queries` to list recent persisted artifacts.
 - search behavior: exact -> partial -> fuzzy layered fallback.
+- fuzzy results are emitted only when confidence gates pass; otherwise search reports no matches.
 - throttling: repeated single-query calls can be limited or blocked; batch with `queries` to avoid pressure.
 - source data: only persisted `tool_output_artifact_persisted` artifacts are scanned.
 

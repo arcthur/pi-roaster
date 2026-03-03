@@ -129,4 +129,30 @@ describe("Evidence artifact extraction", () => {
 
     expect(artifacts.length).toBe(0);
   });
+
+  test("extracts scope-mismatch artifact when diagnostics are unavailable for the requested file", () => {
+    const artifacts = extractEvidenceArtifacts({
+      toolName: "lsp_diagnostics",
+      args: { filePath: "src/foo.ts", severity: "all" },
+      outputText: "No matching diagnostics for the requested file/severity scope.",
+      isError: false,
+      details: {
+        status: "unavailable",
+        reason: "diagnostics_scope_mismatch",
+        exitCode: 2,
+      },
+    });
+
+    expect(artifacts.length).toBe(1);
+    const artifact = artifacts[0] as unknown as {
+      kind?: string;
+      filePath?: unknown;
+      severityFilter?: unknown;
+      exitCode?: unknown;
+    };
+    expect(artifact.kind).toBe("tsc_scope_mismatch");
+    expect(artifact.filePath).toBe("src/foo.ts");
+    expect(artifact.severityFilter).toBe("all");
+    expect(artifact.exitCode).toBe(2);
+  });
 });

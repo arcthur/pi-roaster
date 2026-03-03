@@ -25,7 +25,7 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `getActive(sessionId)`
 - `validateOutputs(sessionId, outputs)`
 - `validateComposePlan(plan)`
-- `complete(sessionId, output, options?)`
+- `complete(sessionId, output)`
 - `getOutputs(sessionId, skillName)`
 - `getConsumedOutputs(sessionId, targetSkillName)`
 
@@ -133,6 +133,12 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `evaluate(sessionId, level?)`
 - `verify(sessionId, level?, options?)`
 
+Read-only verification semantics:
+
+- `evaluate(...)` / `verify(...)` return `report.readOnly=true`, `report.skipped=true`,
+  `report.reason="read_only"` when no write was observed in session.
+- In that case, outcome events are recorded as `outcome="skipped"` (not `pass`).
+
 ### `runtime.cost.*`
 
 - `recordAssistantUsage(input)`
@@ -231,7 +237,7 @@ Execution profile note:
 
 - `audit`: replay/audit critical stream (`anchor`, `checkpoint`, `task_event`, `truth_event`, schedule lifecycle, verification outcomes, tool-result evidence)
 - `ops` (default): audit + operational transitions and warnings
-- `debug`: full stream, including high-noise diagnostics (`viewport_*`, `cognitive_*`, parallel scan detail)
+- `debug`: full stream, including high-noise diagnostics (`cognitive_*`, parallel scan detail)
 - Exception: `cognitive_relevance_ranking*` events are kept at `ops` for ranking observability.
 
 Switching level changes observability granularity, not business decisions.
@@ -267,7 +273,6 @@ these domains.
 
 ## Current Limitations
 
-- `runtime.skills.complete(sessionId, output, options?)` accepts `options` at type level, but current runtime persistence/ledger flow only consumes `output`.
 - `runtime.events.query(...)` / `queryStructured(...)` only support lightweight filtering (`type`, `last`), not time-range/offset cursors.
 - `runtime.events.subscribe(listener)` is process-local and ephemeral; subscribers do not survive process restart.
 

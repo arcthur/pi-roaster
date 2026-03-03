@@ -62,7 +62,7 @@ export class ContextArena {
     } = {},
   ) {
     this.sourceTokenLimits = options.sourceTokenLimits ? { ...options.sourceTokenLimits } : {};
-    this.truncationStrategy = options.truncationStrategy ?? "summarize";
+    this.truncationStrategy = options.truncationStrategy ?? "drop-low-fidelity";
     this.maxEntriesPerSession = Math.max(1, Math.floor(options.maxEntriesPerSession ?? 4096));
   }
 
@@ -216,7 +216,10 @@ export class ContextArena {
         continue;
       }
 
-      if (this.truncationStrategy === "drop-entry" || this.truncationStrategy === "summarize") {
+      if (
+        this.truncationStrategy === "drop-entry" ||
+        this.truncationStrategy === "drop-low-fidelity"
+      ) {
         continue;
       }
       break;
@@ -299,7 +302,7 @@ export class ContextArena {
       return null;
     }
 
-    if (this.truncationStrategy === "summarize") {
+    if (this.truncationStrategy === "drop-low-fidelity") {
       // Synthetic placeholders are too low-fidelity to be useful context.
       return null;
     }

@@ -1,9 +1,9 @@
 import type { BrewvaConfig, VerificationLevel } from "../types.js";
 
-const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "summarize", "tail"]);
+const VALID_TRUNCATION_STRATEGIES = new Set(["drop-entry", "drop-low-fidelity", "tail"]);
 const VALID_COST_ACTIONS = new Set(["warn", "block_tools"]);
 const VALID_SECURITY_MODES = new Set(["permissive", "standard", "strict"]);
-const VALID_EXECUTION_BACKENDS = new Set(["host", "sandbox", "auto"]);
+const VALID_EXECUTION_BACKENDS = new Set(["host", "sandbox", "best_available"]);
 const VALID_EVENT_LEVELS = new Set(["audit", "ops", "debug"]);
 const VALID_MEMORY_EVOLVES_MODES = new Set(["off", "review-gated"]);
 const VALID_MEMORY_COGNITIVE_MODES = new Set(["off", "shadow", "active"]);
@@ -98,6 +98,16 @@ function normalizeStrictStringEnum<T extends string>(
   throw new Error(
     `Invalid config value for ${fieldPath}: expected one of [${[...validSet].join(", ")}], received "${value}".`,
   );
+}
+
+function normalizeTruncationStrategy(
+  value: unknown,
+  fallback: BrewvaConfig["infrastructure"]["contextBudget"]["truncationStrategy"],
+): BrewvaConfig["infrastructure"]["contextBudget"]["truncationStrategy"] {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim();
+  if (!VALID_TRUNCATION_STRATEGIES.has(normalized)) return fallback;
+  return normalized as BrewvaConfig["infrastructure"]["contextBudget"]["truncationStrategy"];
 }
 
 function normalizeStringRecord(
@@ -520,11 +530,10 @@ export function normalizeBrewvaConfig(config: unknown, defaults: BrewvaConfig): 
         ),
         compactionThresholdPercent: normalizedCompactionThresholdPercent,
         hardLimitPercent: normalizedHardLimitPercent,
-        truncationStrategy: VALID_TRUNCATION_STRATEGIES.has(
-          contextBudgetInput.truncationStrategy as string,
-        )
-          ? (contextBudgetInput.truncationStrategy as BrewvaConfig["infrastructure"]["contextBudget"]["truncationStrategy"])
-          : defaultContextBudget.truncationStrategy,
+        truncationStrategy: normalizeTruncationStrategy(
+          contextBudgetInput.truncationStrategy,
+          defaultContextBudget.truncationStrategy,
+        ),
         compactionInstructions: normalizeNonEmptyString(
           contextBudgetInput.compactionInstructions,
           defaultContextBudget.compactionInstructions,

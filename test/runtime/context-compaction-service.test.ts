@@ -63,11 +63,6 @@ describe("context-compaction module", () => {
     expect(sessionState.lastInjectedContextFingerprintBySession.has("session-b::root")).toBe(true);
     expect(sessionState.reservedContextInjectionTokensByScope.has("session-a::root")).toBe(false);
     expect(sessionState.reservedContextInjectionTokensByScope.has("session-b::root")).toBe(true);
-    expect(sessionState.latestCompactionSummaryBySession.get("session-a")).toEqual({
-      entryId: "cmp-42",
-      summary: "keep latest failures only",
-    });
-
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual(
       expect.objectContaining({
@@ -102,12 +97,8 @@ describe("context-compaction module", () => {
     );
   });
 
-  test("drops compaction summary when summary text is empty after trim", () => {
+  test("keeps compaction payload normalization when summary text is empty after trim", () => {
     const sessionState = new RuntimeSessionStateStore();
-    sessionState.latestCompactionSummaryBySession.set("session-a", {
-      entryId: "old",
-      summary: "old summary",
-    });
 
     const events: Array<{
       sessionId: string;
@@ -138,7 +129,6 @@ describe("context-compaction module", () => {
       entryId: "  ",
     });
 
-    expect(sessionState.latestCompactionSummaryBySession.has("session-a")).toBe(false);
     expect(events[0]?.payload).toEqual(
       expect.objectContaining({
         entryId: "",

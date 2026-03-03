@@ -314,10 +314,18 @@ export class SkillRegistry {
       });
     this.loadedRoots = discoveredRoots.map(cloneSkillRegistryRoot);
 
-    const activePacks = new Set(this.config.skills.packs);
+    const configuredPackAllowlist = new Set(this.config.skills.packs);
+    const packFilterEnabled = configuredPackAllowlist.size > 0;
+    const loadedPackNames = new Set<string>();
     const skippedPacks: SkillRegistrySkippedPack[] = [];
     for (const root of discoveredRoots) {
-      this.loadRoot(root, activePacks, skippedPacks);
+      this.loadRoot(
+        root,
+        configuredPackAllowlist,
+        packFilterEnabled,
+        skippedPacks,
+        loadedPackNames,
+      );
     }
 
     for (const disabled of this.config.skills.disabled) {
@@ -330,6 +338,7 @@ export class SkillRegistry {
       skill.contract = tightenContract(skill.contract, override);
     }
 
+    const activePacks = packFilterEnabled ? configuredPackAllowlist : loadedPackNames;
     this.lastLoadReport = {
       roots: this.getLoadedRoots(),
       activePacks: [...activePacks].toSorted((a, b) => a.localeCompare(b)),
@@ -397,7 +406,9 @@ export class SkillRegistry {
   private loadRoot(
     root: SkillRegistryRoot,
     activePacks: Set<string>,
+    packFilterEnabled: boolean,
     skippedPacks: SkillRegistrySkippedPack[],
+    loadedPackNames: Set<string>,
   ): void {
     const { skillDir, source, rootDir } = root;
     this.loadTier("base", join(skillDir, "base"));
@@ -412,7 +423,7 @@ export class SkillRegistry {
       }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        if (!activePacks.has(entry.name)) {
+        if (packFilterEnabled && !activePacks.has(entry.name)) {
           skippedPacks.push({
             pack: entry.name,
             source,
@@ -423,6 +434,7 @@ export class SkillRegistry {
           continue;
         }
         this.loadTier("pack", join(packsDir, entry.name));
+        loadedPackNames.add(entry.name);
       }
     }
 

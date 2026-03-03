@@ -620,12 +620,6 @@ export class BrewvaRuntime {
 
   private createServiceDependencies(options: BrewvaRuntimeOptions): RuntimeServiceDependencies {
     const externalRecallPort = this.resolveExternalRecallPort(options.externalRecallPort);
-    const skillLifecycleService = new SkillLifecycleService({
-      skills: this.skillRegistry,
-      sessionState: this.sessionState,
-      getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
-      recordEvent: (input) => this.recordEvent(input),
-    });
     const taskService = new TaskService({
       config: this.config,
       isContextBudgetEnabled: () => this.isContextBudgetEnabled(),
@@ -633,6 +627,14 @@ export class BrewvaRuntime {
       getTruthState: (sessionId) => this.getTruthState(sessionId),
       evaluateCompletion: (sessionId, level) => this.evaluateCompletion(sessionId, level),
       recordEvent: (input) => this.recordEvent(input),
+    });
+    const skillLifecycleService = new SkillLifecycleService({
+      skills: this.skillRegistry,
+      sessionState: this.sessionState,
+      getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
+      getTaskState: (sessionId) => this.getTaskState(sessionId),
+      recordEvent: (input) => this.recordEvent(input),
+      setTaskSpec: (sessionId, spec) => taskService.setTaskSpec(sessionId, spec),
     });
     const truthService = new TruthService({
       getTruthState: (sessionId) => this.getTruthState(sessionId),

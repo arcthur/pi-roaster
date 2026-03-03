@@ -393,8 +393,29 @@ function syncDiagnosticsTruth(ctx: TruthSyncContext, input: TruthSyncInput): voi
 
   const trimmedOutput = input.outputText.trim();
   const outputLower = trimmedOutput.toLowerCase();
+  const detailsRecord =
+    input.metadata?.details &&
+    typeof input.metadata.details === "object" &&
+    !Array.isArray(input.metadata.details)
+      ? (input.metadata.details as Record<string, unknown>)
+      : null;
+  const detailsExitCode =
+    detailsRecord &&
+    typeof detailsRecord.exitCode === "number" &&
+    Number.isFinite(detailsRecord.exitCode)
+      ? Math.trunc(detailsRecord.exitCode)
+      : null;
+  const detailsStatus =
+    detailsRecord && typeof detailsRecord.status === "string" ? detailsRecord.status : null;
+  const scopeMismatch =
+    detailsRecord?.reason === "diagnostics_scope_mismatch" || detailsStatus === "unavailable";
 
-  if (unfiltered && outputLower.includes("no diagnostics found")) {
+  if (
+    unfiltered &&
+    outputLower.includes("no diagnostics found") &&
+    !scopeMismatch &&
+    (detailsExitCode === null || detailsExitCode === 0)
+  ) {
     const truthState = ctx.getTruthState(input.sessionId);
     for (const fact of truthState.facts) {
       if (fact.status !== "active") continue;

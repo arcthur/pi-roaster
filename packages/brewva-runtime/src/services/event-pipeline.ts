@@ -56,8 +56,6 @@ const AUDIT_EVENT_TYPES = new Set<string>([
 ]);
 
 const DEBUG_EVENT_TYPES = new Set<string>([
-  "viewport_built",
-  "viewport_policy_evaluated",
   "tool_parallel_read",
   "cognitive_usage_recorded",
   "cognitive_relation_inference",
@@ -66,7 +64,6 @@ const DEBUG_EVENT_TYPES = new Set<string>([
   "cognitive_outcome_reflection",
   "cognitive_outcome_reflection_skipped",
   "cognitive_outcome_reflection_failed",
-  "context_external_recall_decision_debug",
 ]);
 
 const TURN_WAL_EVENT_TYPES = new Set<string>([
@@ -152,7 +149,6 @@ export class EventPipelineService {
     if (AUDIT_EVENT_TYPES.has(type)) return "audit";
     if (DEBUG_EVENT_TYPES.has(type)) return "debug";
     if (TURN_WAL_EVENT_TYPES.has(type)) return "ops";
-    if (type.startsWith("viewport_")) return "debug";
     if (type.startsWith("cognitive_")) return "debug";
     return "ops";
   }

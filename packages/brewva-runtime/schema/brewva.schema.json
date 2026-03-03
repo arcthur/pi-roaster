@@ -31,22 +31,28 @@
                   "additionalProperties": false,
                   "properties": {
                     "a2aMaxDepth": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     },
                     "a2aMaxHops": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     },
                     "fanoutMaxAgents": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     },
                     "idleRuntimeTtlMs": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     },
                     "maxDiscussionRounds": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     },
                     "maxLiveRuntimes": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     }
                   }
                 },
@@ -83,7 +89,8 @@
                   "additionalProperties": false,
                   "properties": {
                     "maxEntriesPerSession": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     }
                   }
                 },
@@ -92,13 +99,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "minSecondsBetween": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
                     },
                     "minTurnsBetween": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
                     },
                     "pressureBypassPercent": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
                     }
                   }
                 },
@@ -106,20 +117,25 @@
                   "type": "string"
                 },
                 "compactionThresholdPercent": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
                 },
                 "enabled": {
                   "type": "boolean"
                 },
                 "hardLimitPercent": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
                 },
                 "maxInjectionTokens": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 },
                 "truncationStrategy": {
                   "type": "string",
-                  "enum": ["drop-entry", "summarize", "tail"]
+                  "enum": ["drop-entry", "drop-low-fidelity", "tail"]
                 }
               }
             },
@@ -132,13 +148,16 @@
                   "enum": ["warn", "block_tools"]
                 },
                 "alertThresholdRatio": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
                 },
                 "enabled": {
                   "type": "boolean"
                 },
                 "maxCostUsdPerSession": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0
                 }
               }
             },
@@ -166,7 +185,8 @@
                   "type": "boolean"
                 },
                 "gracefulTimeoutMs": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 }
               }
             },
@@ -178,10 +198,12 @@
                   "type": "boolean"
                 },
                 "maxEntries": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 },
                 "maxOutputChars": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 }
               }
             },
@@ -193,10 +215,12 @@
                   "type": "boolean"
                 },
                 "maxEntries": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 },
                 "maxOutputChars": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 }
               }
             },
@@ -205,10 +229,12 @@
               "additionalProperties": false,
               "properties": {
                 "compactAfterMs": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 },
                 "defaultTtlMs": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 },
                 "dir": {
                   "type": "string"
@@ -217,10 +243,12 @@
                   "type": "boolean"
                 },
                 "maxRetries": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0
                 },
                 "scheduleTurnTtlMs": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 }
               }
             }
@@ -231,7 +259,8 @@
           "additionalProperties": false,
           "properties": {
             "checkpointEveryTurns": {
-              "type": "number"
+              "type": "number",
+              "minimum": 0
             },
             "path": {
               "type": "string"
@@ -247,7 +276,8 @@
               "additionalProperties": false,
               "properties": {
                 "maxTokensPerTurn": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0
                 },
                 "mode": {
                   "type": "string",
@@ -256,10 +286,13 @@
               }
             },
             "crystalMinUnits": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "dailyRefreshHourLocal": {
-              "type": "number"
+              "type": "number",
+              "minimum": 0,
+              "maximum": 23
             },
             "dir": {
               "type": "string"
@@ -279,13 +312,18 @@
                   "type": "boolean"
                 },
                 "injectedConfidence": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
                 },
                 "minInternalScore": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
                 },
                 "queryTopK": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 }
               }
             },
@@ -297,32 +335,39 @@
                   "type": "boolean"
                 },
                 "minConfidence": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
                 }
               }
             },
             "maxWorkingChars": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "recallMode": {
               "type": "string",
               "enum": ["always", "pressure-aware"]
             },
             "retrievalTopK": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "retrievalWeights": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
                 "confidence": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0
                 },
                 "lexical": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0
                 },
                 "recency": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 0
                 }
               }
             },
@@ -339,7 +384,8 @@
               "type": "boolean"
             },
             "maxConcurrent": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             }
           }
         },
@@ -351,22 +397,28 @@
               "type": "boolean"
             },
             "leaseDurationMs": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "maxActiveIntentsGlobal": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "maxActiveIntentsPerSession": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "maxConsecutiveErrors": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "maxRecoveryCatchUps": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "minIntervalMs": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "projectionPath": {
               "type": "string"
@@ -383,7 +435,7 @@
               "properties": {
                 "backend": {
                   "type": "string",
-                  "enum": ["host", "sandbox", "auto"]
+                  "enum": ["host", "sandbox", "best_available"]
                 },
                 "commandDenyList": {
                   "type": "array",
@@ -405,19 +457,22 @@
                       "type": "string"
                     },
                     "cpus": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     },
                     "defaultImage": {
                       "type": "string"
                     },
                     "memory": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     },
                     "serverUrl": {
                       "type": "string"
                     },
                     "timeout": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 1
                     }
                   }
                 }
@@ -465,7 +520,8 @@
               "additionalProperties": false,
               "properties": {
                 "k": {
-                  "type": "number"
+                  "type": "number",
+                  "minimum": 1
                 }
               }
             }
@@ -476,7 +532,8 @@
           "additionalProperties": false,
           "properties": {
             "checkpointIntervalEntries": {
-              "type": "number"
+              "type": "number",
+              "minimum": 0
             }
           }
         },
@@ -548,10 +605,12 @@
           "additionalProperties": false,
           "properties": {
             "maxTokens": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             },
             "maxToolCalls": {
-              "type": "number"
+              "type": "number",
+              "minimum": 1
             }
           }
         },
@@ -580,7 +639,8 @@
           }
         },
         "maxParallel": {
-          "type": "number"
+          "type": "number",
+          "minimum": 1
         },
         "name": {
           "type": "string"
@@ -646,13 +706,15 @@
       "additionalProperties": false,
       "properties": {
         "autoThreshold": {
-          "type": "number"
+          "type": "number",
+          "minimum": 1
         },
         "defaultMode": {
           "$ref": "#/definitions/SkillDispatchMode"
         },
         "gateThreshold": {
-          "type": "number"
+          "type": "number",
+          "minimum": 1
         }
       },
       "required": ["gateThreshold", "autoThreshold", "defaultMode"]

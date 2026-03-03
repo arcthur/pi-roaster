@@ -105,6 +105,13 @@ For complete CLI modes and gateway/onboard operations:
 - `docs/guide/installation.md`
 - `docs/guide/gateway-control-plane-daemon.md`
 
+## Runtime Defaults Snapshot
+
+- Execution routing defaults to `security.execution.backend=best_available` with
+  `security.execution.fallbackToHost=false`.
+- Read-only verification is explicitly reported as `skipped` (not `pass`).
+- `compose` is planning-only and now has a higher read budget (`max_tool_calls: 120`).
+
 ## Development
 
 ```bash

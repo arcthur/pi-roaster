@@ -113,7 +113,7 @@ describe("brewva session ui settings wiring", () => {
       JSON.stringify(
         {
           skills: {
-            packs: [],
+            packs: ["skill-creator"],
           },
         },
         null,

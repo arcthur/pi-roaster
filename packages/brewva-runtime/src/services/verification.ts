@@ -81,7 +81,7 @@ interface VerificationOutcomeContext {
   strategy: string;
   lessonKey: string;
   pattern: string;
-  outcome: "pass" | "fail";
+  outcome: "pass" | "fail" | "skipped";
   rootCause: string | null;
   recommendation: string | null;
   evidence: string;
@@ -258,7 +258,11 @@ export class VerificationService {
     const taskState = this.getTaskState(sessionId);
     const taskGoal = taskState.spec?.goal?.trim() ?? "";
     const activeSkillName = this.getActiveSkillName(sessionId);
-    const outcome: VerificationOutcomeContext["outcome"] = report.passed ? "pass" : "fail";
+    const outcome: VerificationOutcomeContext["outcome"] = report.skipped
+      ? "skipped"
+      : report.passed
+        ? "pass"
+        : "fail";
     const checkNames = report.checks.map((check) => check.name);
     const lessonKey = buildVerificationLessonKey({
       level,
@@ -310,13 +314,17 @@ export class VerificationService {
           : failedChecks.length > 0
             ? `failed checks: ${failedChecks.join(", ")}`
             : "verification failed without explicit check attribution"
-        : "verification checks passed";
+        : outcome === "skipped"
+          ? "read-only session, verification skipped"
+          : "verification checks passed";
     const recommendation =
       outcome === "fail"
         ? failedChecks.length > 0
           ? `stabilize checks (${failedChecks.join(", ")}) and rerun ${level} verification`
           : `re-run ${level} verification with focused diagnostics`
-        : `reuse verification profile ${level} for similar tasks`;
+        : outcome === "skipped"
+          ? null
+          : `reuse verification profile ${level} for similar tasks`;
 
     this.recordEvent({
       sessionId,
@@ -333,6 +341,8 @@ export class VerificationService {
         strategy,
         failedChecks,
         missingEvidence: report.missingEvidence,
+        skipped: report.skipped,
+        reason: report.reason ?? null,
         evidence,
         evidenceIds: [...new Set(evidenceIds)],
       },

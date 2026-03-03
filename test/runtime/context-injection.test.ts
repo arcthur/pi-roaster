@@ -101,9 +101,9 @@ describe("Context injection collector", () => {
     expect(consumed.entries[0]?.estimatedTokens).toBe(5);
   });
 
-  test("summarize strategy drops oversized low-fidelity entries", () => {
-    const collector = new ContextInjectionCollector({ truncationStrategy: "summarize" });
-    const sessionId = "collector-summarize-strategy";
+  test("drop-low-fidelity strategy drops oversized low-fidelity entries", () => {
+    const collector = new ContextInjectionCollector({ truncationStrategy: "drop-low-fidelity" });
+    const sessionId = "collector-drop-low-fidelity-strategy";
     const structured = JSON.stringify({
       skills: ["debugging", "patching", "review"],
       objective: "Fix flaky test and preserve context format",

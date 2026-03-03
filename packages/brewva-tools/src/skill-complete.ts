@@ -41,7 +41,10 @@ export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinit
       }
 
       options.runtime.skills.complete(sessionId, outputs);
-      return textResult("Skill completed and verification gate passed.", {
+      const message = verification.readOnly
+        ? "Skill completed (read-only, no verification needed)."
+        : "Skill completed and verification gate passed.";
+      return textResult(message, {
         ok: true,
         verification,
       });

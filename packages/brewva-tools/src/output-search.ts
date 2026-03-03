@@ -23,6 +23,8 @@ const MAX_OUTPUT_CHARS = 36_000;
 const MAX_ARTIFACT_CACHE_ENTRIES = 256;
 const MAX_ARTIFACT_CACHE_BYTES = 32 * 1024 * 1024;
 const SEARCH_LAYERS: readonly SearchLayer[] = ["exact", "partial", "fuzzy"];
+const MIN_FUZZY_LAYER_SCORE = 0.9;
+const MIN_FUZZY_TOKEN_COVERAGE = 0.5;
 
 type ArtifactCandidate = {
   artifactRef: string;
@@ -40,6 +42,7 @@ type QueryMatch = {
   snippet: string;
   matchedLineCount: number;
   layer: SearchLayer;
+  fuzzyTokenCoverage: number | null;
 };
 
 type SearchLayer = "exact" | "partial" | "fuzzy";
@@ -226,7 +229,6 @@ function createQueryProfile(query: string): QueryProfile | null {
 }
 
 function maxEditDistanceForTokenLength(length: number): number {
-  if (length >= 10) return 2;
   if (length >= 6) return 1;
   return 0;
 }
@@ -283,7 +285,9 @@ function hasFuzzyTokenMatch(token: string, lineWords: string[]): boolean {
   const maxDistance = maxEditDistanceForTokenLength(token.length);
   if (maxDistance <= 0) return false;
 
+  const prefix = token.length >= 8 ? token.slice(0, 3) : "";
   for (const word of lineWords) {
+    if (prefix && word.length >= 8 && !word.startsWith(prefix)) continue;
     if (word === token) return true;
     if (Math.abs(word.length - token.length) > maxDistance) continue;
     const distance = boundedLevenshteinDistance(token, word, maxDistance);
@@ -530,7 +534,12 @@ function searchArtifact(input: {
   queryProfile: QueryProfile;
   layer: SearchLayer;
   snippetMaxChars: number;
-}): { score: number; snippet: string; matchedLineCount: number } | null {
+}): {
+  score: number;
+  snippet: string;
+  matchedLineCount: number;
+  fuzzyTokenCoverage: number | null;
+} | null {
   const lines = input.prepared.lines;
   if (input.queryProfile.tokens.length === 0) return null;
 
@@ -550,12 +559,33 @@ function searchArtifact(input: {
   const snippet = buildSnippet(lines, topLineIndexes, input.snippetMaxChars);
   const topScore = hits[0]?.score ?? 0;
   const score = topScore + Math.min(hits.length, 6) * 0.2;
+  const fuzzyTokenCoverage =
+    input.layer === "fuzzy" && input.queryProfile.fuzzyTokens.length > 0
+      ? (() => {
+          let matchedTokens = 0;
+          for (const token of input.queryProfile.fuzzyTokens) {
+            if (
+              input.prepared.lineWords.some((lineWords) => hasFuzzyTokenMatch(token, lineWords))
+            ) {
+              matchedTokens += 1;
+            }
+          }
+          return matchedTokens / input.queryProfile.fuzzyTokens.length;
+        })()
+      : null;
 
   return {
     score,
     snippet,
     matchedLineCount: hits.length,
+    fuzzyTokenCoverage,
   };
+}
+
+function isConfidentFuzzyMatch(match: QueryMatch): boolean {
+  if (match.layer !== "fuzzy") return true;
+  const coverage = match.fuzzyTokenCoverage ?? 0;
+  return match.score >= MIN_FUZZY_LAYER_SCORE && coverage >= MIN_FUZZY_TOKEN_COVERAGE;
 }
 
 function clampOutput(text: string, maxChars: number): string {
@@ -779,7 +809,20 @@ export function createOutputSearchTool(options: BrewvaToolOptions): ToolDefiniti
               snippet: searched.snippet,
               matchedLineCount: searched.matchedLineCount,
               layer,
+              fuzzyTokenCoverage: searched.fuzzyTokenCoverage,
             });
+          }
+
+          if (layer === "fuzzy") {
+            const confidentFuzzyMatches = layeredMatches.filter((match) =>
+              isConfidentFuzzyMatch(match),
+            );
+            if (confidentFuzzyMatches.length > 0) {
+              matches = confidentFuzzyMatches;
+              matchedLayer = layer;
+              break;
+            }
+            continue;
           }
 
           if (layeredMatches.length > 0) {

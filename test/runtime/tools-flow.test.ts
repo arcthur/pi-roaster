@@ -446,6 +446,51 @@ describe("S-012b output search tool flow", () => {
     expect(text.toLowerCase().includes("authentication middleware")).toBe(true);
   });
 
+  test("output_search suppresses low-confidence fuzzy matches", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-output-search-fuzzy-gate-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "s12-output-search-fuzzy-gate";
+
+    const artifactRef = ".orchestrator/tool-output-artifacts/session-g/101-exec-call.txt";
+    const artifactDir = join(workspace, ".orchestrator/tool-output-artifacts/session-g");
+    mkdirSync(artifactDir, { recursive: true });
+    const artifactText = [
+      "pipeline bootstrap complete",
+      "authentication middleware initialized",
+      "token exchange validated",
+    ].join("\n");
+    writeFileSync(join(workspace, artifactRef), artifactText, "utf8");
+
+    runtime.events.record({
+      sessionId,
+      type: "tool_output_artifact_persisted",
+      payload: {
+        toolName: "exec",
+        artifactRef,
+        rawBytes: Buffer.byteLength(artifactText, "utf8"),
+      } as Record<string, unknown>,
+    });
+
+    const tool = createOutputSearchTool({ runtime });
+    const result = await tool.execute(
+      "tc-output-search-fuzzy-gate",
+      {
+        query: "authentxxation",
+        limit: 2,
+      },
+      undefined,
+      undefined,
+      {
+        ...fakeContext(sessionId),
+        cwd: workspace,
+      },
+    );
+
+    const text = extractTextContent(result);
+    expect(text.includes("[OutputSearch]")).toBe(true);
+    expect(text.includes("No matches found across exact/partial/fuzzy layers.")).toBe(true);
+  });
+
   test("output_search throttles repeated single-query calls", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-output-search-throttle-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });

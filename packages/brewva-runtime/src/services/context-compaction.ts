@@ -45,14 +45,6 @@ export function markContextCompacted(
   const turn = deps.getCurrentTurn(sessionId);
   const summary = input.summary?.trim();
   const entryId = input.entryId?.trim();
-  if (summary) {
-    deps.sessionState.latestCompactionSummaryBySession.set(sessionId, {
-      entryId,
-      summary,
-    });
-  } else {
-    deps.sessionState.latestCompactionSummaryBySession.delete(sessionId);
-  }
 
   deps.recordEvent({
     sessionId,

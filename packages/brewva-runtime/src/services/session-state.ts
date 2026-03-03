@@ -1,23 +1,9 @@
-import type { ViewportQuality } from "../policy/viewport-policy.js";
 import type { SkillDispatchDecision, SkillOutputRecord, SkillSelection } from "../types.js";
-
-export interface SessionViewportPolicySnapshot {
-  quality: ViewportQuality;
-  score: number | null;
-  variant: string;
-  updatedAt: number;
-}
-
-export interface SessionCompactionSummary {
-  entryId?: string;
-  summary: string;
-}
 
 export class RuntimeSessionStateStore {
   readonly activeSkillsBySession = new Map<string, string>();
   readonly turnsBySession = new Map<string, number>();
   readonly toolCallsBySession = new Map<string, number>();
-  readonly latestCompactionSummaryBySession = new Map<string, SessionCompactionSummary>();
   readonly lastInjectedContextFingerprintBySession = new Map<string, string>();
   readonly reservedContextInjectionTokensByScope = new Map<string, number>();
   readonly lastLedgerCompactionTurnBySession = new Map<string, number>();
@@ -28,7 +14,6 @@ export class RuntimeSessionStateStore {
   readonly skillOutputsBySession = new Map<string, Map<string, SkillOutputRecord>>();
   readonly pendingDispatchBySession = new Map<string, SkillDispatchDecision>();
   readonly nextSkillSelectionsBySession = new Map<string, SkillSelection[]>();
-  readonly viewportPolicyBySession = new Map<string, SessionViewportPolicySnapshot>();
   readonly tapeCheckpointWriteInProgressBySession = new Set<string>();
   readonly tapeCheckpointCounterInitializedBySession = new Set<string>();
   readonly tapeEntriesSinceCheckpointBySession = new Map<string, number>();
@@ -82,8 +67,6 @@ export class RuntimeSessionStateStore {
     this.skillOutputsBySession.delete(sessionId);
     this.pendingDispatchBySession.delete(sessionId);
     this.nextSkillSelectionsBySession.delete(sessionId);
-    this.latestCompactionSummaryBySession.delete(sessionId);
-    this.viewportPolicyBySession.delete(sessionId);
     this.clearInjectionFingerprintsForSession(sessionId);
     this.clearReservedInjectionTokensForSession(sessionId);
   }
