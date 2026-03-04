@@ -75,7 +75,6 @@ describe("Gap remediation: cost view and budget linkage", () => {
     const summary = runtime.cost.getSummary(sessionId);
     expect(summary.totalCostUsd).toBeGreaterThan(0.01);
     expect(summary.budget.blocked).toBe(true);
-    expect(summary.budget.skillExceeded).toBe(false);
     expect(summary.skills["(none)"]).toBeDefined();
     expect(summary.tools.edit?.callCount).toBe(1);
 
@@ -85,7 +84,7 @@ describe("Gap remediation: cost view and budget linkage", () => {
     expect(runtime.tools.checkAccess(sessionId, "session_compact").allowed).toBe(true);
   });
 
-  test("enforces global skill budget status consistently with tool access checks", async () => {
+  test("enforces session cost budget status consistently with tool access checks", async () => {
     const workspace = createWorkspace("cost-budget-consistency");
     writeConfig(
       workspace,
@@ -136,12 +135,86 @@ patching`,
     expect(runtime.skills.activate(sessionId, "patching").ok).toBe(true);
 
     const summary = runtime.cost.getSummary(sessionId);
-    expect(summary.budget.skillExceeded).toBe(false);
     expect(summary.budget.blocked).toBe(true);
 
     const access = runtime.tools.checkAccess(sessionId, "read");
     expect(access.allowed).toBe(false);
     expect(runtime.tools.checkAccess(sessionId, "skill_complete").allowed).toBe(true);
     expect(runtime.tools.checkAccess(sessionId, "session_compact").allowed).toBe(true);
+  });
+
+  test("does not block tools when costTracking.enabled is false", () => {
+    const workspace = createWorkspace("cost-disabled");
+    writeConfig(
+      workspace,
+      createConfig({
+        infrastructure: {
+          costTracking: {
+            enabled: false,
+            maxCostUsdPerSession: 0.001,
+            actionOnExceed: "block_tools",
+          },
+        },
+      }),
+    );
+
+    const runtime = new BrewvaRuntime({ cwd: workspace, configPath: GAP_REMEDIATION_CONFIG_PATH });
+    const sessionId = "cost-disabled-1";
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.tools.markCall(sessionId, "edit");
+    runtime.cost.recordAssistantUsage({
+      sessionId,
+      model: "test/model",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 150,
+      costUsd: 0.01,
+    });
+
+    const summary = runtime.cost.getSummary(sessionId);
+    expect(summary.totalCostUsd).toBeGreaterThan(0);
+    expect(summary.totalTokens).toBeGreaterThan(0);
+    expect(summary.budget.blocked).toBe(false);
+    expect(summary.budget.sessionExceeded).toBe(false);
+
+    const access = runtime.tools.checkAccess(sessionId, "read");
+    expect(access.allowed).toBe(true);
+  });
+
+  test("suppresses budget alerts when costTracking.enabled is false", () => {
+    const workspace = createWorkspace("cost-disabled-alerts");
+    writeConfig(
+      workspace,
+      createConfig({
+        infrastructure: {
+          costTracking: {
+            enabled: false,
+            maxCostUsdPerSession: 0.001,
+            alertThresholdRatio: 0.5,
+            actionOnExceed: "warn",
+          },
+        },
+      }),
+    );
+
+    const runtime = new BrewvaRuntime({ cwd: workspace, configPath: GAP_REMEDIATION_CONFIG_PATH });
+    const sessionId = "cost-no-alerts-1";
+    runtime.context.onTurnStart(sessionId, 1);
+    runtime.cost.recordAssistantUsage({
+      sessionId,
+      model: "test/model",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 150,
+      costUsd: 0.01,
+    });
+
+    const summary = runtime.cost.getSummary(sessionId);
+    expect(summary.totalCostUsd).toBeGreaterThan(0);
+    expect(summary.alerts).toHaveLength(0);
   });
 });

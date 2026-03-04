@@ -154,7 +154,6 @@ function createEmptyCostSummary(): SessionCostSummary {
     budget: {
       action: "warn",
       sessionExceeded: false,
-      skillExceeded: false,
       blocked: false,
     },
   };
@@ -248,7 +247,6 @@ function parseBudget(
   return {
     action,
     sessionExceeded: value.sessionExceeded === true,
-    skillExceeded: value.skillExceeded === true,
     blocked: value.blocked === true,
   };
 }
@@ -418,12 +416,8 @@ function reduceCostAlert(
   timestamp: number,
 ): ReplayCostState {
   const kind =
-    payload.kind === "session_threshold" ||
-    payload.kind === "session_cap" ||
-    payload.kind === "skill_cap"
-      ? payload.kind
-      : null;
-  const scope = payload.scope === "session" || payload.scope === "skill" ? payload.scope : null;
+    payload.kind === "session_threshold" || payload.kind === "session_cap" ? payload.kind : null;
+  const scope = payload.scope === "session" ? payload.scope : null;
   if (!kind || !scope) return state;
 
   const costUsd = normalizeNonNegativeNumber(payload.costUsd, -1);
@@ -434,7 +428,6 @@ function reduceCostAlert(
   summary.alerts.push({
     kind,
     scope,
-    scopeId: typeof payload.scopeId === "string" ? payload.scopeId : undefined,
     costUsd,
     thresholdUsd,
     timestamp,
@@ -449,11 +442,7 @@ function reduceCostAlert(
   if (kind === "session_cap") {
     nextBudget.sessionExceeded = true;
   }
-  if (kind === "skill_cap") {
-    nextBudget.skillExceeded = true;
-  }
-  nextBudget.blocked =
-    nextBudget.action === "block_tools" && (nextBudget.sessionExceeded || nextBudget.skillExceeded);
+  nextBudget.blocked = nextBudget.action === "block_tools" && nextBudget.sessionExceeded;
   summary.budget = nextBudget;
   return {
     ...state,

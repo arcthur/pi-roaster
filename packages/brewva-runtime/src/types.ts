@@ -1116,16 +1116,14 @@ export interface SessionCostSummary extends SessionCostTotals {
   >;
   alerts: Array<{
     timestamp: number;
-    kind: "session_threshold" | "session_cap" | "skill_cap";
-    scope: "session" | "skill";
-    scopeId?: string;
+    kind: "session_threshold" | "session_cap";
+    scope: "session";
     costUsd: number;
     thresholdUsd: number;
   }>;
   budget: {
     action: "warn" | "block_tools";
     sessionExceeded: boolean;
-    skillExceeded: boolean;
     blocked: boolean;
   };
 }

@@ -65,7 +65,7 @@ export function createCostViewTool(options: BrewvaToolOptions): ToolDefinition {
         lines.push("", "## Alerts");
         for (const alert of summary.alerts.slice(-top)) {
           lines.push(
-            `- ${formatISO(alert.timestamp)} ${alert.kind} scope=${alert.scope}${alert.scopeId ? `(${alert.scopeId})` : ""} cost=${alert.costUsd.toFixed(6)} threshold=${alert.thresholdUsd.toFixed(6)}`,
+            `- ${formatISO(alert.timestamp)} ${alert.kind} scope=${alert.scope} cost=${alert.costUsd.toFixed(6)} threshold=${alert.thresholdUsd.toFixed(6)}`,
           );
         }
       }

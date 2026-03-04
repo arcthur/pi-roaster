@@ -61,7 +61,7 @@ Relevant implementation:
 ## 6) Budget Boundedness Invariant
 
 - Context injection must remain bounded by context budget policy.
-- Cost summary and budget alerts must reflect session-level and skill-level usage.
+- Cost summary and budget alerts must reflect session-level usage.
 
 Relevant implementation:
 

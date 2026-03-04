@@ -299,6 +299,21 @@ Normalization details from `normalizeBrewvaConfig(...)`:
 - `memory.evolvesMode` only accepts `off | review-gated`; invalid values fail config load.
 - `truncationStrategy` only accepts `drop-entry | drop-low-fidelity | tail`; unknown values fail config load.
 
+## Cost Tracking Model
+
+With `infrastructure.costTracking.enabled=true`, runtime records usage and applies
+session-level budget policy (`maxCostUsdPerSession`, `alertThresholdRatio`,
+`actionOnExceed`).
+
+With `infrastructure.costTracking.enabled=false`:
+
+- usage accounting remains active (`totalTokens`, `totalCostUsd`, model/skill/tool totals)
+- session budget blocking is disabled (`budget.blocked=false`, `budget.sessionExceeded=false`)
+- budget alerts are suppressed (`alerts=[]`)
+
+`maxCostUsdPerSession=0` also results in no session-cap exceed condition, but
+`enabled` is the explicit policy switch for whether budget enforcement/alerts run.
+
 ## Turn WAL Model
 
 With `infrastructure.turnWal.enabled=true`, runtime and daemon surfaces can persist inbound/execution turns

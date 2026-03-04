@@ -54,7 +54,6 @@ describe("BrewvaEventStore tape helpers", () => {
           budget: {
             action: "warn",
             sessionExceeded: false,
-            skillExceeded: false,
             blocked: false,
           },
         },

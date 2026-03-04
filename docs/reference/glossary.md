@@ -9,6 +9,6 @@
 - Replay: reconstruction of session history from structured events
 - PatchSet: tracked file change set used for rollback
 - Context Budget: policy for context injection and compaction
-- Cost Budget: threshold policy for session and skill spend
+- Cost Budget: threshold policy for session-level USD spend
 - Channel Gateway: external channel ingress/egress gateway used by `--channel` mode
 - Gateway (Control Plane): local daemon exposed via `brewva gateway ...`, providing a typed WebSocket API to control-plane clients

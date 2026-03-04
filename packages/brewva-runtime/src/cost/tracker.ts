@@ -1,8 +1,6 @@
 import type { CognitiveTokenBudgetStatus, CognitiveUsage } from "../cognitive/port.js";
 import type { BrewvaConfig, SessionCostSummary, SessionCostTotals } from "../types.js";
 
-const MAX_COST_USD_PER_SKILL = 0;
-
 export interface ModelUsageInput {
   model: string;
   inputTokens: number;
@@ -43,7 +41,6 @@ interface SessionCostState {
   alerts: CostAlert[];
   sessionThresholdAlerted: boolean;
   sessionCapAlerted: boolean;
-  skillCapAlerted: Set<string>;
 }
 
 export interface SessionCostTrackerOptions {
@@ -53,7 +50,6 @@ export interface SessionCostTrackerOptions {
 export interface BudgetStatus {
   action: "warn" | "block_tools";
   sessionExceeded: boolean;
-  skillExceeded: boolean;
   blocked: boolean;
   reason?: string;
 }
@@ -197,7 +193,7 @@ export class SessionCostTracker {
     state.skills[skillName] = skillState;
 
     this.allocateUsageToTools(state, turn, usage);
-    this.collectAlerts(state, skillName, newAlerts);
+    this.collectAlerts(state, newAlerts);
 
     return {
       summary: this.buildSummary(state),
@@ -243,42 +239,29 @@ export class SessionCostTracker {
     return this.getCognitiveBudgetStatusFromState(state, turn);
   }
 
-  getBudgetStatus(sessionId: string, skillName?: string): BudgetStatus {
+  getBudgetStatus(sessionId: string): BudgetStatus {
+    if (!this.config.enabled) {
+      return {
+        action: this.config.actionOnExceed,
+        sessionExceeded: false,
+        blocked: false,
+      };
+    }
+
     const state = this.getOrCreate(sessionId);
     const maxSession = this.config.maxCostUsdPerSession;
-    const maxSkill = MAX_COST_USD_PER_SKILL;
     const action = this.config.actionOnExceed;
     const sessionExceeded = maxSession > 0 && state.totals.totalCostUsd >= maxSession;
-    const exceededSkills = this.getExceededSkillNames(state);
-    const normalizedSkill = skillName?.trim();
-    const skillExceeded = normalizedSkill
-      ? exceededSkills.includes(normalizedSkill)
-      : exceededSkills.length > 0;
-    const blocked = action === "block_tools" && (sessionExceeded || skillExceeded);
+    const blocked = action === "block_tools" && sessionExceeded;
 
     let reason: string | undefined;
     if (blocked) {
-      if (sessionExceeded && skillExceeded) {
-        const skillPart =
-          normalizedSkill && maxSkill > 0
-            ? `skill '${normalizedSkill}' >= ${maxSkill.toFixed(4)} USD`
-            : `skills [${exceededSkills.join(", ")}] >= ${maxSkill.toFixed(4)} USD`;
-        reason = `Cost budget exceeded: session >= ${maxSession.toFixed(4)} USD and ${skillPart}.`;
-      } else if (sessionExceeded) {
-        reason = `Session cost exceeded ${maxSession.toFixed(4)} USD.`;
-      } else {
-        if (normalizedSkill) {
-          reason = `Skill '${normalizedSkill}' cost exceeded ${maxSkill.toFixed(4)} USD.`;
-        } else {
-          reason = `Skill budget exceeded for [${exceededSkills.join(", ")}] at ${maxSkill.toFixed(4)} USD.`;
-        }
-      }
+      reason = `Session cost exceeded ${maxSession.toFixed(4)} USD.`;
     }
 
     return {
       action,
       sessionExceeded,
-      skillExceeded,
       blocked,
       reason,
     };
@@ -326,19 +309,6 @@ export class SessionCostTracker {
       (this.config.maxCostUsdPerSession > 0 &&
         snapshot.totalCostUsd >= this.config.maxCostUsdPerSession);
 
-    const skillCapAlerted = new Set<string>(
-      snapshot.alerts
-        .filter((alert) => alert.kind === "skill_cap" && typeof alert.scopeId === "string")
-        .map((alert) => alert.scopeId as string),
-    );
-    if (MAX_COST_USD_PER_SKILL > 0) {
-      for (const [skillName, skill] of Object.entries(snapshot.skills)) {
-        if (skill.totalCostUsd >= MAX_COST_USD_PER_SKILL) {
-          skillCapAlerted.add(skillName);
-        }
-      }
-    }
-
     const restored: SessionCostState = {
       totals: cloneTotals(snapshot),
       models: Object.fromEntries(
@@ -360,7 +330,6 @@ export class SessionCostTracker {
       alerts: snapshot.alerts.map((alert) => ({ ...alert })),
       sessionThresholdAlerted,
       sessionCapAlerted,
-      skillCapAlerted,
     };
     this.sessions.set(sessionId, restored);
   }
@@ -369,6 +338,12 @@ export class SessionCostTracker {
     this.sessions.delete(sessionId);
   }
 
+  /**
+   * Approximate cost/token allocation to tools by call-count weight within
+   * each turn. This is inherently imprecise (all calls in a turn share LLM
+   * usage equally regardless of output size) but provides useful observational
+   * data for `cost_view`. Not used for any enforcement decisions.
+   */
   private allocateUsageToTools(
     state: SessionCostState,
     turn: number,
@@ -393,56 +368,40 @@ export class SessionCostTracker {
     }
   }
 
-  private collectAlerts(state: SessionCostState, skillName: string, sink: CostAlert[]): void {
+  private collectAlerts(state: SessionCostState, sink: CostAlert[]): void {
+    if (!this.config.enabled) return;
+
     const now = Date.now();
     const maxSession = this.config.maxCostUsdPerSession;
-    if (maxSession > 0) {
-      const threshold = maxSession * this.config.alertThresholdRatio;
-      if (
-        !state.sessionThresholdAlerted &&
-        threshold > 0 &&
-        state.totals.totalCostUsd >= threshold
-      ) {
-        const alert: CostAlert = {
-          timestamp: now,
-          kind: "session_threshold",
-          scope: "session",
-          costUsd: state.totals.totalCostUsd,
-          thresholdUsd: threshold,
-        };
-        state.alerts.push(alert);
-        sink.push(alert);
-        state.sessionThresholdAlerted = true;
-      }
-
-      if (!state.sessionCapAlerted && state.totals.totalCostUsd >= maxSession) {
-        const alert: CostAlert = {
-          timestamp: now,
-          kind: "session_cap",
-          scope: "session",
-          costUsd: state.totals.totalCostUsd,
-          thresholdUsd: maxSession,
-        };
-        state.alerts.push(alert);
-        sink.push(alert);
-        state.sessionCapAlerted = true;
-      }
+    if (maxSession <= 0) {
+      return;
     }
 
-    const maxSkill = MAX_COST_USD_PER_SKILL;
-    const skillCost = state.skills[skillName]?.totals.totalCostUsd ?? 0;
-    if (maxSkill > 0 && skillCost >= maxSkill && !state.skillCapAlerted.has(skillName)) {
+    const threshold = maxSession * this.config.alertThresholdRatio;
+    if (!state.sessionThresholdAlerted && threshold > 0 && state.totals.totalCostUsd >= threshold) {
       const alert: CostAlert = {
         timestamp: now,
-        kind: "skill_cap",
-        scope: "skill",
-        scopeId: skillName,
-        costUsd: skillCost,
-        thresholdUsd: maxSkill,
+        kind: "session_threshold",
+        scope: "session",
+        costUsd: state.totals.totalCostUsd,
+        thresholdUsd: threshold,
       };
       state.alerts.push(alert);
       sink.push(alert);
-      state.skillCapAlerted.add(skillName);
+      state.sessionThresholdAlerted = true;
+    }
+
+    if (!state.sessionCapAlerted && state.totals.totalCostUsd >= maxSession) {
+      const alert: CostAlert = {
+        timestamp: now,
+        kind: "session_cap",
+        scope: "session",
+        costUsd: state.totals.totalCostUsd,
+        thresholdUsd: maxSession,
+      };
+      state.alerts.push(alert);
+      sink.push(alert);
+      state.sessionCapAlerted = true;
     }
   }
 
@@ -473,22 +432,27 @@ export class SessionCostTracker {
           },
         ]),
       ),
-      alerts: [...state.alerts],
+      alerts: this.config.enabled ? [...state.alerts] : [],
       budget: budgetStatus,
     };
   }
 
   private getBudgetStatusFromState(state: SessionCostState): SessionCostSummary["budget"] {
+    if (!this.config.enabled) {
+      return {
+        action: this.config.actionOnExceed,
+        sessionExceeded: false,
+        blocked: false,
+      };
+    }
+
     const sessionExceeded =
       this.config.maxCostUsdPerSession > 0 &&
       state.totals.totalCostUsd >= this.config.maxCostUsdPerSession;
-    const skillExceeded = this.getExceededSkillNames(state).length > 0;
-    const blocked =
-      this.config.actionOnExceed === "block_tools" && (sessionExceeded || skillExceeded);
+    const blocked = this.config.actionOnExceed === "block_tools" && sessionExceeded;
     return {
       action: this.config.actionOnExceed,
       sessionExceeded,
-      skillExceeded,
       blocked,
     };
   }
@@ -515,15 +479,6 @@ export class SessionCostTracker {
     };
   }
 
-  private getExceededSkillNames(state: SessionCostState): string[] {
-    if (MAX_COST_USD_PER_SKILL <= 0) {
-      return [];
-    }
-    return Object.entries(state.skills)
-      .filter(([, skill]) => skill.totals.totalCostUsd >= MAX_COST_USD_PER_SKILL)
-      .map(([name]) => name);
-  }
-
   private getOrCreate(sessionId: string): SessionCostState {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
@@ -538,7 +493,6 @@ export class SessionCostTracker {
       alerts: [],
       sessionThresholdAlerted: false,
       sessionCapAlerted: false,
-      skillCapAlerted: new Set<string>(),
     };
     this.sessions.set(sessionId, created);
     return created;

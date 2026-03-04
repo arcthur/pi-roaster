@@ -94,7 +94,6 @@ function checkpointEvent(input: {
         budget: {
           action: "warn",
           sessionExceeded: false,
-          skillExceeded: false,
           blocked: false,
         },
       },
@@ -416,7 +415,6 @@ describe("TurnReplayEngine", () => {
           budget: {
             action: "warn",
             sessionExceeded: false,
-            skillExceeded: false,
             blocked: false,
           },
         } as BrewvaEventRecord["payload"],
@@ -524,7 +522,6 @@ describe("TurnReplayEngine", () => {
           budget: {
             action: "warn",
             sessionExceeded: false,
-            skillExceeded: false,
             blocked: false,
           },
         } as BrewvaEventRecord["payload"],
@@ -603,7 +600,6 @@ describe("TurnReplayEngine", () => {
           budget: {
             action: "warn",
             sessionExceeded: false,
-            skillExceeded: false,
             blocked: false,
           },
         } as BrewvaEventRecord["payload"],
@@ -626,7 +622,6 @@ describe("TurnReplayEngine", () => {
           budget: {
             action: "warn",
             sessionExceeded: false,
-            skillExceeded: false,
             blocked: false,
           },
         } as BrewvaEventRecord["payload"],
@@ -649,7 +644,6 @@ describe("TurnReplayEngine", () => {
           budget: {
             action: "warn",
             sessionExceeded: false,
-            skillExceeded: false,
             blocked: false,
           },
         } as BrewvaEventRecord["payload"],
@@ -718,7 +712,6 @@ describe("TurnReplayEngine", () => {
             budget: {
               action: "warn",
               sessionExceeded: false,
-              skillExceeded: false,
               blocked: false,
             },
           },
@@ -756,7 +749,6 @@ describe("TurnReplayEngine", () => {
           budget: {
             action: "warn",
             sessionExceeded: false,
-            skillExceeded: false,
             blocked: false,
           },
         } as BrewvaEventRecord["payload"],

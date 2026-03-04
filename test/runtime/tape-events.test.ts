@@ -51,7 +51,6 @@ function buildValidCheckpointPayload() {
       budget: {
         action: "warn",
         sessionExceeded: false,
-        skillExceeded: false,
         blocked: false,
       },
     },

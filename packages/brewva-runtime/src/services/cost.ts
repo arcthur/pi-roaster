@@ -112,7 +112,6 @@ export class CostService {
         payload: {
           kind: alert.kind,
           scope: alert.scope,
-          scopeId: alert.scopeId ?? null,
           costUsd: alert.costUsd,
           thresholdUsd: alert.thresholdUsd,
           action: summary.budget.action,

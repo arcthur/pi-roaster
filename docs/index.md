@@ -48,6 +48,7 @@ This repository uses a layered documentation system:
 - Commands (CLI surface): `docs/reference/commands.md`
 - Gateway control-plane protocol: `docs/reference/gateway-control-plane-protocol.md`
 - Session lifecycle: `docs/reference/session-lifecycle.md`
+- Budget matrix: `docs/reference/budget-matrix.md`
 - Artifacts and paths: `docs/reference/artifacts-and-paths.md`
 - Glossary: `docs/reference/glossary.md`
 - Known limitations: `docs/reference/limitations.md`

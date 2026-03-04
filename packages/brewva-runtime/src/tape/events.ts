@@ -403,13 +403,10 @@ function coerceSessionCostSummary(value: unknown): SessionCostSummary | null {
     for (const rawAlert of value.alerts) {
       if (!isRecord(rawAlert)) continue;
       const kind =
-        rawAlert.kind === "session_threshold" ||
-        rawAlert.kind === "session_cap" ||
-        rawAlert.kind === "skill_cap"
+        rawAlert.kind === "session_threshold" || rawAlert.kind === "session_cap"
           ? rawAlert.kind
           : null;
-      const scope =
-        rawAlert.scope === "session" || rawAlert.scope === "skill" ? rawAlert.scope : null;
+      const scope = rawAlert.scope === "session" ? rawAlert.scope : null;
       const timestamp = normalizeNonNegativeNumber(rawAlert.timestamp);
       const costUsd = normalizeNonNegativeNumber(rawAlert.costUsd);
       const thresholdUsd = normalizeNonNegativeNumber(rawAlert.thresholdUsd);
@@ -422,7 +419,6 @@ function coerceSessionCostSummary(value: unknown): SessionCostSummary | null {
         timestamp,
         costUsd,
         thresholdUsd,
-        scopeId: normalizeNonEmptyString(rawAlert.scopeId),
       });
     }
   }
@@ -435,7 +431,6 @@ function coerceSessionCostSummary(value: unknown): SessionCostSummary | null {
   const budget: SessionCostSummary["budget"] = {
     action,
     sessionExceeded: budgetRecord.sessionExceeded === true,
-    skillExceeded: budgetRecord.skillExceeded === true,
     blocked: budgetRecord.blocked === true,
   };
 
@@ -575,7 +570,6 @@ function createEmptySessionCostSummary(): SessionCostSummary {
     budget: {
       action: "warn",
       sessionExceeded: false,
-      skillExceeded: false,
       blocked: false,
     },
   };
