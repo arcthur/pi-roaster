@@ -78,6 +78,51 @@ Notes:
 - `grep` is a read-only workspace search tool intended to replace ad-hoc `exec` usage for text search in read-only skills.
 - `skill_route_override` and `skill_chain_control` are control-plane tools for steering semantic routing and cascade progression.
 
+### `grep`
+
+Wraps `ripgrep` (`rg`) with bounded output. Requires `rg` to be available on `PATH`.
+
+Parameters:
+
+- `query` (string, required): search pattern (regex by default)
+- `paths` (string[], optional, max 20): paths to search (defaults to `["."]`)
+- `glob` (string[], optional, max 20): glob filters passed to `rg --glob`
+- `case` (`smart` | `ignore` | `sensitive`, default `smart`): case sensitivity mode
+- `fixed` (boolean, default `false`): treat `query` as a literal string (`--fixed-strings`)
+- `max_lines` (number, 1–500, default `200`): output line cap; search is killed on truncation
+- `timeout_ms` (number, 100–120000, default `30000`): execution timeout
+- `workdir` (string, optional): working directory (resolved relative to runtime `cwd`)
+
+If `rg` is not found, the tool returns a hint to install ripgrep.
+
+### `skill_route_override`
+
+Explicitly bypasses a pending skill dispatch gate.
+
+Parameters:
+
+- `reason` (string, optional, max 280 chars): why the override is intentional
+- `targetSkillName` (string, optional, max 120 chars): skill to follow after the override
+
+Returns the previous primary skill name on success.
+
+### `skill_chain_control`
+
+Inspects or controls the skill cascade intent lifecycle.
+
+Parameters:
+
+- `action` (`status` | `pause` | `resume` | `cancel` | `start`, required)
+- `reason` (string, optional, max 500 chars): context for pause/resume/cancel
+- `steps` (array, required for `start`, max 64): explicit chain steps, each with:
+  - `skill` (string, required)
+  - `consumes` (string[], optional)
+  - `produces` (string[], optional)
+  - `lane` (string, optional)
+
+`status` returns the current intent snapshot or reports no active cascade.
+`start` requires at least one step; other actions operate on the existing intent.
+
 `schedule_intent` supports `action=create|update|cancel|list`:
 
 - `create` requires `reason` and exactly one schedule target:

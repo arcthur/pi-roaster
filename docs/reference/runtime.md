@@ -28,6 +28,13 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `complete(sessionId, output)`
 - `getOutputs(sessionId, skillName)`
 - `getConsumedOutputs(sessionId, targetSkillName)`
+- `setNextSelection(sessionId, selected, input?)`
+- `clearNextSelection(sessionId)`
+- `getCascadeIntent(sessionId)`
+- `pauseCascade(sessionId, reason?)`
+- `resumeCascade(sessionId, reason?)`
+- `cancelCascade(sessionId, reason?)`
+- `startCascade(sessionId, input)`
 
 ### `runtime.context.*`
 
