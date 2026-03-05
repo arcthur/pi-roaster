@@ -175,6 +175,43 @@ describe("exec/process tool flow", () => {
     ).rejects.toThrow("Process exited");
   });
 
+  test("exec accepts timeout_ms and interprets large timeout values as milliseconds", async () => {
+    const { runtime, events } = createRuntimeForExecTests({
+      mode: "permissive",
+      backend: "host",
+    });
+    const execTool = createExecTool({ runtime });
+    const sessionId = "s13-exec-timeout-ms";
+
+    const resultFromTimeoutMs = await execTool.execute(
+      "tc-exec-timeout-ms-1",
+      {
+        command: "echo timeout-ms",
+        timeout_ms: 120_000,
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    expect(extractTextContent(resultFromTimeoutMs).includes("timeout-ms")).toBe(true);
+
+    const resultFromLargeTimeout = await execTool.execute(
+      "tc-exec-timeout-ms-2",
+      {
+        command: "echo timeout-large",
+        timeout: 120_000,
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    expect(extractTextContent(resultFromLargeTimeout).includes("timeout-large")).toBe(true);
+
+    const routedEvents = events.filter((event) => event.type === "exec_routed");
+    expect(routedEvents[0]?.payload?.requestedTimeoutSec).toBe(120);
+    expect(routedEvents[1]?.payload?.requestedTimeoutSec).toBe(120);
+  });
+
   test("standard mode falls back to host when sandbox backend is unavailable", async () => {
     const { runtime, events } = createRuntimeForExecTests({
       mode: "standard",

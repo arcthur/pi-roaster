@@ -49,8 +49,16 @@ export interface TapeCheckpointToolFailureEntry {
   args: Record<string, unknown>;
   outputText: string;
   turn: number;
+  failureClass?: "execution" | "invocation_validation" | "shell_syntax" | "script_composition";
   anchorEpoch: number;
   timestamp: number;
+}
+
+export interface TapeCheckpointFailureClassCounts {
+  execution: number;
+  invocation_validation: number;
+  shell_syntax: number;
+  script_composition: number;
 }
 
 export interface TapeCheckpointEvidenceState {
@@ -58,6 +66,7 @@ export interface TapeCheckpointEvidenceState {
   failureRecords: number;
   anchorEpoch: number;
   recentFailures: TapeCheckpointToolFailureEntry[];
+  failureClassCounts?: TapeCheckpointFailureClassCounts;
 }
 
 export interface TapeCheckpointMemoryState {
@@ -464,11 +473,19 @@ function coerceCheckpointToolFailureEntry(value: unknown): TapeCheckpointToolFai
   }
 
   const args = isRecord(value.args) ? value.args : {};
+  const failureClass =
+    value.failureClass === "execution" ||
+    value.failureClass === "invocation_validation" ||
+    value.failureClass === "shell_syntax" ||
+    value.failureClass === "script_composition"
+      ? value.failureClass
+      : undefined;
   return {
     toolName,
     args,
     outputText,
     turn,
+    failureClass,
     anchorEpoch,
     timestamp,
   };
@@ -490,11 +507,24 @@ function coerceCheckpointEvidenceState(value: unknown): TapeCheckpointEvidenceSt
     }
   }
 
+  const failureClassCountsInput = isRecord(value.failureClassCounts)
+    ? value.failureClassCounts
+    : null;
+  const failureClassCounts = {
+    execution: normalizeNonNegativeInteger(failureClassCountsInput?.execution) ?? failureRecords,
+    invocation_validation:
+      normalizeNonNegativeInteger(failureClassCountsInput?.invocation_validation) ?? 0,
+    shell_syntax: normalizeNonNegativeInteger(failureClassCountsInput?.shell_syntax) ?? 0,
+    script_composition:
+      normalizeNonNegativeInteger(failureClassCountsInput?.script_composition) ?? 0,
+  };
+
   return {
     totalRecords,
     failureRecords,
     anchorEpoch,
     recentFailures,
+    failureClassCounts,
   };
 }
 

@@ -14,9 +14,37 @@ interface ToolLifecycleState {
   sawResult: boolean;
 }
 
+type ToolOutcomeVerdict = "pass" | "fail" | "inconclusive";
+
 function normalizeArgs(input: unknown): Record<string, unknown> | undefined {
   if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
   return input as Record<string, unknown>;
+}
+
+function normalizeToolResultStatus(
+  details: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = details?.status;
+  if (typeof raw !== "string") return undefined;
+  const normalized = raw.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function resolveToolOutcome(input: {
+  isError: boolean;
+  details: Record<string, unknown> | undefined;
+}): { isError: boolean; verdict: ToolOutcomeVerdict } {
+  const status = normalizeToolResultStatus(input.details);
+  if (status === "running") {
+    return { isError: false, verdict: "inconclusive" };
+  }
+  if (status === "failed") {
+    return { isError: true, verdict: "fail" };
+  }
+  return {
+    isError: input.isError,
+    verdict: input.isError ? "fail" : "pass",
+  };
 }
 
 function extractToolExecutionResultText(result: unknown): string {
@@ -321,6 +349,11 @@ export function registerLedgerWriter(pi: ExtensionAPI, runtime: BrewvaRuntime): 
       args: normalizeArgs(event.input),
     });
     lifecycleState.sawResult = true;
+    const details = event.details as Record<string, unknown> | undefined;
+    const outcome = resolveToolOutcome({
+      isError: event.isError,
+      details,
+    });
     const outputText = extractTextContent(event.content);
     recordToolOutcome(runtime, {
       sessionId,
@@ -328,10 +361,10 @@ export function registerLedgerWriter(pi: ExtensionAPI, runtime: BrewvaRuntime): 
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       args: lifecycleState.args ?? {},
-      isError: event.isError,
+      isError: outcome.isError,
       outputText,
-      details: event.details as Record<string, unknown> | undefined,
-      verdict: event.isError ? "fail" : "pass",
+      details,
+      verdict: outcome.verdict,
     });
     markToolCallFinalized(finalizedToolCallsBySession, sessionId, event.toolCallId);
     deleteToolLifecycleState(lifecycleStatesBySession, sessionId, event.toolCallId);
@@ -363,21 +396,38 @@ export function registerLedgerWriter(pi: ExtensionAPI, runtime: BrewvaRuntime): 
           ? "[ToolResultFallback] tool_execution_end reported failure before tool_result was emitted."
           : "[ToolResultFallback] tool_execution_end reported success before tool_result was emitted.";
 
+    const rawResult =
+      event.result && typeof event.result === "object" && !Array.isArray(event.result)
+        ? (event.result as Record<string, unknown>)
+        : undefined;
+    const resultDetails =
+      rawResult?.details &&
+      typeof rawResult.details === "object" &&
+      !Array.isArray(rawResult.details)
+        ? (rawResult.details as Record<string, unknown>)
+        : undefined;
+    const outcome = resolveToolOutcome({
+      isError: event.isError,
+      details: resultDetails,
+    });
+
     recordToolOutcome(runtime, {
       sessionId,
       context: ctx,
       toolCallId: event.toolCallId,
       toolName: lifecycleState.toolName,
       args: lifecycleState.args ?? {},
-      isError: event.isError,
+      isError: outcome.isError,
       outputText,
       details: {
+        ...resultDetails,
         sourceEvent: "tool_execution_end",
         toolResultObserved: false,
         toolExecutionIsError: event.isError,
         toolExecutionResultType: typeof event.result,
+        toolExecutionResultStatus: normalizeToolResultStatus(resultDetails) ?? null,
       },
-      verdict: event.isError ? "fail" : "pass",
+      verdict: outcome.verdict,
       lifecycleFallbackReason: "tool_execution_end_without_tool_result",
     });
     markToolCallFinalized(finalizedToolCallsBySession, sessionId, event.toolCallId);

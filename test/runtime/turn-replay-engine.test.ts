@@ -119,6 +119,7 @@ function toolResultFailureEvent(input: {
   timestamp: number;
   turn?: number;
   toolName: string;
+  failureClass?: "execution" | "invocation_validation" | "shell_syntax" | "script_composition";
 }): BrewvaEventRecord {
   return {
     id: input.id,
@@ -136,6 +137,7 @@ function toolResultFailureEvent(input: {
         },
         outputText: "Error: failed",
         turn: input.turn ?? 0,
+        failureClass: input.failureClass,
       },
     } as BrewvaEventRecord["payload"],
   };
@@ -555,7 +557,34 @@ describe("TurnReplayEngine", () => {
     expect(view.costState.summary.totalCostUsd).toBeCloseTo(0.001, 8);
     expect(view.memoryState.unitCount).toBe(2);
     expect(view.evidenceState.failureRecords).toBe(1);
+    expect(view.evidenceState.failureClassCounts.execution).toBe(1);
     expect(view.evidenceState.recentFailures).toHaveLength(0);
+  });
+
+  test("preserves failure class in recent tool failures", () => {
+    const sessionId = "replay-engine-failure-class";
+    const events: BrewvaEventRecord[] = [
+      toolResultFailureEvent({
+        sessionId,
+        id: "evt-tool-failure-class-1",
+        timestamp: 1,
+        turn: 7,
+        toolName: "exec",
+        failureClass: "shell_syntax",
+      }),
+    ];
+    const engine = new TurnReplayEngine({
+      listEvents: () => events,
+      getTurn: () => 7,
+    });
+
+    const failures = engine.getRecentToolFailures(sessionId);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.failureClass).toBe("shell_syntax");
+
+    const view = engine.replay(sessionId);
+    expect(view.evidenceState.failureClassCounts.shell_syntax).toBe(1);
+    expect(view.evidenceState.failureClassCounts.execution).toBe(0);
   });
 
   test("folded cost turns count is deduplicated by turn", () => {

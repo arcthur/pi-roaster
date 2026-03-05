@@ -1,4 +1,5 @@
 import { TOOL_RESULT_RECORDED_EVENT_TYPE } from "../events/event-types.js";
+import { extractEvidenceArtifacts, type CommandFailureClass } from "../evidence/artifacts.js";
 import { buildLedgerDigest } from "../ledger/digest.js";
 import type { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import { formatLedgerRows } from "../ledger/query.js";
@@ -26,6 +27,38 @@ import { RuntimeSessionStateStore } from "./session-state.js";
 
 const LEDGER_DIGEST_WINDOW = 12;
 const LEDGER_MAX_DIGEST_TOKENS = 1200;
+
+function normalizeFailureClass(value: unknown): CommandFailureClass | undefined {
+  if (
+    value === "execution" ||
+    value === "invocation_validation" ||
+    value === "shell_syntax" ||
+    value === "script_composition"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function resolveToolFailureClass(input: {
+  toolName: string;
+  args: Record<string, unknown>;
+  outputText: string;
+  success: boolean;
+  metadata: Record<string, unknown> | undefined;
+}): CommandFailureClass | undefined {
+  if (input.success) return undefined;
+
+  const artifacts = extractEvidenceArtifacts({
+    toolName: input.toolName,
+    args: input.args,
+    outputText: input.outputText,
+    isError: !input.success,
+    details: input.metadata?.details,
+  });
+  const commandFailure = artifacts.find((artifact) => artifact.kind === "command_failure");
+  return normalizeFailureClass(commandFailure?.failureClass);
+}
 
 export interface LedgerServiceOptions {
   cwd: string;
@@ -163,10 +196,18 @@ export class LedgerService {
     const turn = this.getCurrentTurn(input.sessionId);
     const activeSkill = this.getActiveSkill(input.sessionId);
     const verdict = input.verdict ?? (input.success ? "pass" : "fail");
+    const failureClass = resolveToolFailureClass({
+      toolName: input.toolName,
+      args: input.args,
+      outputText: input.outputText,
+      success: input.success,
+      metadata: input.metadata,
+    });
     const metadata = withToolFailureContextMetadata(input.metadata, {
       verdict,
       args: input.args,
       outputText: input.outputText,
+      failureClass,
     });
 
     const ledgerRow = this.ledger.append({
@@ -256,10 +297,12 @@ export class LedgerService {
         outputObservation,
         outputArtifact,
         outputDistillation,
+        failureClass: failureClass ?? null,
         failureContext: toolFailureContext
           ? {
               args: toolFailureContext.args,
               outputText: toolFailureContext.outputText,
+              failureClass: toolFailureContext.failureClass ?? null,
               turn,
             }
           : null,

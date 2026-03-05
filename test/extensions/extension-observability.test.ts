@@ -368,6 +368,52 @@ describe("Extension integration: observability", () => {
     ).toBe(true);
   });
 
+  test("given process running status, when tool_result is recorded, then verdict is inconclusive", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-running-inconclusive-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "ext-running-inconclusive-1";
+
+    const { api, handlers } = createMockExtensionAPI();
+    registerEventStream(api, runtime);
+    registerLedgerWriter(api, runtime);
+
+    const ctx = {
+      cwd: workspace,
+      sessionManager: {
+        getSessionId: () => sessionId,
+      },
+    };
+
+    invokeHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolCallId: "tc-process-running",
+        toolName: "process",
+        input: { action: "poll", sessionId: "exec-1" },
+        isError: false,
+        content: [{ type: "text", text: "Process still running." }],
+        details: { status: "running", sessionId: "exec-1" },
+      },
+      ctx,
+    );
+
+    const recorded = runtime.events.query(sessionId, { type: "tool_result_recorded", last: 1 })[0];
+    expect(recorded).toBeDefined();
+    const recordedPayload = recorded?.payload as
+      | {
+          verdict?: string;
+          success?: boolean;
+        }
+      | undefined;
+    expect(recordedPayload?.verdict).toBe("inconclusive");
+    expect(recordedPayload?.success).toBe(true);
+
+    const rows = runtime.ledger.listRows(sessionId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.verdict).toBe("inconclusive");
+  });
+
   test("given failed tool_execution_end without tool_result, when observability handlers run, then fallback output and ledger events are persisted", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-ext-fallback-"));
     const runtime = new BrewvaRuntime({ cwd: workspace });

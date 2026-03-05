@@ -30,10 +30,13 @@ const ExecSchema = Type.Object({
   yieldMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 120_000 })),
   yield_ms: Type.Optional(Type.Integer({ minimum: 0, maximum: 120_000 })),
   background: Type.Optional(Type.Boolean()),
-  timeout: Type.Optional(Type.Number({ minimum: 1, maximum: 7_200 })),
+  timeout: Type.Optional(Type.Number({ minimum: 1, maximum: 7_200_000 })),
+  timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 7_200_000 })),
 });
 
 const DEFAULT_YIELD_MS = 10_000;
+const MAX_TIMEOUT_SEC = 7_200;
+const MAX_TIMEOUT_MS = MAX_TIMEOUT_SEC * 1_000;
 const SHELL_COMMAND = "sh";
 const SHELL_ARGS = ["-lc"];
 const DEFAULT_SANDBOX_WORKDIR = "/";
@@ -138,6 +141,31 @@ function resolveYieldMs(params: { yieldMs?: unknown; yield_ms?: unknown }): numb
   const raw = typeof params.yieldMs === "number" ? params.yieldMs : params.yield_ms;
   if (typeof raw !== "number" || !Number.isFinite(raw)) return DEFAULT_YIELD_MS;
   return Math.max(0, Math.min(120_000, Math.trunc(raw)));
+}
+
+function resolveTimeoutSec(params: {
+  timeout?: unknown;
+  timeout_ms?: unknown;
+}): number | undefined {
+  const clampSeconds = (seconds: number): number => Math.max(1, Math.min(MAX_TIMEOUT_SEC, seconds));
+
+  const timeoutMs = params.timeout_ms;
+  if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs)) {
+    const normalizedMs = Math.max(1, Math.min(MAX_TIMEOUT_MS, timeoutMs));
+    return clampSeconds(normalizedMs / 1_000);
+  }
+
+  const timeout = params.timeout;
+  if (typeof timeout !== "number" || !Number.isFinite(timeout)) {
+    return undefined;
+  }
+
+  if (timeout > MAX_TIMEOUT_SEC) {
+    const normalizedMs = Math.max(1, Math.min(MAX_TIMEOUT_MS, timeout));
+    return clampSeconds(normalizedMs / 1_000);
+  }
+
+  return clampSeconds(timeout);
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -970,7 +998,7 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
       const requestedEnv = params.env ? { ...params.env } : undefined;
       const requestedEnvKeys = Object.keys(requestedEnv ?? {});
       const hostEnv = requestedEnv ? { ...process.env, ...requestedEnv } : process.env;
-      const timeoutSec = typeof params.timeout === "number" ? params.timeout : undefined;
+      const timeoutSec = resolveTimeoutSec(params);
       const background = params.background === true;
       const yieldMs = background ? 0 : resolveYieldMs(params);
 

@@ -51,4 +51,18 @@ describe("buildRecentToolFailuresBlock", () => {
     expect(result).toContain("...");
     expect(result.length).toBeLessThan(600);
   });
+
+  test("given failure class is present, when building failure block, then class label is rendered", () => {
+    const result = buildRecentToolFailuresBlock([
+      {
+        toolName: "exec",
+        args: { command: "sh -lc echo" },
+        outputText: "Invalid arguments: timeout must be <= 7200",
+        turn: 2,
+        failureClass: "invocation_validation",
+      },
+    ]);
+
+    expect(result).toContain("class=invocation_validation");
+  });
 });

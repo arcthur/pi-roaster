@@ -45,6 +45,21 @@ describe("Truth extraction from evidence artifacts", () => {
     expect(blocker1?.truthFactId).toBe(fact1?.id);
     expect(blocker1?.message).toBe(fact1?.summary);
 
+    const recorded1 = runtime.events.query(sessionId, {
+      type: "tool_result_recorded",
+      last: 1,
+    })[0];
+    const recordedPayload1 = recorded1?.payload as
+      | {
+          failureClass?: string | null;
+          failureContext?: {
+            failureClass?: string | null;
+          } | null;
+        }
+      | undefined;
+    expect(recordedPayload1?.failureClass).toBe("execution");
+    expect(recordedPayload1?.failureContext?.failureClass).toBe("execution");
+
     const injection1 = await runtime.context.buildInjection(sessionId, "next");
     expect(injection1.text.includes("[TruthFacts]")).toBe(true);
     expect(injection1.text.includes(fact1?.id ?? "")).toBe(true);
@@ -67,6 +82,69 @@ describe("Truth extraction from evidence artifacts", () => {
 
     const task2 = runtime.task.getState(sessionId);
     expect(task2.blockers.some((blocker) => blocker.id === fact1?.id)).toBe(false);
+  });
+
+  test("suppresses blockers for invocation validation failures and resolves stale command blockers", () => {
+    const workspace = createWorkspace("truth-from-artifacts-validation");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-artifacts-validation-1";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: "bun test" },
+      outputText: "Process exited with code 2.",
+      success: false,
+      metadata: {
+        details: { result: { exitCode: 2 } },
+      },
+    });
+
+    const failureFact = runtime.truth
+      .getState(sessionId)
+      .facts.find((fact) => fact.kind === "command_failure" && fact.status === "active");
+    expect(failureFact).toBeDefined();
+    expect(
+      runtime.task.getState(sessionId).blockers.some((blocker) => blocker.id === failureFact?.id),
+    ).toBe(true);
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: "bun test", timeout: 120_000 },
+      outputText: "Invalid arguments: timeout must be <= 7200",
+      success: false,
+      metadata: {
+        details: {
+          message: "Schema validation failed",
+        },
+      },
+    });
+
+    const truth = runtime.truth.getState(sessionId);
+    const sameFact = truth.facts.find((fact) => fact.id === failureFact?.id);
+    expect(sameFact?.status).toBe("resolved");
+
+    const recorded = runtime.events.query(sessionId, {
+      type: "tool_result_recorded",
+      last: 1,
+    })[0];
+    const recordedPayload = recorded?.payload as
+      | {
+          failureClass?: string | null;
+          failureContext?: {
+            failureClass?: string | null;
+          } | null;
+        }
+      | undefined;
+    expect(recordedPayload?.failureClass).toBe("invocation_validation");
+    expect(recordedPayload?.failureContext?.failureClass).toBe("invocation_validation");
+
+    const task = runtime.task.getState(sessionId);
+    expect(task.blockers.some((blocker) => blocker.id === failureFact?.id)).toBe(false);
+    expect(
+      truth.facts.some((fact) => fact.kind === "command_failure" && fact.status === "active"),
+    ).toBe(false);
   });
 
   test("does not create blockers for search no-match exit code", () => {

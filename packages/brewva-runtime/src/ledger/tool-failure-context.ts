@@ -1,3 +1,4 @@
+import type { ToolFailureClass } from "../context/tool-failures.js";
 import type { JsonValue } from "../utils/json.js";
 
 export const TOOL_FAILURE_CONTEXT_METADATA_KEY = "brewvaToolFailureContext";
@@ -16,6 +17,15 @@ export interface ToolFailureContextMetadata {
   schema: typeof TOOL_FAILURE_CONTEXT_SCHEMA;
   args: JsonRecord;
   outputText: string;
+  failureClass?: ToolFailureClass;
+}
+
+function normalizeFailureClass(value: unknown): ToolFailureClass | undefined {
+  if (value === "execution") return value;
+  if (value === "invocation_validation") return value;
+  if (value === "shell_syntax") return value;
+  if (value === "script_composition") return value;
+  return undefined;
 }
 
 function truncate(text: string, maxChars: number): string {
@@ -113,6 +123,7 @@ export function withToolFailureContextMetadata(
     verdict: "pass" | "fail" | "inconclusive";
     args: Record<string, unknown>;
     outputText: string;
+    failureClass?: ToolFailureClass;
   },
 ): Record<string, unknown> | undefined {
   if (input.verdict !== "fail") return metadata;
@@ -122,6 +133,7 @@ export function withToolFailureContextMetadata(
     schema: TOOL_FAILURE_CONTEXT_SCHEMA,
     args: normalizeFailureArgs(input.args),
     outputText: truncate(input.outputText, MAX_PERSISTED_FAILURE_OUTPUT_CHARS),
+    failureClass: normalizeFailureClass(input.failureClass),
   };
   return base;
 }
@@ -138,11 +150,13 @@ export function readToolFailureContextMetadata(
 
   const args = (raw as { args?: JsonValue }).args;
   const outputText = (raw as { outputText?: unknown }).outputText;
+  const failureClass = normalizeFailureClass((raw as { failureClass?: unknown }).failureClass);
   if (!isJsonRecord(args) || typeof outputText !== "string") return undefined;
 
   return {
     schema: TOOL_FAILURE_CONTEXT_SCHEMA,
     args,
     outputText,
+    failureClass,
   };
 }

@@ -53,4 +53,25 @@ describe("Task status alignment", () => {
     expect(injection.text.includes("status.health=ok")).toBe(true);
     expect(injection.text.includes("status.health=budget_pressure")).toBe(false);
   });
+
+  test("surfaces blockers even when task spec is missing", async () => {
+    const workspace = createWorkspace("task-status-with-blocker-no-spec");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "task-status-3";
+
+    runtime.task.recordBlocker(sessionId, {
+      id: "blocker:no-spec",
+      message: "Command failed before spec setup",
+      source: "truth_extractor",
+    });
+
+    const state = runtime.task.getState(sessionId);
+    expect(state.status?.phase).toBe("blocked");
+    expect(state.status?.health).toBe("blocked");
+    expect(state.status?.reason).toBe("blockers_present_without_spec");
+
+    const injection = await runtime.context.buildInjection(sessionId, "next");
+    expect(injection.text.includes("status.phase=blocked")).toBe(true);
+    expect(injection.text.includes("status.health=blocked")).toBe(true);
+  });
 });

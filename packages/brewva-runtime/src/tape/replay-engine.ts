@@ -16,6 +16,7 @@ import {
   TAPE_ANCHOR_EVENT_TYPE,
   TAPE_CHECKPOINT_EVENT_TYPE,
   coerceTapeCheckpointPayload,
+  type TapeCheckpointFailureClassCounts,
   type TapeCheckpointEvidenceState,
   type TapeCheckpointMemoryState,
 } from "./events.js";
@@ -40,6 +41,7 @@ export interface ReplayEvidenceState {
   failureRecords: number;
   anchorEpoch: number;
   recentFailures: ReplayToolFailureEntry[];
+  failureClassCounts: TapeCheckpointFailureClassCounts;
 }
 
 export interface ReplayMemoryState {
@@ -195,6 +197,12 @@ function createEmptyEvidenceState(): ReplayEvidenceState {
     failureRecords: 0,
     anchorEpoch: 0,
     recentFailures: [],
+    failureClassCounts: {
+      execution: 0,
+      invocation_validation: 0,
+      shell_syntax: 0,
+      script_composition: 0,
+    },
   };
 }
 
@@ -215,6 +223,28 @@ function createEmptyMemoryState(): ReplayMemoryState {
 function normalizeToolFailureTurn(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.max(0, Math.floor(value));
+}
+
+function normalizeToolFailureClass(
+  value: unknown,
+): ReplayToolFailureEntry["failureClass"] | undefined {
+  if (value === "execution") return value;
+  if (value === "invocation_validation") return value;
+  if (value === "shell_syntax") return value;
+  if (value === "script_composition") return value;
+  return undefined;
+}
+
+type FailureClassKey = keyof TapeCheckpointFailureClassCounts;
+
+function incrementFailureClassCount(
+  counts: TapeCheckpointFailureClassCounts,
+  failureClass: FailureClassKey,
+): TapeCheckpointFailureClassCounts {
+  return {
+    ...counts,
+    [failureClass]: (counts[failureClass] ?? 0) + 1,
+  };
 }
 
 function normalizeNonNegativeNumber(value: unknown, fallback = 0): number {
@@ -257,12 +287,14 @@ function parseFailureContext(
   const outputText = typeof raw.outputText === "string" ? raw.outputText : "";
   if (!outputText) return null;
   const turn = normalizeToolFailureTurn(raw.turn, fallbackTurn);
+  const failureClass = normalizeToolFailureClass(raw.failureClass);
 
   return {
     toolName,
     args,
     outputText,
     turn,
+    failureClass,
     anchorEpoch,
     timestamp,
   };
@@ -429,9 +461,21 @@ function reduceEvidenceState(
     totalRecords: state.totalRecords + 1,
     failureRecords: state.failureRecords + (verdict === "fail" ? 1 : 0),
     recentFailures: state.recentFailures.map((entry) => cloneToolFailureEntry(entry)),
+    failureClassCounts: { ...state.failureClassCounts },
   };
 
   if (verdict === "fail") {
+    const eventFailureClass: FailureClassKey =
+      normalizeToolFailureClass(payload.failureClass) ??
+      normalizeToolFailureClass(
+        (isRecord(payload.failureContext) ? payload.failureContext : null)?.failureClass,
+      ) ??
+      "execution";
+    next.failureClassCounts = incrementFailureClassCount(
+      next.failureClassCounts,
+      eventFailureClass,
+    );
+
     const fallbackTurn = normalizeToolFailureTurn(payload.turn, eventTurn);
     const failure = parseFailureContext(payload, fallbackTurn, timestamp, next.anchorEpoch);
     if (failure && !TOOL_FAILURE_INFRASTRUCTURE_TOOLS.has(failure.toolName)) {
@@ -458,6 +502,12 @@ function reduceMemoryState(
 }
 
 function checkpointEvidenceToReplay(state: TapeCheckpointEvidenceState): ReplayEvidenceState {
+  const failureClassCounts = state.failureClassCounts ?? {
+    execution: state.failureRecords,
+    invocation_validation: 0,
+    shell_syntax: 0,
+    script_composition: 0,
+  };
   const base: ReplayEvidenceState = {
     totalRecords: state.totalRecords,
     failureRecords: state.failureRecords,
@@ -467,9 +517,16 @@ function checkpointEvidenceToReplay(state: TapeCheckpointEvidenceState): ReplayE
       args: JSON.parse(JSON.stringify(entry.args)) as Record<string, unknown>,
       outputText: entry.outputText,
       turn: entry.turn,
+      failureClass: entry.failureClass,
       anchorEpoch: entry.anchorEpoch,
       timestamp: entry.timestamp,
     })),
+    failureClassCounts: {
+      execution: failureClassCounts.execution,
+      invocation_validation: failureClassCounts.invocation_validation,
+      shell_syntax: failureClassCounts.shell_syntax,
+      script_composition: failureClassCounts.script_composition,
+    },
   };
   base.recentFailures = pruneToolFailures(base.recentFailures, base.anchorEpoch);
   return base;
@@ -492,9 +549,16 @@ function replayEvidenceToCheckpoint(state: ReplayEvidenceState): TapeCheckpointE
       args: JSON.parse(JSON.stringify(entry.args)) as Record<string, unknown>,
       outputText: entry.outputText,
       turn: entry.turn,
+      failureClass: entry.failureClass,
       anchorEpoch: entry.anchorEpoch,
       timestamp: entry.timestamp,
     })),
+    failureClassCounts: {
+      execution: state.failureClassCounts.execution,
+      invocation_validation: state.failureClassCounts.invocation_validation,
+      shell_syntax: state.failureClassCounts.shell_syntax,
+      script_composition: state.failureClassCounts.script_composition,
+    },
   };
 }
 
@@ -663,6 +727,7 @@ export class TurnReplayEngine {
       args: JSON.parse(JSON.stringify(entry.args)) as Record<string, unknown>,
       outputText: entry.outputText,
       turn: entry.turn,
+      failureClass: entry.failureClass,
     }));
   }
 

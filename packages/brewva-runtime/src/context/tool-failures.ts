@@ -1,8 +1,15 @@
+export type ToolFailureClass =
+  | "execution"
+  | "invocation_validation"
+  | "shell_syntax"
+  | "script_composition";
+
 export interface ToolFailureEntry {
   toolName: string;
   args: Record<string, unknown>;
   outputText: string;
   turn: number;
+  failureClass?: ToolFailureClass;
 }
 
 export interface BuildToolFailuresBlockOptions {
@@ -32,11 +39,15 @@ export function buildRecentToolFailuresBlock(
   const lines: string[] = ["[RecentToolFailures]"];
   for (const entry of recent) {
     const toolName = entry.toolName.trim() || "(unknown)";
+    const failureClass = entry.failureClass ? ` class=${entry.failureClass}` : "";
     const turn = Number.isFinite(entry.turn) ? Math.max(0, Math.floor(entry.turn)) : 0;
     const argsSummary = summarizeArgs(entry.args, maxArgsChars);
     const outputSummary = truncate(compactWhitespace(entry.outputText), maxOutputChars) || "(none)";
 
-    lines.push(`- tool=${toolName} turn=${turn} args=${argsSummary}`, `  output: ${outputSummary}`);
+    lines.push(
+      `- tool=${toolName}${failureClass} turn=${turn} args=${argsSummary}`,
+      `  output: ${outputSummary}`,
+    );
   }
 
   return lines.join("\n");

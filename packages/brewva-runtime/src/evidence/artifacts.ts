@@ -3,6 +3,11 @@ import type { JsonValue } from "../utils/json.js";
 import { parseTscDiagnostics } from "./tsc.js";
 
 export type EvidenceArtifact = Record<string, JsonValue> & { kind: string };
+export type CommandFailureClass =
+  | "execution"
+  | "invocation_validation"
+  | "shell_syntax"
+  | "script_composition";
 
 function getCommand(args: Record<string, unknown> | undefined): string | undefined {
   if (!args) return undefined;
@@ -59,6 +64,86 @@ function uniqueLines(lines: string[], limit: number): string[] {
     if (out.length >= limit) break;
   }
   return out;
+}
+
+const INVOCATION_VALIDATION_PATTERN =
+  /\b(invalid\s+(?:arguments?|params?|parameters?)|missing\s+required|schema\s+validation|must\s+be\s+(?:an?\s+)?(?:integer|number|string|boolean)|must\s+be\s+(?:<=|>=|<|>)|expected\s+type|unexpected\s+argument)\b/iu;
+const INVOCATION_VALIDATION_OUTPUT_PATTERN =
+  /(?:^|\n)\s*(?:error:\s*)?(?:invalid\s+(?:arguments?|params?|parameters?)|schema\s+validation|missing\s+required|unexpected\s+argument|unknown\s+argument|unknown\s+option|invalid\s+value\s+for)\b/iu;
+const EXECUTION_EVIDENCE_PATTERN =
+  /\b(process exited with code|assertionerror|traceback|command not found|permission denied|no such file or directory|segmentation fault)\b/iu;
+const SHELL_SYNTAX_PATTERN =
+  /\b(syntax error|unexpected token|unexpected eof|unterminated|unmatched ['"]|bad substitution|parse error)\b/iu;
+const SHELL_RUNTIME_PREFIX_PATTERN =
+  /(?:^|\n)\s*(?:\/bin\/(?:bash|sh)|bash|sh|zsh|dash|ksh|mksh|ash)(?::|\s+-[l]*c:)/iu;
+const SCRIPT_COMPOSITION_PATTERN =
+  /\b(command not found|syntax error)\b.*(?:[{}[\]]|\\"|",\s*"|"[a-z0-9_]+"\s*:)/i;
+const COMMAND_NOT_FOUND_TOKEN_PATTERN = /:\s*([^\s:]+)\s*:\s*command not found\b/iu;
+
+function collectFailureDetailText(details: unknown): string {
+  const parts: string[] = [];
+
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    parts.push(trimmed);
+  };
+
+  const visit = (value: unknown, depth: number) => {
+    if (depth > 2) return;
+    if (typeof value === "string") {
+      push(value);
+      return;
+    }
+    if (!isRecord(value)) return;
+
+    push(value.message);
+    push(value.error);
+    push(value.reason);
+    push(value.code);
+    push(value.status);
+    push(value.name);
+    visit(value.result, depth + 1);
+    visit(value.cause, depth + 1);
+  };
+
+  visit(details, 0);
+  return parts.join("\n");
+}
+
+function looksLikeScriptCompositionToken(token: string): boolean {
+  return !/^[A-Za-z0-9_./-]+$/u.test(token);
+}
+
+function classifyExecFailure(input: { details: unknown; outputText: string }): CommandFailureClass {
+  const detailsText = collectFailureDetailText(input.details);
+  const outputText = input.outputText;
+  const detailsLooksLikeValidation = INVOCATION_VALIDATION_PATTERN.test(detailsText);
+  const outputLooksLikeValidation = INVOCATION_VALIDATION_OUTPUT_PATTERN.test(outputText);
+  const hasExecutionEvidence = EXECUTION_EVIDENCE_PATTERN.test(outputText);
+
+  if ((detailsLooksLikeValidation || outputLooksLikeValidation) && !hasExecutionEvidence) {
+    return "invocation_validation";
+  }
+
+  const shellSyntaxInOutput = SHELL_SYNTAX_PATTERN.test(outputText);
+  const shellSyntaxStrongSignal =
+    /syntax error near unexpected token|while looking for matching|unexpected EOF while looking for matching/iu.test(
+      outputText,
+    ) || SHELL_RUNTIME_PREFIX_PATTERN.test(outputText);
+  if (shellSyntaxInOutput && shellSyntaxStrongSignal) {
+    return "shell_syntax";
+  }
+
+  const token = COMMAND_NOT_FOUND_TOKEN_PATTERN.exec(outputText)?.[1];
+  if (token && looksLikeScriptCompositionToken(token)) {
+    return "script_composition";
+  }
+  if (SCRIPT_COMPOSITION_PATTERN.test(outputText)) {
+    return "script_composition";
+  }
+  return "execution";
 }
 
 type TscDiagnosticEntry = {
@@ -138,6 +223,10 @@ export function extractEvidenceArtifacts(input: {
   if (toolName === "exec" && input.isError) {
     const command = getCommand(input.args) ?? "";
     const exitCode = extractExitCode(input.details);
+    const failureClass = classifyExecFailure({
+      details: input.details,
+      outputText: input.outputText,
+    });
 
     const failingTests = uniqueLines(
       extractLines(input.outputText, /^\s*(?:FAIL|ERROR|✕|×)\b/i, 12),
@@ -157,6 +246,7 @@ export function extractEvidenceArtifacts(input: {
       kind: "command_failure",
       tool: input.toolName,
       command,
+      failureClass,
       exitCode: exitCode === null ? null : exitCode,
       failingTests,
       failedAssertions,

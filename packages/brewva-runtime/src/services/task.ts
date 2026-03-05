@@ -105,6 +105,9 @@ export class TaskService {
     const blockers = state.blockers ?? [];
     const items = state.items ?? [];
     const openItems = items.filter((item) => item.status !== "done");
+    const hasVerifierBlocker = blockers.some((blocker) =>
+      blocker.id.startsWith(VERIFIER_BLOCKER_PREFIX),
+    );
 
     const activeTruthFacts = input.truthState.facts.filter((fact) => fact.status === "active");
     const severityRank = (severity: string): number => {
@@ -125,17 +128,20 @@ export class TaskService {
     let health: TaskHealth = "unknown";
     let reason: string | undefined;
 
-    if (!hasSpec) {
+    if (!hasSpec && blockers.length === 0) {
       phase = "align";
       health = "needs_spec";
       reason = "task_spec_missing";
+    } else if (!hasSpec && blockers.length > 0) {
+      phase = "blocked";
+      health = hasVerifierBlocker ? "verification_failed" : "blocked";
+      reason = hasVerifierBlocker
+        ? "verification_blockers_present_without_spec"
+        : "blockers_present_without_spec";
     } else if (blockers.length > 0) {
       phase = "blocked";
-      const hasVerifier = blockers.some((blocker) =>
-        blocker.id.startsWith(VERIFIER_BLOCKER_PREFIX),
-      );
-      health = hasVerifier ? "verification_failed" : "blocked";
-      reason = hasVerifier ? "verification_blockers_present" : "blockers_present";
+      health = hasVerifierBlocker ? "verification_failed" : "blocked";
+      reason = hasVerifierBlocker ? "verification_blockers_present" : "blockers_present";
     } else if (items.length === 0) {
       phase = "investigate";
       health = "ok";

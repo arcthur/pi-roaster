@@ -1,5 +1,9 @@
 import { relative, resolve } from "node:path";
-import { extractEvidenceArtifacts, type EvidenceArtifact } from "../evidence/artifacts.js";
+import {
+  extractEvidenceArtifacts,
+  type CommandFailureClass,
+  type EvidenceArtifact,
+} from "../evidence/artifacts.js";
 import { parseTscDiagnostics } from "../evidence/tsc.js";
 import { redactSecrets } from "../security/redact.js";
 import type { TaskState, TruthFact, TruthFactSeverity, TruthState } from "../types.js";
@@ -159,6 +163,19 @@ function resolveCommandFailureFact(ctx: TruthSyncContext, sessionId: string, fac
     ctx.resolveTruthFact(sessionId, factId);
   }
   resolveTruthBackedBlocker(ctx, sessionId, factId);
+}
+
+function resolveCommandFailureClass(failure: EvidenceArtifact | undefined): CommandFailureClass {
+  const value = failure?.failureClass;
+  if (
+    value === "execution" ||
+    value === "invocation_validation" ||
+    value === "shell_syntax" ||
+    value === "script_composition"
+  ) {
+    return value;
+  }
+  return "execution";
 }
 
 function truthFactIdForCommand(command: string): string {
@@ -337,6 +354,7 @@ function syncExecTruth(
     typeof exitCodeRaw === "number" && Number.isFinite(exitCodeRaw) ? exitCodeRaw : null;
   const outputExitCode = extractExitCodeFromOutput(input.outputText);
   const exitCode = artifactExitCode ?? outputExitCode;
+  const failureClass = resolveCommandFailureClass(failure);
 
   if (
     isBenignSearchNoMatchFailure({
@@ -344,6 +362,11 @@ function syncExecTruth(
       exitCode,
     })
   ) {
+    resolveCommandFailureFact(ctx, input.sessionId, factId);
+    return;
+  }
+
+  if (failureClass !== "execution") {
     resolveCommandFailureFact(ctx, input.sessionId, factId);
     return;
   }
@@ -362,6 +385,7 @@ function syncExecTruth(
     details: {
       tool: input.toolName,
       command: commandDetail,
+      failureClass,
       exitCode,
       outputHash: input.ledgerRow.outputHash,
       argsSummary: input.ledgerRow.argsSummary,

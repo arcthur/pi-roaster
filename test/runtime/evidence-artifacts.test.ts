@@ -25,6 +25,7 @@ describe("Evidence artifact extraction", () => {
     const artifact = artifacts[0] as unknown as {
       kind: string;
       command?: unknown;
+      failureClass?: unknown;
       exitCode?: unknown;
       failingTests?: unknown;
       failedAssertions?: unknown;
@@ -32,10 +33,81 @@ describe("Evidence artifact extraction", () => {
     };
     expect(artifact.kind).toBe("command_failure");
     expect(artifact.command).toBe("bun test");
+    expect(artifact.failureClass).toBe("execution");
     expect(artifact.exitCode).toBe(1);
     expect(Array.isArray(artifact.failingTests)).toBe(true);
     expect(Array.isArray(artifact.failedAssertions)).toBe(true);
     expect(Array.isArray(artifact.stackTrace)).toBe(true);
+  });
+
+  test("classifies invocation validation failures for exec", () => {
+    const artifacts = extractEvidenceArtifacts({
+      toolName: "exec",
+      args: { command: "bun test", timeout: 120_000 },
+      outputText: "Invalid arguments: timeout must be <= 7200",
+      isError: true,
+      details: {
+        message: "Schema validation failed",
+      },
+    });
+
+    expect(artifacts.length).toBe(1);
+    const artifact = artifacts[0] as unknown as {
+      kind?: unknown;
+      failureClass?: unknown;
+    };
+    expect(artifact.kind).toBe("command_failure");
+    expect(artifact.failureClass).toBe("invocation_validation");
+  });
+
+  test("falls back to execution when validation-like output has execution markers", () => {
+    const artifacts = extractEvidenceArtifacts({
+      toolName: "exec",
+      args: { command: "my-cli run --bad" },
+      outputText: "Invalid arguments: --bad is not supported.\n\nProcess exited with code 2.",
+      isError: true,
+      details: {
+        result: { exitCode: 2 },
+      },
+    });
+
+    expect(artifacts.length).toBe(1);
+    const artifact = artifacts[0] as unknown as {
+      failureClass?: unknown;
+    };
+    expect(artifact.failureClass).toBe("execution");
+  });
+
+  test("classifies shell syntax failures for exec", () => {
+    const artifacts = extractEvidenceArtifacts({
+      toolName: "exec",
+      args: { command: 'bash -lc "echo test' },
+      outputText: 'bash: -c: line 1: unexpected EOF while looking for matching `"',
+      isError: true,
+      details: { result: { exitCode: 2 } },
+    });
+
+    expect(artifacts.length).toBe(1);
+    const artifact = artifacts[0] as unknown as {
+      failureClass?: unknown;
+    };
+    expect(artifact.failureClass).toBe("shell_syntax");
+  });
+
+  test("classifies script composition failures for exec", () => {
+    const artifacts = extractEvidenceArtifacts({
+      toolName: "exec",
+      args: { command: "cat /tmp/script.sh | bash" },
+      outputText: "/bin/bash: line 1: ^###: command not found",
+      isError: true,
+      details: { result: { exitCode: 127 } },
+    });
+
+    expect(artifacts.length).toBe(1);
+    const artifact = artifacts[0] as unknown as {
+      failureClass?: unknown;
+    };
+    expect(artifact.failureClass).toBe("script_composition");
   });
 
   test("extracts tsc_diagnostics artifacts from lsp_diagnostics output", () => {

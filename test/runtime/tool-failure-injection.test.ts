@@ -195,12 +195,14 @@ describe("Tool failure context injection", () => {
             schema?: string;
             args?: Record<string, unknown>;
             outputText?: string;
+            failureClass?: string;
           };
         }
       | undefined;
     expect(metadata?.brewvaToolFailureContext?.schema).toBe("brewva.tool_failure_context.v1");
     expect(metadata?.brewvaToolFailureContext?.args?.command).toBe("bun test");
     expect(metadata?.brewvaToolFailureContext?.outputText).toContain("failing test run");
+    expect(metadata?.brewvaToolFailureContext?.failureClass).toBe("execution");
   });
 
   test("reads persisted failure context output beyond ledger outputSummary cap", async () => {
