@@ -50,6 +50,7 @@ const ENV_ASSIGNMENT_TOKEN = /^[A-Za-z_][A-Za-z0-9_]*=.*/u;
 const COMMAND_PREFIX_TOKENS = new Set(["sudo", "command", "time"]);
 const SHELL_WRAPPER_TOKENS = new Set(["sh", "bash", "zsh", "dash", "ksh", "mksh", "ash"]);
 const MAX_COMMAND_PARSE_DEPTH = 2;
+const TOOL_NAME_COMMAND_HINTS = new Set(["session_compact"]);
 
 type SecurityMode = BrewvaConfig["security"]["mode"];
 type ExecutionBackend = BrewvaConfig["security"]["execution"]["backend"];
@@ -397,6 +398,10 @@ function resolvePrimaryCommandTokens(command: string, depth = 0): string[] {
     .flatMap((segment) => collectPrimaryCommandTokens(segment, depth))
     .filter((token) => token.length > 0);
   return [...new Set(tokens)];
+}
+
+function resolveMisroutedToolName(primaryTokens: string[]): string | undefined {
+  return primaryTokens.find((token) => TOOL_NAME_COMMAND_HINTS.has(token));
 }
 
 function formatExit(session: ManagedExecFinishedSession): string {
@@ -971,6 +976,28 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
 
       const policy = resolveExecutionPolicy(options?.runtime);
       const primaryTokens = resolvePrimaryCommandTokens(command);
+      const misroutedToolName = resolveMisroutedToolName(primaryTokens);
+      if (misroutedToolName) {
+        const reason = `Command '${misroutedToolName}' is a Brewva tool name. Call tool '${misroutedToolName}' directly instead of using exec.`;
+        recordExecEvent(
+          options?.runtime,
+          ownerSessionId,
+          EXEC_BLOCKED_ISOLATION_EVENT_TYPE,
+          buildExecAuditPayload({
+            toolCallId,
+            policy,
+            command,
+            payload: {
+              detectedCommands: primaryTokens,
+              reason,
+              blockedAsToolNameMisroute: true,
+              suggestedTool: misroutedToolName,
+            },
+          }),
+        );
+        throw new Error(`exec_blocked_isolation: ${reason}`);
+      }
+
       const deniedCommand = primaryTokens.find((token) => policy.commandDenyList.has(token));
       if (deniedCommand) {
         const reason = `Command '${deniedCommand}' is denied by security.execution.commandDenyList.`;

@@ -80,12 +80,18 @@ export interface ContextTransformOptions {
     ctx: ExtensionContext;
     runtime: BrewvaRuntime;
   }) => Promise<RoutingSkillSelectionResult>;
+  autoCompactionWatchdogMs?: number;
 }
 
 interface CompactionGateState {
   turnIndex: number;
   lastRuntimeGateRequired: boolean;
+  autoCompactionInFlight: boolean;
+  autoCompactionWatchdog: ReturnType<typeof setTimeout> | null;
 }
+
+const DEFAULT_AUTO_COMPACTION_WATCHDOG_MS = 30_000;
+const AUTO_COMPACTION_WATCHDOG_ERROR = "auto_compaction_watchdog_timeout";
 
 function getOrCreateGateState(
   store: Map<string, CompactionGateState>,
@@ -96,9 +102,19 @@ function getOrCreateGateState(
   const created: CompactionGateState = {
     turnIndex: 0,
     lastRuntimeGateRequired: false,
+    autoCompactionInFlight: false,
+    autoCompactionWatchdog: null,
   };
   store.set(sessionId, created);
   return created;
+}
+
+function clearAutoCompactionState(state: CompactionGateState): void {
+  state.autoCompactionInFlight = false;
+  if (state.autoCompactionWatchdog) {
+    clearTimeout(state.autoCompactionWatchdog);
+    state.autoCompactionWatchdog = null;
+  }
 }
 
 function emitRuntimeEvent(
@@ -116,6 +132,12 @@ function emitRuntimeEvent(
     type: input.type,
     payload: input.payload,
   });
+}
+
+function normalizeRuntimeError(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) return error.message.trim();
+  if (typeof error === "string" && error.trim().length > 0) return error.trim();
+  return "unknown_error";
 }
 
 function extractTranslationText(content: unknown): string {
@@ -544,6 +566,7 @@ function buildCompactionGateMessage(input: { pressure: ContextPressureStatus }):
     reasonLine,
     `Current usage: ${usagePercent} (hard limit: ${hardLimitPercent}).`,
     "Call tool `session_compact` immediately before any other tool call.",
+    "Do not run `session_compact` via `exec` or shell.",
   ].join("\n");
 }
 
@@ -602,6 +625,7 @@ function buildContextContractBlock(runtime: BrewvaRuntime): string {
     "Hard rules:",
     "- `tape_handoff` does not reduce message tokens.",
     "- `session_compact` does not change tape state semantics.",
+    "- never run `session_compact` through `exec` or shell; call the tool directly.",
     "- if context pressure is critical without recent compaction, runtime blocks non-`session_compact` tools.",
   ].join("\n");
 }
@@ -625,6 +649,10 @@ export function registerContextTransform(
   const translatePromptForRouting =
     options.translatePromptForRouting ?? translatePromptForSkillRoutingWithModel;
   const selectSkillsForRouting = options.selectSkillsForRouting ?? selectSkillsForRoutingWithModel;
+  const autoCompactionWatchdogMs = Math.max(
+    1,
+    Math.trunc(options.autoCompactionWatchdogMs ?? DEFAULT_AUTO_COMPACTION_WATCHDOG_MS),
+  );
 
   pi.on("turn_start", (event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
@@ -645,12 +673,99 @@ export function registerContextTransform(
       return undefined;
     }
 
+    if (ctx.hasUI) {
+      if (state.autoCompactionInFlight) {
+        emitRuntimeEvent(runtime, {
+          sessionId,
+          turn: state.turnIndex,
+          type: "context_compaction_skipped",
+          payload: {
+            reason: "auto_compaction_in_flight",
+          },
+        });
+        return undefined;
+      }
+
+      const pendingReason = runtime.context.getPendingCompactionReason(sessionId);
+      const compactionReason = pendingReason ?? "usage_threshold";
+      state.autoCompactionInFlight = true;
+      if (state.autoCompactionWatchdog) {
+        clearTimeout(state.autoCompactionWatchdog);
+      }
+      state.autoCompactionWatchdog = setTimeout(() => {
+        if (!state.autoCompactionInFlight) return;
+        clearAutoCompactionState(state);
+        emitRuntimeEvent(runtime, {
+          sessionId,
+          turn: state.turnIndex,
+          type: "context_compaction_auto_failed",
+          payload: {
+            reason: compactionReason,
+            error: AUTO_COMPACTION_WATCHDOG_ERROR,
+            watchdogMs: autoCompactionWatchdogMs,
+          },
+        });
+      }, autoCompactionWatchdogMs);
+
+      emitRuntimeEvent(runtime, {
+        sessionId,
+        turn: state.turnIndex,
+        type: "context_compaction_auto_requested",
+        payload: {
+          reason: compactionReason,
+          usagePercent: usage?.percent ?? null,
+          tokens: usage?.tokens ?? null,
+        },
+      });
+
+      const clearInFlight = () => {
+        clearAutoCompactionState(state);
+      };
+      const recordAutoFailure = (error: unknown) => {
+        emitRuntimeEvent(runtime, {
+          sessionId,
+          turn: state.turnIndex,
+          type: "context_compaction_auto_failed",
+          payload: {
+            reason: compactionReason,
+            error: normalizeRuntimeError(error),
+          },
+        });
+      };
+
+      try {
+        ctx.compact({
+          customInstructions: runtime.context.getCompactionInstructions(),
+          onComplete: () => {
+            clearInFlight();
+            emitRuntimeEvent(runtime, {
+              sessionId,
+              turn: state.turnIndex,
+              type: "context_compaction_auto_completed",
+              payload: {
+                reason: compactionReason,
+              },
+            });
+          },
+          onError: (error) => {
+            clearInFlight();
+            recordAutoFailure(error);
+          },
+        });
+      } catch (error) {
+        clearInFlight();
+        recordAutoFailure(error);
+      }
+
+      return undefined;
+    }
+
     emitRuntimeEvent(runtime, {
       sessionId,
       turn: state.turnIndex,
       type: "context_compaction_skipped",
       payload: {
-        reason: ctx.hasUI ? "manual_compaction_required" : "non_interactive_mode",
+        reason: "non_interactive_mode",
       },
     });
 
@@ -663,6 +778,7 @@ export function registerContextTransform(
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     const wasGated = state.lastRuntimeGateRequired;
     state.lastRuntimeGateRequired = false;
+    clearAutoCompactionState(state);
 
     runtime.context.markCompacted(sessionId, {
       fromTokens: null,
@@ -695,6 +811,10 @@ export function registerContextTransform(
 
   pi.on("session_shutdown", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
+    const state = gateStateBySession.get(sessionId);
+    if (state) {
+      clearAutoCompactionState(state);
+    }
     gateStateBySession.delete(sessionId);
     clearRuntimeTurnClock(sessionId);
     return undefined;

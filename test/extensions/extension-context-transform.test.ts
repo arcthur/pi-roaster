@@ -666,6 +666,161 @@ describe("Extension gaps: context transform", () => {
     expect(skippedReasons).toContain("non_interactive_mode");
   });
 
+  test("given interactive mode and compaction requested, when context hook runs, then auto compaction is triggered once until completion", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const skippedReasons: string[] = [];
+    const autoRequestedReasons: string[] = [];
+    const autoCompletedReasons: string[] = [];
+    const compactOptions: Array<{
+      customInstructions?: string;
+      onComplete?: () => void;
+      onError?: (error: Error) => void;
+    }> = [];
+
+    const runtime = createRuntimeFixture({
+      config: createRuntimeConfig((config) => {
+        config.infrastructure.contextBudget.compactionInstructions = "compact-only-active-state";
+      }),
+      context: {
+        onTurnStart: () => undefined,
+        observeUsage: () => undefined,
+        checkAndRequestCompaction: () => true,
+        getPendingCompactionReason: () => "usage_threshold",
+        markCompacted: () => undefined,
+        buildInjection: async () => ({
+          text: "",
+          accepted: false,
+          originalTokens: 0,
+          finalTokens: 0,
+          truncated: false,
+        }),
+      },
+      events: {
+        record: (input: { type: string; payload?: { reason?: string } }) => {
+          if (input.type === "context_compaction_skipped" && input.payload?.reason) {
+            skippedReasons.push(input.payload.reason);
+          }
+          if (input.type === "context_compaction_auto_requested" && input.payload?.reason) {
+            autoRequestedReasons.push(input.payload.reason);
+          }
+          if (input.type === "context_compaction_auto_completed" && input.payload?.reason) {
+            autoCompletedReasons.push(input.payload.reason);
+          }
+          return undefined;
+        },
+      },
+    });
+
+    registerContextTransform(api, runtime);
+
+    const sessionManager = {
+      getSessionId: () => "s-ui-auto-compact",
+    };
+
+    invokeHandler(
+      handlers,
+      "turn_start",
+      { turnIndex: 3 },
+      {
+        sessionManager,
+      },
+    );
+
+    const interactiveContext = {
+      hasUI: true,
+      compact: (options?: {
+        customInstructions?: string;
+        onComplete?: () => void;
+        onError?: (error: Error) => void;
+      }) => {
+        compactOptions.push(options ?? {});
+      },
+      sessionManager,
+      getContextUsage: () => ({ tokens: 990, contextWindow: 1000, percent: 0.99 }),
+    };
+
+    invokeHandler(handlers, "context", {}, interactiveContext);
+    invokeHandler(handlers, "context", {}, interactiveContext);
+
+    expect(compactOptions).toHaveLength(1);
+    expect(compactOptions[0]?.customInstructions).toBe("compact-only-active-state");
+    expect(skippedReasons).toContain("auto_compaction_in_flight");
+    expect(autoRequestedReasons).toContain("usage_threshold");
+
+    compactOptions[0]?.onComplete?.();
+    expect(autoCompletedReasons).toContain("usage_threshold");
+
+    invokeHandler(handlers, "context", {}, interactiveContext);
+    expect(compactOptions).toHaveLength(2);
+  });
+
+  test("given interactive mode and missing compact callbacks, when watchdog expires, then in-flight lock is cleared and next context retries", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const autoFailedErrors: string[] = [];
+    const compactCalls: Array<Record<string, unknown>> = [];
+
+    const runtime = createRuntimeFixture({
+      context: {
+        onTurnStart: () => undefined,
+        observeUsage: () => undefined,
+        checkAndRequestCompaction: () => true,
+        getPendingCompactionReason: () => "usage_threshold",
+        markCompacted: () => undefined,
+        buildInjection: async () => ({
+          text: "",
+          accepted: false,
+          originalTokens: 0,
+          finalTokens: 0,
+          truncated: false,
+        }),
+      },
+      events: {
+        record: (input: { type: string; payload?: { error?: string } }) => {
+          if (input.type === "context_compaction_auto_failed" && input.payload?.error) {
+            autoFailedErrors.push(input.payload.error);
+          }
+          return undefined;
+        },
+      },
+    });
+
+    registerContextTransform(api, runtime, {
+      autoCompactionWatchdogMs: 1,
+    });
+
+    const sessionManager = {
+      getSessionId: () => "s-ui-watchdog-recovery",
+    };
+
+    invokeHandler(
+      handlers,
+      "turn_start",
+      { turnIndex: 5 },
+      {
+        sessionManager,
+      },
+    );
+
+    const interactiveContext = {
+      hasUI: true,
+      compact: (options?: Record<string, unknown>) => {
+        compactCalls.push(options ?? {});
+      },
+      sessionManager,
+      getContextUsage: () => ({ tokens: 990, contextWindow: 1000, percent: 0.99 }),
+    };
+
+    invokeHandler(handlers, "context", {}, interactiveContext);
+    expect(compactCalls).toHaveLength(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(autoFailedErrors).toContain("auto_compaction_watchdog_timeout");
+
+    invokeHandler(handlers, "context", {}, interactiveContext);
+    expect(compactCalls).toHaveLength(2);
+  });
+
   test("given critical gate required, when before_agent_start runs, then routing and injection are short-circuited", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const eventPayloads: Array<{ type: string; payload?: Record<string, unknown> }> = [];

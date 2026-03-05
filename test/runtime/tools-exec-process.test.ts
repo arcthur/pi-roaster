@@ -506,6 +506,31 @@ describe("exec/process tool flow", () => {
     expect((denyListPolicy as string).includes("best-effort")).toBe(true);
   });
 
+  test("exec rejects brewva tool-name command misroutes", async () => {
+    const { runtime, events } = createRuntimeForExecTests({
+      mode: "standard",
+      backend: "host",
+    });
+    const execTool = createExecTool({ runtime });
+    const sessionId = "s13-exec-tool-misroute";
+
+    expect(
+      execTool.execute(
+        "tc-exec-tool-misroute",
+        {
+          command: "session_compact",
+        },
+        undefined,
+        undefined,
+        fakeContext(sessionId),
+      ),
+    ).rejects.toThrow("exec_blocked_isolation");
+
+    const blockedEvent = events.find((event) => event.type === "exec_blocked_isolation");
+    expect(blockedEvent?.payload?.blockedAsToolNameMisroute).toBe(true);
+    expect(blockedEvent?.payload?.suggestedTool).toBe("session_compact");
+  });
+
   test("command deny list blocks shell wrapper inline scripts", async () => {
     const { runtime, events } = createRuntimeForExecTests({
       mode: "standard",

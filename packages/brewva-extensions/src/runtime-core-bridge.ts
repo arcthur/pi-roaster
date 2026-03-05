@@ -27,6 +27,7 @@ function buildCoreContextContract(runtime: BrewvaRuntime): string {
     "Hard rules:",
     "- `tape_handoff` does not reduce message tokens.",
     "- `session_compact` does not change tape semantics.",
+    "- never run `session_compact` through `exec` or shell; call the tool directly.",
     `- tape_pressure thresholds: low=${tapeThresholds.low}, medium=${tapeThresholds.medium}, high=${tapeThresholds.high}.`,
     `- compact soon when context_pressure >= high (${highThresholdPercent}).`,
     `- compact immediately when context_pressure == critical (${hardLimitPercent}).`,
