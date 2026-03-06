@@ -80,6 +80,7 @@ emits `sourceDecision` in cascade event payloads with stable reason codes:
 - `git`
 - `patching`
 - `planning`
+- `recovery`
 - `review`
 - `tdd`
 - `verification`
@@ -88,6 +89,7 @@ emits `sourceDecision` in cascade event payloads with stable reason codes:
 
 - `agent-browser`
 - `frontend-design`
+- `goal-loop`
 - `gh-issues`
 - `github`
 - `skill-creator`
@@ -108,6 +110,15 @@ emits `sourceDecision` in cascade event payloads with stable reason codes:
   evidence ledger, working projection, snapshots, cost traces, and schedule projections.
 - `brewva-self-improve` captures reusable learnings and errors, then promotes
   validated patterns into durable assets such as `AGENTS.md`, skills, and docs.
+
+## Loop and Recovery Notes
+
+- `goal-loop` is the runtime-native iterative delivery pack skill. It declares
+  scheduled convergence intent through `schedule_intent` rather than simulating
+  repetition inside prompt text.
+- `recovery` is the bounded unhappy-path companion skill. It converts repeated
+  failures, convergence guard pressure, or plan-reality mismatch into explicit
+  evidence, a short recovery plan, and a clean next-skill handoff.
 
 ## `brewva-project` Contract Focus
 

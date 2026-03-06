@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { planSkillChain, type SkillsIndexEntry } from "@brewva/brewva-runtime";
+import { join } from "node:path";
+import {
+  parseSkillDocument,
+  planSkillChain,
+  type SkillTier,
+  type SkillsIndexEntry,
+} from "@brewva/brewva-runtime";
 
 function createEntry(
   input: Partial<SkillsIndexEntry> & Pick<SkillsIndexEntry, "name">,
@@ -19,6 +25,26 @@ function createEntry(
       autoThreshold: 16,
       defaultMode: "suggest",
     },
+  };
+}
+
+function repoRoot(): string {
+  return process.cwd();
+}
+
+function loadEntry(relativePath: string, tier: SkillTier): SkillsIndexEntry {
+  const skill = parseSkillDocument(join(repoRoot(), relativePath), tier);
+  return {
+    name: skill.name,
+    tier: skill.tier,
+    description: skill.description,
+    outputs: skill.contract.outputs,
+    toolsRequired: skill.contract.tools.required,
+    costHint: skill.contract.costHint,
+    stability: skill.contract.stability,
+    composableWith: skill.contract.composableWith,
+    consumes: skill.contract.consumes,
+    dispatch: skill.contract.dispatch,
   };
 }
 
@@ -112,5 +138,27 @@ describe("skill chain planner", () => {
 
     expect(chain.chain).toEqual(["review"]);
     expect(chain.unresolvedConsumes).toEqual(["unknown_output"]);
+  });
+
+  test("prefers goal-loop as the iteration_report producer for recovery", () => {
+    const recovery = loadEntry("skills/base/recovery/SKILL.md", "base");
+    const goalLoop = loadEntry("skills/packs/goal-loop/SKILL.md", "pack");
+    const genericProducer = createEntry({
+      name: "generic-iteration-producer",
+      tier: "pack",
+      outputs: ["iteration_report"],
+      costHint: "low",
+      stability: "stable",
+    });
+
+    const chain = planSkillChain({
+      primary: recovery,
+      index: [recovery, goalLoop, genericProducer],
+      availableOutputs: ["failure_evidence", "current_plan", "constraints"],
+    });
+
+    expect(chain.prerequisites).toEqual(["goal-loop"]);
+    expect(chain.chain).toEqual(["goal-loop", "recovery"]);
+    expect(chain.unresolvedConsumes).toEqual([]);
   });
 });

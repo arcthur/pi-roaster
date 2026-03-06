@@ -65,8 +65,8 @@ Primary package surfaces:
 
 Skill tiers (higher tiers can tighten but never relax lower-tier contracts):
 
-- Base (`skills/base/`): `brainstorming`, `cartography`, `compose`, `debugging`, `execution`, `exploration`, `finishing`, `git`, `patching`, `planning`, `review`, `tdd`, `verification`
-- Pack (`skills/packs/`): `agent-browser`, `frontend-design`, `gh-issues`, `github`, `skill-creator`, `telegram-channel-behavior`, `telegram-interactive-components`
+- Base (`skills/base/`): `brainstorming`, `cartography`, `compose`, `debugging`, `execution`, `exploration`, `finishing`, `git`, `patching`, `planning`, `recovery`, `review`, `tdd`, `verification`
+- Pack (`skills/packs/`): `agent-browser`, `frontend-design`, `goal-loop`, `gh-issues`, `github`, `skill-creator`, `telegram-channel-behavior`, `telegram-interactive-components`
 - Project (`skills/project/`): `brewva-project`, `brewva-self-improve`, `brewva-session-logs`
 
 ## Quick Start
