@@ -75,6 +75,7 @@ Notes:
 
 - `grep` is a read-only workspace search tool intended to replace ad-hoc `exec` usage for text search in read-only skills.
 - `skill_route_override` and `skill_chain_control` are control-plane tools for steering dispatch gating and cascade progression.
+- Repeated `read`, `grep`, `look_at`, navigation-only `lsp_*`, `ast_grep_search`, or low-signal `exec` turns can trigger the scan convergence guard. Preferred recovery tools are `output_search`, `ledger_query`, `tape_search`, `task_view_state`, and `task_*` ledger actions before resuming more retrieval.
 
 ### `grep`
 

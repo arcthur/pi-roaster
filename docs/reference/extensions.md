@@ -33,7 +33,30 @@ Implementation files:
 - `packages/brewva-extensions/src/completion-guard.ts`
 - `packages/brewva-extensions/src/notification.ts`
 
-`registerScanConvergenceGuard` is intentionally registered before `registerQualityGate` so repeated scan drift is stopped before later tool-policy side effects run.
+`registerScanConvergenceGuard` is intentionally registered before `registerQualityGate` so repeated low-signal retrieval drift is stopped before later tool-policy side effects run.
+
+## Scan Convergence Guard
+
+`registerScanConvergenceGuard` classifies retrieval behavior into four tool strategies:
+
+- `raw_scan`: `read`, `grep`
+- `low_signal`: `look_at`, `ast_grep_search`, selected `lsp_*` navigation tools, and low-signal `exec` commands such as `ls`/`find`/`cat`/`rg`
+- `evidence_reuse`: `output_search`, `ledger_query`, `tape_info`, `tape_search`, `task_view_state`, `cost_view`
+- `progress`: task mutation tools, skill lifecycle tools, handoff/mutation tools, and the remaining non-retrieval surface
+
+The guard arms when a session accumulates repeated:
+
+- `read`/`grep`-only turns
+- low-signal investigation-only turns
+- ENOENT / out-of-bounds raw scan failures
+
+When armed, it:
+
+- blocks additional `raw_scan` and `low_signal` tool calls
+- records the task blocker `guard:scan-convergence`, which moves task status to `phase=blocked`
+- resets only after a successful `evidence_reuse` or `progress` tool completion, or after fresh user `input`
+
+This keeps the runtime aligned with the working-projection/task-ledger model: summarize current evidence first, then use task state or prior artifacts before resuming more retrieval.
 
 `registerLedgerWriter` additionally persists tool-output observability events:
 
