@@ -1,5 +1,9 @@
 import { collectSessionPromptOutput } from "./collect-output.js";
 import { createGatewaySession, type GatewaySessionResult } from "./create-session.js";
+import {
+  TaskProgressWatchdog,
+  type TaskProgressWatchdogOptions,
+} from "./task-progress-watchdog.js";
 import type { ParentToWorkerMessage, WorkerToParentMessage } from "./worker-protocol.js";
 
 const BRIDGE_TIMEOUT_MS = 15_000;
@@ -12,9 +16,16 @@ let sessionResult: GatewaySessionResult | null = null;
 let lastPingAt = Date.now();
 let watchdog: ReturnType<typeof setInterval> | null = null;
 let heartbeatTicker: ReturnType<typeof setInterval> | null = null;
+let taskProgressWatchdog: TaskProgressWatchdog | null = null;
 let shuttingDown = false;
 let activeTurnId: string | null = null;
 type WorkerLogLevel = Extract<WorkerToParentMessage, { kind: "log" }>["level"];
+type WorkerWatchdogOverrides = Pick<
+  TaskProgressWatchdogOptions,
+  "pollIntervalMs" | "thresholdsMs"
+> & {
+  taskGoal?: string;
+};
 
 function send(message: WorkerToParentMessage): void {
   if (typeof process.send !== "function") {
@@ -32,6 +43,50 @@ function log(level: WorkerLogLevel, message: string, fields?: Record<string, unk
   });
 }
 
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function readPositiveDurationEnv(name: string): number | undefined {
+  const raw = normalizeOptionalString(process.env[name]);
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return Math.floor(parsed);
+}
+
+function areWorkerTestOverridesEnabled(): boolean {
+  return process.env.BREWVA_INTERNAL_GATEWAY_TEST_OVERRIDES === "1";
+}
+
+function readWorkerWatchdogOverrides(): WorkerWatchdogOverrides {
+  if (!areWorkerTestOverridesEnabled()) {
+    return {};
+  }
+
+  const investigate = readPositiveDurationEnv("BREWVA_INTERNAL_GATEWAY_WATCHDOG_INVESTIGATE_MS");
+  const execute = readPositiveDurationEnv("BREWVA_INTERNAL_GATEWAY_WATCHDOG_EXECUTE_MS");
+  const verify = readPositiveDurationEnv("BREWVA_INTERNAL_GATEWAY_WATCHDOG_VERIFY_MS");
+  const thresholdsMs =
+    investigate || execute || verify
+      ? {
+          investigate,
+          execute,
+          verify,
+        }
+      : undefined;
+
+  return {
+    taskGoal: normalizeOptionalString(process.env.BREWVA_INTERNAL_GATEWAY_WATCHDOG_TASK_GOAL),
+    pollIntervalMs: readPositiveDurationEnv("BREWVA_INTERNAL_GATEWAY_WATCHDOG_POLL_MS"),
+    thresholdsMs,
+  };
+}
+
 async function shutdown(exitCode = 0, reason = "shutdown"): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -46,6 +101,8 @@ async function shutdown(exitCode = 0, reason = "shutdown"): Promise<void> {
   }
 
   if (sessionResult) {
+    taskProgressWatchdog?.stop();
+    taskProgressWatchdog = null;
     try {
       await sessionResult.session.abort();
     } catch {
@@ -112,9 +169,23 @@ async function handleInit(
       enableExtensions: message.payload.enableExtensions,
     });
     const agentSessionId = sessionResult.session.sessionManager.getSessionId();
+    const watchdogOverrides = readWorkerWatchdogOverrides();
+    if (watchdogOverrides.taskGoal) {
+      sessionResult.runtime.task.setSpec(agentSessionId, {
+        schema: "brewva.task.v1",
+        goal: watchdogOverrides.taskGoal,
+      });
+    }
     process.title = `brewva-worker:${requestedSessionId}`;
     lastPingAt = Date.now();
     startBridgeWatchdog();
+    taskProgressWatchdog = new TaskProgressWatchdog({
+      runtime: sessionResult.runtime,
+      sessionId: agentSessionId,
+      pollIntervalMs: watchdogOverrides.pollIntervalMs,
+      thresholdsMs: watchdogOverrides.thresholdsMs,
+    });
+    taskProgressWatchdog.start();
 
     send({
       kind: "ready",

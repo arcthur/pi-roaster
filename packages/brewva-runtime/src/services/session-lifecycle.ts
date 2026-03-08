@@ -1,6 +1,10 @@
 import type { ContextBudgetManager } from "../context/budget.js";
 import type { ContextInjectionCollector } from "../context/injection.js";
 import type { SessionCostTracker } from "../cost/tracker.js";
+import {
+  TASK_STUCK_CLEARED_EVENT_TYPE,
+  VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE,
+} from "../events/event-types.js";
 import type { BrewvaEventStore } from "../events/store.js";
 import type { EvidenceLedger } from "../ledger/evidence-ledger.js";
 import type { ParallelBudgetManager } from "../parallel/budget.js";
@@ -9,6 +13,15 @@ import type { ProjectionEngine } from "../projection/engine.js";
 import type { FileChangeTracker } from "../state/file-change-tracker.js";
 import { TAPE_CHECKPOINT_EVENT_TYPE, coerceTapeCheckpointPayload } from "../tape/events.js";
 import type { TurnReplayEngine } from "../tape/replay-engine.js";
+import {
+  WATCHDOG_BLOCKER_ID,
+  buildTaskStuckClearedPayload,
+  computeTaskSemanticProgressAt,
+  getTaskWatchdogOpenItemCount,
+  getTaskWatchdogBlocker,
+  resolveTaskWatchdogPhase,
+  toTaskWatchdogEventPayload,
+} from "../task/watchdog.js";
 import type {
   BrewvaEventRecord,
   SkillChainIntent,
@@ -39,6 +52,23 @@ export interface SessionLifecycleServiceOptions {
   turnReplay: TurnReplayEngine;
   events: BrewvaEventStore;
   ledger: EvidenceLedger;
+  resolveTaskBlocker: RuntimeCallback<
+    [sessionId: string, blockerId: string],
+    { ok: boolean; error?: string }
+  >;
+  recordEvent: RuntimeCallback<
+    [
+      input: {
+        sessionId: string;
+        type: string;
+        turn?: number;
+        payload?: Record<string, unknown>;
+        timestamp?: number;
+        skipTapeCheckpoint?: boolean;
+      },
+    ],
+    unknown
+  >;
 }
 
 export class SessionLifecycleService {
@@ -55,6 +85,8 @@ export class SessionLifecycleService {
   private readonly turnReplay: TurnReplayEngine;
   private readonly events: BrewvaEventStore;
   private readonly ledger: EvidenceLedger;
+  private readonly resolveTaskBlocker: SessionLifecycleServiceOptions["resolveTaskBlocker"];
+  private readonly recordEvent: SessionLifecycleServiceOptions["recordEvent"];
   private readonly hydratedSessions = new Set<string>();
 
   constructor(options: SessionLifecycleServiceOptions) {
@@ -71,6 +103,8 @@ export class SessionLifecycleService {
     this.turnReplay = options.turnReplay;
     this.events = options.events;
     this.ledger = options.ledger;
+    this.resolveTaskBlocker = options.resolveTaskBlocker;
+    this.recordEvent = options.recordEvent;
   }
 
   onTurnStart(sessionId: string, turnIndex: number): void {
@@ -78,6 +112,7 @@ export class SessionLifecycleService {
     const current = this.sessionState.turnsBySession.get(sessionId) ?? 0;
     const effectiveTurn = Math.max(current, turnIndex);
     this.sessionState.turnsBySession.set(sessionId, effectiveTurn);
+    this.maybeClearTaskStuckWatchdog(sessionId, effectiveTurn);
     this.sessionState.skillDispatchGateWarningsBySession.delete(sessionId);
     this.contextBudget.beginTurn(sessionId, effectiveTurn);
     this.contextInjection.clearPending(sessionId);
@@ -106,6 +141,51 @@ export class SessionLifecycleService {
 
     this.events.clearSessionCache(sessionId);
     this.ledger.clearSessionCache(sessionId);
+  }
+
+  private maybeClearTaskStuckWatchdog(sessionId: string, turn: number): void {
+    const taskState = this.turnReplay.getTaskState(sessionId);
+    const watchdogBlocker = getTaskWatchdogBlocker(taskState);
+    if (!watchdogBlocker) {
+      return;
+    }
+
+    const taskEvents = this.events.list(sessionId, { type: "task_event" });
+    const lastVerificationAt =
+      this.events.list(sessionId, {
+        type: VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE,
+        last: 1,
+      })[0]?.timestamp ?? null;
+    const semanticProgressAt = computeTaskSemanticProgressAt({
+      state: taskState,
+      taskEvents,
+      lastVerificationAt,
+    });
+    if (semanticProgressAt === null || semanticProgressAt <= watchdogBlocker.createdAt) {
+      return;
+    }
+
+    const resolved = this.resolveTaskBlocker(sessionId, WATCHDOG_BLOCKER_ID);
+    if (!resolved.ok) {
+      return;
+    }
+    const clearedAt = Date.now();
+    const clearedPayload = buildTaskStuckClearedPayload({
+      phase: resolveTaskWatchdogPhase(taskState) ?? "investigate",
+      blockerId: WATCHDOG_BLOCKER_ID,
+      detectedAt: watchdogBlocker.createdAt,
+      clearedAt,
+      resumedProgressAt: semanticProgressAt,
+      openItemCount: getTaskWatchdogOpenItemCount(taskState),
+    });
+
+    this.recordEvent({
+      sessionId,
+      type: TASK_STUCK_CLEARED_EVENT_TYPE,
+      turn,
+      timestamp: clearedAt,
+      payload: toTaskWatchdogEventPayload(clearedPayload),
+    });
   }
 
   private hydrateSessionStateFromEvents(sessionId: string): void {

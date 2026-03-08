@@ -129,4 +129,52 @@ describe("event pipeline level classification", () => {
       0,
     );
   });
+
+  test("keeps task watchdog events at ops level and drops them at audit level", () => {
+    const auditRuntime = new BrewvaRuntime({
+      cwd: mkdtempSync(join(tmpdir(), "brewva-events-audit-watchdog-")),
+      config: createAuditConfig(),
+    });
+    const opsRuntime = new BrewvaRuntime({
+      cwd: mkdtempSync(join(tmpdir(), "brewva-events-ops-watchdog-")),
+      config: createOpsConfig(),
+    });
+    const sessionId = "watchdog-events-session";
+
+    auditRuntime.events.record({
+      sessionId,
+      type: "task_stuck_detected",
+      payload: {
+        schema: "brewva.task-watchdog.v1",
+        phase: "investigate",
+        thresholdMs: 300000,
+        baselineProgressAt: 1000,
+        detectedAt: 301000,
+        idleMs: 300000,
+        openItemCount: 0,
+        blockerId: "watchdog:task-stuck:no-progress",
+        blockerWritten: true,
+        suppressedBy: null,
+      },
+    });
+    opsRuntime.events.record({
+      sessionId,
+      type: "task_stuck_detected",
+      payload: {
+        schema: "brewva.task-watchdog.v1",
+        phase: "investigate",
+        thresholdMs: 300000,
+        baselineProgressAt: 1000,
+        detectedAt: 301000,
+        idleMs: 300000,
+        openItemCount: 0,
+        blockerId: "watchdog:task-stuck:no-progress",
+        blockerWritten: true,
+        suppressedBy: null,
+      },
+    });
+
+    expect(auditRuntime.events.query(sessionId, { type: "task_stuck_detected" })).toHaveLength(0);
+    expect(opsRuntime.events.query(sessionId, { type: "task_stuck_detected" })).toHaveLength(1);
+  });
 });

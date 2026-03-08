@@ -157,6 +157,7 @@ export interface SessionSupervisorOptions {
   defaultConfigPath?: string;
   defaultModel?: string;
   defaultEnableExtensions?: boolean;
+  workerEnv?: Record<string, string | undefined>;
   sessionIdleTtlMs?: number;
   sessionIdleSweepIntervalMs?: number;
   maxWorkers?: number;
@@ -760,6 +761,7 @@ export class SessionSupervisor implements SessionBackend {
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       env: {
         ...process.env,
+        ...this.options.workerEnv,
         BREWVA_GATEWAY_WORKER: "1",
       },
       execArgv: [],

@@ -815,6 +815,9 @@ export class BrewvaRuntime {
       turnReplay: this.turnReplay,
       events: this.eventStore,
       ledger: this.evidenceLedger,
+      resolveTaskBlocker: (sessionId, blockerId) =>
+        taskService.resolveTaskBlocker(sessionId, blockerId),
+      recordEvent: (input) => this.recordEvent(input),
     });
     const toolGateService = new ToolGateService({
       securityConfig: this.config.security,

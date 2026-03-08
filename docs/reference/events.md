@@ -36,6 +36,7 @@ These are retained under `infrastructure.events.level=audit`.
 - `cost_update`
 - `budget_alert`
 - `scan_convergence_*`
+- `task_stuck_*`
 - `skill_*` lifecycle and cascade events
 - `skill_routing_selection`
 - `skill_routing_decided`
@@ -79,6 +80,14 @@ Projection events describe deterministic projection state only.
 - `scan_convergence_reset` records `reason=strategy_shift|input_reset`, the previous arm reason, and the strategy class that successfully cleared the guard.
 
 Guard arm/reset also has a task-ledger side effect: runtime records or resolves the blocker `guard:scan-convergence`, so task status surfaces the convergence stop as `phase=blocked` until the strategy changes.
+
+## Task Progress Watchdog Events
+
+- `task_stuck_detected` records that a gateway session worker observed no semantic task progress beyond the watchdog threshold.
+- `task_stuck_detected` may record `blockerWritten=false` with `suppressedBy=guard:scan-convergence` when a more specific convergence guard is already active.
+- `task_stuck_cleared` records turn-start cleanup after semantic progress resumes beyond the persisted watchdog blocker timestamp.
+- `task_stuck_cleared` payload distinguishes `resumedProgressAt` (when progress resumed) from `clearedAt` (when the persisted watchdog blocker was actually cleared).
+- The watchdog writes a task blocker (`watchdog:task-stuck:no-progress`) only when no more-specific blocker is already active. The event family remains `ops`-level; task-ledger blocker writes remain audit-visible through `task_event`.
 
 ## Removed Families
 

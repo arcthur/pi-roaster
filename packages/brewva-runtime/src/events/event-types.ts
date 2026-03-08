@@ -10,6 +10,8 @@ export const EXEC_SANDBOX_ERROR_EVENT_TYPE = "exec_sandbox_error" as const;
 
 export const VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE = "verification_outcome_recorded" as const;
 export const VERIFICATION_STATE_RESET_EVENT_TYPE = "verification_state_reset" as const;
+export const TASK_STUCK_DETECTED_EVENT_TYPE = "task_stuck_detected" as const;
+export const TASK_STUCK_CLEARED_EVENT_TYPE = "task_stuck_cleared" as const;
 
 export const PROJECTION_INGESTED_EVENT_TYPE = "projection_ingested" as const;
 export const PROJECTION_REFRESHED_EVENT_TYPE = "projection_refreshed" as const;
