@@ -24,6 +24,19 @@ Selector execution is governance-first for runtime routing:
 5. Activation remains explicit: routing may produce `suggest/gate/auto` dispatch decisions, but actual skill entry still happens through `skill_load`.
 6. Runtime does not run adaptive inference loops or online model reranking in the kernel path.
 
+## Kernel vs Control Plane
+
+The runtime kernel and the optional control plane have different jobs:
+
+- kernel/runtime: deterministic routing (`deterministic` mode), dispatch gates,
+  evidence, replay, and policy enforcement
+- control plane: optional preselection assistance such as the external catalog
+  broker and its lexical or `llm` judge
+
+When the broker path is enabled, runtime is forced to `external_only` and
+consumes explicit preselection as an input. The model-assisted judge therefore
+does not make the kernel "smarter"; it is a separate control-plane assist path.
+
 Session bootstrap currently installs the external control-plane broker before the runtime extension stack.
 That means CLI/gateway turns normally arrive at runtime as `external_preselection`.
 The current broker is two-stage:

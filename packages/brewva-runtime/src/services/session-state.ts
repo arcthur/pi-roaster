@@ -6,6 +6,26 @@ import type {
   SkillRoutingTrace,
 } from "../types.js";
 
+export type ScanConvergenceReason =
+  | "scan_only_turns"
+  | "investigation_only_turns"
+  | "scan_failures";
+
+export type ScanConvergenceResetReason = "strategy_shift" | "input_reset";
+
+export type ScanConvergenceToolStrategy = "raw_scan" | "low_signal" | "evidence_reuse" | "progress";
+
+export interface ScanConvergenceRuntimeState {
+  currentTurnRawScanToolCalls: number;
+  currentTurnLowSignalToolCalls: number;
+  currentTurnConvergenceToolCalls: number;
+  consecutiveScanOnlyTurns: number;
+  consecutiveInvestigationOnlyTurns: number;
+  consecutiveScanFailures: number;
+  armedReason: ScanConvergenceReason | null;
+  toolStrategyByCallId: Map<string, ScanConvergenceToolStrategy>;
+}
+
 export class RuntimeSessionStateStore {
   readonly activeSkillsBySession = new Map<string, string>();
   readonly turnsBySession = new Map<string, number>();
@@ -28,6 +48,8 @@ export class RuntimeSessionStateStore {
   readonly tapeLatestAnchorEventIdBySession = new Map<string, string>();
   readonly tapeLastCheckpointEventIdBySession = new Map<string, string>();
   readonly tapeProcessedEventIdsSinceCheckpointBySession = new Map<string, Set<string>>();
+  readonly scanConvergenceBySession = new Map<string, ScanConvergenceRuntimeState>();
+  readonly scanConvergenceHydratedBySession = new Set<string>();
 
   getCurrentTurn(sessionId: string): number {
     return this.turnsBySession.get(sessionId) ?? 0;
@@ -64,6 +86,8 @@ export class RuntimeSessionStateStore {
     this.tapeLatestAnchorEventIdBySession.delete(sessionId);
     this.tapeLastCheckpointEventIdBySession.delete(sessionId);
     this.tapeProcessedEventIdsSinceCheckpointBySession.delete(sessionId);
+    this.scanConvergenceBySession.delete(sessionId);
+    this.scanConvergenceHydratedBySession.delete(sessionId);
     this.activeSkillsBySession.delete(sessionId);
     this.turnsBySession.delete(sessionId);
     this.toolCallsBySession.delete(sessionId);

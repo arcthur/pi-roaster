@@ -22,6 +22,7 @@ function createRuntimeMock() {
   const usage: RecordedUsage[] = [];
   const costSummaryBySession = new Map<string, Record<string, unknown>>();
   const turnStarts: Array<{ sessionId: string; turnIndex: number }> = [];
+  const turnEnds: string[] = [];
 
   const runtime = {
     events: {
@@ -32,6 +33,9 @@ function createRuntimeMock() {
     context: {
       onTurnStart(sessionId: string, turnIndex: number): void {
         turnStarts.push({ sessionId, turnIndex });
+      },
+      onTurnEnd(sessionId: string): void {
+        turnEnds.push(sessionId);
       },
     },
     skills: {
@@ -63,6 +67,7 @@ function createRuntimeMock() {
     usage,
     costSummaryBySession,
     turnStarts,
+    turnEnds,
   };
 }
 
@@ -110,7 +115,7 @@ function createTurnEndEvent(toolResults: unknown[] = []): AgentSessionEvent {
 
 describe("session event bridge", () => {
   test("given session id changes between events, when bridge records events, then each event uses current session id", () => {
-    const { runtime, events, turnStarts } = createRuntimeMock();
+    const { runtime, events, turnStarts, turnEnds } = createRuntimeMock();
     const sessionMock = createSessionMock("session-a");
 
     registerRuntimeCoreEventBridge(runtime, sessionMock.session);
@@ -132,6 +137,7 @@ describe("session event bridge", () => {
       { sessionId: "session-a", turnIndex: 0 },
       { sessionId: "session-b", turnIndex: 1 },
     ]);
+    expect(turnEnds).toEqual(["session-a", "session-b"]);
   });
 
   test("given per-session cost summaries, when agent_end is emitted, then bridge records summary for active session", () => {

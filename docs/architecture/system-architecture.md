@@ -73,6 +73,21 @@ Arena SLO is an execution boundary, not an inference selector.
 
 These checks enrich auditability; they do not introduce adaptive inference paths.
 
+## Control Plane Boundary
+
+Optional control-plane components may provide operator-facing assistance outside
+the kernel path. For example, the external skill broker can use lexical or
+model-assisted judging to produce explicit preselection.
+
+When that broker path is enabled:
+
+- selection happens before runtime routing
+- runtime runs with `skills.selector.mode=external_only`
+- the kernel remains governance-only for dispatch, gate, evidence, and replay
+
+This preserves the runtime/kernel promise: the kernel governs execution; it does
+not run adaptive model routing inside the core path.
+
 ## Extensions
 
 Extensions can shape operator UX (for example capability disclosure), but kernel

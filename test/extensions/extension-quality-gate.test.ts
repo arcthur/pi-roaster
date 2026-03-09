@@ -6,12 +6,16 @@ import { createRuntimeFixture } from "./fixtures/runtime.js";
 describe("Extension gaps: quality gate", () => {
   test("given sanitizer output differs, when input hook runs, then extension returns transform action", () => {
     const { api, handlers } = createMockExtensionAPI();
+    const userInputs: string[] = [];
 
     const runtime = createRuntimeFixture({
       tools: {
         start: () => ({ allowed: true }),
       },
       context: {
+        onUserInput: (sessionId: string) => {
+          userInputs.push(sessionId);
+        },
         sanitizeInput: (text: string) => `sanitized:${text}`,
       },
     });
@@ -26,22 +30,27 @@ describe("Extension gaps: quality gate", () => {
         text: "hello",
         images: [{ type: "image", url: "test://image" }],
       },
-      {},
+      { sessionManager: { getSessionId: () => "quality-input-1" } },
     );
 
     expect(result.action).toBe("transform");
     expect(result.text).toBe("sanitized:hello");
     expect(result.images).toHaveLength(1);
+    expect(userInputs).toEqual(["quality-input-1"]);
   });
 
   test("given sanitizer output unchanged, when input hook runs, then extension returns continue action", () => {
     const { api, handlers } = createMockExtensionAPI();
+    const userInputs: string[] = [];
 
     const runtime = createRuntimeFixture({
       tools: {
         start: () => ({ allowed: true }),
       },
       context: {
+        onUserInput: (sessionId: string) => {
+          userInputs.push(sessionId);
+        },
         sanitizeInput: (text: string) => text,
       },
     });
@@ -56,20 +65,25 @@ describe("Extension gaps: quality gate", () => {
         text: "hello",
         images: [],
       },
-      {},
+      { sessionManager: { getSessionId: () => "quality-input-2" } },
     );
 
     expect(result.action).toBe("continue");
+    expect(userInputs).toEqual(["quality-input-2"]);
   });
 
   test("given non-ascii input unchanged by sanitizer, when input hook runs, then extension continues", () => {
     const { api, handlers, sentMessages } = createMockExtensionAPI();
+    const userInputs: string[] = [];
 
     const runtime = createRuntimeFixture({
       tools: {
         start: () => ({ allowed: true }),
       },
       context: {
+        onUserInput: (sessionId: string) => {
+          userInputs.push(sessionId);
+        },
         sanitizeInput: (text: string) => text,
       },
     });
@@ -84,11 +98,12 @@ describe("Extension gaps: quality gate", () => {
         text: "请 review this change",
         images: [],
       },
-      {},
+      { sessionManager: { getSessionId: () => "quality-input-3" } },
     );
 
     expect(result.action).toBe("continue");
     expect(sentMessages).toHaveLength(0);
+    expect(userInputs).toEqual(["quality-input-3"]);
   });
 
   test("given tool_call and context usage, when quality gate runs, then runtime.tools.start receives normalized usage", () => {

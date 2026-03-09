@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   resolveProjectBrewvaRootDir,
@@ -591,7 +592,7 @@ export class CatalogSkillBroker implements SkillBroker {
 
   async select(input: SkillBrokerSelectInput): Promise<SkillBrokerDecision> {
     try {
-      const catalog = this.loadCatalog();
+      const catalog = await this.loadCatalog();
       const promptTokens = new Set(extractTokens(input.prompt));
       const previewByName = this.buildPreviewMap();
       const candidates = catalog.skills
@@ -725,15 +726,15 @@ export class CatalogSkillBroker implements SkillBroker {
     }
   }
 
-  private loadCatalog(): SkillBrokerCatalog {
+  private async loadCatalog(): Promise<SkillBrokerCatalog> {
     if (!existsSync(this.catalogPath)) {
       throw new Error(`catalog_missing:${this.catalogPath}`);
     }
-    const currentMtimeMs = statSync(this.catalogPath).mtimeMs;
+    const currentMtimeMs = (await stat(this.catalogPath)).mtimeMs;
     if (this.cache && this.cache.mtimeMs === currentMtimeMs) {
       return this.cache.catalog;
     }
-    const parsed = JSON.parse(readFileSync(this.catalogPath, "utf8")) as SkillBrokerCatalog;
+    const parsed = JSON.parse(await readFile(this.catalogPath, "utf8")) as SkillBrokerCatalog;
     if (!parsed || !Array.isArray(parsed.skills)) {
       throw new Error("catalog_invalid");
     }

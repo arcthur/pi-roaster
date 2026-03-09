@@ -63,6 +63,8 @@ Governance events are available at `ops` and `debug` levels and remain replayabl
 - `projection_refreshed`
 
 Projection events describe deterministic projection state only.
+They are observational telemetry and do not carry a full semantic projection
+snapshot that can replace source-event replay.
 
 ## Skill Routing Notes
 

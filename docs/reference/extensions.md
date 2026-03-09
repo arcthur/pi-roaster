@@ -35,11 +35,15 @@ Implementation files:
 - `packages/brewva-extensions/src/completion-guard.ts`
 - `packages/brewva-extensions/src/notification.ts`
 
-`registerScanConvergenceGuard` is intentionally registered before `registerQualityGate` so repeated low-signal retrieval drift is stopped before later tool-policy side effects run.
-
 ## Scan Convergence Guard
 
-`registerScanConvergenceGuard` classifies retrieval behavior into four tool strategies:
+Scan convergence is now a runtime governance service. The extension bridge only
+forwards turn-end lifecycle into runtime; the actual classification, blocker
+writes, event emission, restart hydration, and tool-call blocking happen inside
+runtime services (`runtime.tools.start(...)`, `runtime.tools.finish(...)`,
+`runtime.context.onUserInput(...)`, `runtime.context.onTurnEnd(...)`).
+
+The runtime service classifies retrieval behavior into four tool strategies:
 
 - `raw_scan`: `read`, `grep`
 - `low_signal`: `look_at`, `ast_grep_search`, selected `lsp_*` navigation tools, and low-signal `exec` commands such as `ls`/`find`/`cat`/`rg`
@@ -52,11 +56,11 @@ The guard arms when a session accumulates repeated:
 - low-signal investigation-only turns
 - ENOENT / out-of-bounds raw scan failures
 
-When armed, it:
+When armed, runtime:
 
 - blocks additional `raw_scan` and `low_signal` tool calls
 - records the task blocker `guard:scan-convergence`, which moves task status to `phase=blocked`
-- resets only after a successful `evidence_reuse` or `progress` tool completion, or after fresh user `input`
+- resets only after a successful `evidence_reuse` or `progress` tool completion, or after fresh user input
 
 This keeps the runtime aligned with the working-projection/task-ledger model: summarize current evidence first, then use task state or prior artifacts before resuming more retrieval.
 
@@ -99,6 +103,10 @@ That broker:
 - writes control-plane traces under `.brewva/skill-broker/<sessionId>/`
 - injects explicit preselection via `runtime.skills.setNextSelection(...)` before `registerContextTransform` runs
 - forces broker-enabled sessions onto `skills.selector.mode=external_only`
+
+This broker path is an optional control-plane assist layer. Runtime kernel
+selection remains closed off in `external_only`, so kernel governance semantics
+stay deterministic and replayable.
 
 Default context injection sources are:
 

@@ -25,7 +25,7 @@ There is no recall lane and no external recall branch in the default runtime.
    - `ContextProjectionInjectionService` injects only `brewva.projection-working`
    - injection still respects global context budget and compaction gate
 4. Replay/recovery:
-   - on restart, runtime rebuilds projection from tape when projection files are missing
+   - on restart, runtime rebuilds projection from source tape events when projection files are missing
 
 ## Persisted Artifacts
 
@@ -37,5 +37,7 @@ There is no recall lane and no external recall branch in the default runtime.
 
 - Working projection is a projection, not source-of-truth.
 - Tape events remain the source-of-truth.
+- Tape checkpoint projection state is metadata-only (`updatedAt`, `unitCount`);
+  it is observational and not a restorable semantic unit snapshot.
 - Projection entries are keyed by source identity, not by heuristic importance classes.
 - Any projection update path must stay deterministic and explainable.

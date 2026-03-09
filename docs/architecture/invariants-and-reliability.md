@@ -90,10 +90,12 @@ Relevant implementation:
 - Working projection must remain tape-derived and auditable:
   units and working snapshot are derived from event tape semantics, not an
   independent mutable source of truth.
-- Projection events (`projection_*`) should carry sufficient snapshot fields
-  to rebuild projection artifacts when `.orchestrator/projection/*` is missing.
+- Projection events (`projection_*`) are operational/observational telemetry.
+  They do not replace semantic projection rebuild inputs.
 - Working-projection injection must be reproducible from persisted projection
-  artifacts (or tape-driven rebuild outputs) and bounded by context-budget policy.
+  artifacts (or tape-driven rebuild outputs). If projection artifacts are
+  missing, runtime rebuilds units from source tape events, then refreshes the
+  working snapshot under the same context-budget policy.
 
 Relevant implementation:
 

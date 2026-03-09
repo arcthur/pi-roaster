@@ -39,7 +39,9 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 
 ### `runtime.context.*`
 
+- `onUserInput(sessionId)`
 - `onTurnStart(sessionId, turnIndex)`
+- `onTurnEnd(sessionId)`
 - `sanitizeInput(text)`
 - `observeUsage(sessionId, usage)`
 - `getUsage(sessionId)`
@@ -254,6 +256,11 @@ The folded replay view includes:
 Checkpoint payloads persisted by tape automation include corresponding state slices,
 so replay can seek to the latest checkpoint and avoid full-tape recomputation for
 these domains.
+
+For projection specifically, the checkpoint slice is observational metadata only
+(`updatedAt`, `unitCount`). It is not a semantic working-projection snapshot.
+If projection artifacts are missing, runtime rebuilds projection semantics from
+source tape events rather than restoring units from checkpoint payload alone.
 
 ## Scheduling Notes
 

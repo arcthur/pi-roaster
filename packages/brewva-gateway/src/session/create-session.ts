@@ -83,6 +83,7 @@ function registerRuntimeCoreEventBridge(
         const toolResults = Array.isArray((event as { toolResults?: unknown }).toolResults)
           ? (event as { toolResults: unknown[] }).toolResults.length
           : 0;
+        runtime.context.onTurnEnd(sessionId);
         runtime.events.record({
           sessionId,
           type: "turn_end",

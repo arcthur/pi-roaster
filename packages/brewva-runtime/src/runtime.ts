@@ -35,6 +35,7 @@ import { EventPipelineService, type RuntimeRecordEventInput } from "./services/e
 import { FileChangeService } from "./services/file-change.js";
 import { LedgerService } from "./services/ledger.js";
 import { ParallelService } from "./services/parallel.js";
+import { ScanConvergenceService } from "./services/scan-convergence.js";
 import { ScheduleIntentService } from "./services/schedule-intent.js";
 import { SessionLifecycleService } from "./services/session-lifecycle.js";
 import { RuntimeSessionStateStore } from "./services/session-state.js";
@@ -146,6 +147,7 @@ type RuntimeServiceDependencies = {
   costService: CostService;
   verificationService: VerificationService;
   contextService: ContextService;
+  scanConvergenceService: ScanConvergenceService;
   tapeService: TapeService;
   eventPipeline: EventPipelineService;
   scheduleIntentService: ScheduleIntentService;
@@ -216,6 +218,8 @@ export class BrewvaRuntime {
   };
   readonly context: {
     onTurnStart(sessionId: string, turnIndex: number): void;
+    onTurnEnd(sessionId: string): void;
+    onUserInput(sessionId: string): void;
     sanitizeInput(text: string): string;
     observeUsage(sessionId: string, usage: ContextBudgetUsage | undefined): void;
     getUsage(sessionId: string): ContextBudgetUsage | undefined;
@@ -479,6 +483,7 @@ export class BrewvaRuntime {
   private readonly fileChangeService: FileChangeService;
   private readonly ledgerService: LedgerService;
   private readonly parallelService: ParallelService;
+  private readonly scanConvergenceService: ScanConvergenceService;
   private readonly scheduleIntentService: ScheduleIntentService;
   private readonly sessionLifecycleService: SessionLifecycleService;
   private readonly skillLifecycleService: SkillLifecycleService;
@@ -522,6 +527,7 @@ export class BrewvaRuntime {
     this.costService = serviceDependencies.costService;
     this.verificationService = serviceDependencies.verificationService;
     this.contextService = serviceDependencies.contextService;
+    this.scanConvergenceService = serviceDependencies.scanConvergenceService;
     this.tapeService = serviceDependencies.tapeService;
     this.eventPipeline = serviceDependencies.eventPipeline;
     this.scheduleIntentService = serviceDependencies.scheduleIntentService;
@@ -741,6 +747,17 @@ export class BrewvaRuntime {
       recordEvent: (input) => this.recordEvent(input),
       governancePort: options.governancePort,
     });
+    const scanConvergenceService = new ScanConvergenceService({
+      sessionState: this.sessionState,
+      listEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
+      getTaskState: (sessionId) => this.getTaskState(sessionId),
+      getCurrentTurn: (sessionId) => this.getCurrentTurn(sessionId),
+      getActiveSkillName: (sessionId) => skillLifecycleService.getActiveSkill(sessionId)?.name,
+      recordTaskBlocker: (sessionId, input) => taskService.recordTaskBlocker(sessionId, input),
+      resolveTaskBlocker: (sessionId, blockerId) =>
+        taskService.resolveTaskBlocker(sessionId, blockerId),
+      recordEvent: (input) => this.recordEvent(input),
+    });
     const tapeService = new TapeService({
       tapeConfig: this.config.tape,
       sessionState: this.sessionState,
@@ -836,6 +853,8 @@ export class BrewvaRuntime {
       trackToolCallStart: (input) => fileChangeService.trackToolCallStart(input),
       recordToolResult: (input) => ledgerService.recordToolResult(input),
       trackToolCallEnd: (input) => fileChangeService.trackToolCallEnd(input),
+      checkScanConvergence: (input) => scanConvergenceService.checkToolCall(input),
+      observeScanConvergenceToolResult: (input) => scanConvergenceService.observeToolResult(input),
     });
 
     return {
@@ -848,6 +867,7 @@ export class BrewvaRuntime {
       costService,
       verificationService,
       contextService,
+      scanConvergenceService,
       tapeService,
       eventPipeline,
       scheduleIntentService,
@@ -921,6 +941,8 @@ export class BrewvaRuntime {
       context: {
         onTurnStart: (sessionId, turnIndex) =>
           this.sessionLifecycleService.onTurnStart(sessionId, turnIndex),
+        onTurnEnd: (sessionId) => this.scanConvergenceService.onTurnEnd(sessionId),
+        onUserInput: (sessionId) => this.scanConvergenceService.onUserInput(sessionId),
         sanitizeInput: (text) => this.sanitizeInput(text),
         observeUsage: (sessionId, usage) =>
           this.contextService.observeContextUsage(sessionId, usage),

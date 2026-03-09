@@ -60,6 +60,8 @@ Use `deterministic` only when running without that broker path.
 - `llm` (default): run the control-plane judge and allow full-catalog semantic selection when shortlist confidence is low or empty
 
 `llm` is an explicit cost/latency trade-off and is authoritative. If model resolution, credentials, or parsing fail, broker routing is marked failed instead of silently falling back to heuristic scoring. Use `heuristic` only when you intentionally want lexical-only routing.
+This judge runs in the optional control-plane broker path, not inside the
+runtime kernel.
 
 `skills.packs` is an optional allowlist for pack directories across all discovered skill roots
 (`global_root`, `project_root`, and `config_root`).

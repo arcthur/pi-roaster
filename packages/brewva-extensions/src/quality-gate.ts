@@ -23,7 +23,21 @@ export function registerQualityGate(pi: ExtensionAPI, runtime: BrewvaRuntime): v
     return undefined;
   });
 
-  pi.on("input", (event) => {
+  pi.on("input", (event, ctx) => {
+    const sessionId =
+      ctx &&
+      typeof ctx === "object" &&
+      "sessionManager" in ctx &&
+      (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager &&
+      typeof (ctx as { sessionManager?: { getSessionId?: () => string } }).sessionManager
+        ?.getSessionId === "function"
+        ? ((
+            ctx as { sessionManager: { getSessionId: () => string } }
+          ).sessionManager.getSessionId() ?? "")
+        : "";
+    if (sessionId.length > 0) {
+      runtime.context.onUserInput(sessionId);
+    }
     const sanitized = runtime.context.sanitizeInput(event.text);
     if (sanitized === event.text) {
       return { action: "continue" };

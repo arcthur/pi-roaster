@@ -12,7 +12,12 @@ Brewva is a runtime for AI coding agents that makes governance explicit, evented
 
 ## Core Position
 
-**Brewva does not try to make the agent smarter. Brewva makes agent behavior trustworthy.**
+**Brewva's runtime kernel does not try to make the agent smarter. Brewva makes agent behavior trustworthy.**
+
+Optional control-plane helpers may assist operator workflows or preselection
+(for example the external skill broker judge), but those helpers sit outside the
+kernel path. The runtime kernel only governs, records, and replays the resulting
+execution path.
 
 The runtime is optimized for one question:
 
@@ -107,7 +112,8 @@ For complete CLI modes and gateway/onboard operations:
   final runtime routing result, and broker judge mode defaults to `llm`.
   In `llm` mode the control-plane judge is authoritative: judge unavailability,
   missing credentials, or parse failures mark broker routing as failed instead
-  of silently falling back to heuristic scoring.
+  of silently falling back to heuristic scoring. This model-assisted judgment
+  happens in the optional control plane, not inside the runtime kernel.
 - Cascade missing consumes is deterministic pause (`reason=missing_consumes`);
   runtime no longer auto-replans dependency chains.
 - `compose` is planning-only and now has a higher read budget (`max_tool_calls: 120`).

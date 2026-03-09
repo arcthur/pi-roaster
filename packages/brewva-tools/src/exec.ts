@@ -160,7 +160,11 @@ function resolveTimeoutSec(params: {
     return undefined;
   }
 
-  if (timeout > MAX_TIMEOUT_SEC) {
+  // Values above 1000 are unambiguously milliseconds (1000ms = 1s minimum
+  // practical timeout). Values <= MAX_TIMEOUT_SEC are treated as seconds.
+  // This avoids the dead zone where e.g. 10800 (intending 3h in seconds)
+  // would be silently converted to ~10.8 seconds.
+  if (timeout > 1_000) {
     const normalizedMs = Math.max(1, Math.min(MAX_TIMEOUT_MS, timeout));
     return clampSeconds(normalizedMs / 1_000);
   }

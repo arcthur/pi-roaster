@@ -101,6 +101,29 @@ export interface ToolGateServiceOptions {
       },
     ]
   >;
+  checkScanConvergence: RuntimeCallback<
+    [
+      input: {
+        sessionId: string;
+        toolCallId: string;
+        toolName: string;
+        args?: Record<string, unknown>;
+      },
+    ],
+    ToolAccessDecision
+  >;
+  observeScanConvergenceToolResult: RuntimeCallback<
+    [
+      input: {
+        sessionId: string;
+        toolCallId: string;
+        toolName: string;
+        args?: Record<string, unknown>;
+        success: boolean;
+        outputText: string;
+      },
+    ]
+  >;
 }
 
 export class ToolGateService {
@@ -119,6 +142,8 @@ export class ToolGateService {
   private readonly trackToolCallStart: ToolGateServiceOptions["trackToolCallStart"];
   private readonly recordToolResult: ToolGateServiceOptions["recordToolResult"];
   private readonly trackToolCallEnd: ToolGateServiceOptions["trackToolCallEnd"];
+  private readonly checkScanConvergence: ToolGateServiceOptions["checkScanConvergence"];
+  private readonly observeScanConvergenceToolResult: ToolGateServiceOptions["observeScanConvergenceToolResult"];
 
   constructor(options: ToolGateServiceOptions) {
     this.securityPolicy = resolveSecurityPolicy(options.securityConfig);
@@ -140,6 +165,8 @@ export class ToolGateService {
     this.trackToolCallStart = options.trackToolCallStart;
     this.recordToolResult = options.recordToolResult;
     this.trackToolCallEnd = options.trackToolCallEnd;
+    this.checkScanConvergence = options.checkScanConvergence;
+    this.observeScanConvergenceToolResult = options.observeScanConvergenceToolResult;
   }
 
   checkToolAccess(sessionId: string, toolName: string): ToolAccessDecision {
@@ -443,6 +470,14 @@ export class ToolGateService {
       });
     }
 
+    const convergence = this.checkScanConvergence({
+      sessionId: input.sessionId,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      args: input.args,
+    });
+    if (!convergence.allowed) return convergence;
+
     const access = this.checkToolAccess(input.sessionId, input.toolName);
     if (!access.allowed) return access;
 
@@ -556,6 +591,14 @@ export class ToolGateService {
       success: input.success,
       verdict: input.verdict,
       metadata: input.metadata,
+    });
+    this.observeScanConvergenceToolResult({
+      sessionId: input.sessionId,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      args: input.args,
+      success: input.success,
+      outputText: input.outputText,
     });
     this.trackToolCallEnd({
       sessionId: input.sessionId,
