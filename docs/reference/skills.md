@@ -124,6 +124,7 @@ emits `sourceDecision` in cascade event payloads with stable reason codes:
 - `skill-creator`
 - `telegram-channel-behavior`
 - `telegram-interactive-components`
+- `zca-structured-output`
 
 ## Project Skills
 

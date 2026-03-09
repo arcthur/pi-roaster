@@ -420,4 +420,28 @@ describe("skill contract and dispatch parsing", () => {
     expect(recovery.contract.composableWith).toContain("goal-loop");
     expect(recovery.contract.effectLevel).toBe("read_only");
   });
+
+  test("zca structured output declares bounded validation contract", () => {
+    const skillPath = join(
+      repoRoot(),
+      "skills",
+      "packs",
+      "zca-structured-output",
+      "SKILL.md",
+    );
+
+    const parsed = parseSkillDocument(skillPath, "pack");
+
+    expect(parsed.contract.effectLevel).toBe("execute");
+    expect(parsed.contract.tools.required).toEqual(expect.arrayContaining(["read", "exec"]));
+    expect(parsed.contract.tools.denied).toEqual(
+      expect.arrayContaining(["edit", "write", "process"]),
+    );
+    expect(parsed.contract.outputs).toBeDefined();
+    expect(parsed.contract.outputs?.every((output) => output.startsWith("zca_"))).toBe(true);
+    expect(parsed.contract.consumes).not.toContain("task_state");
+    expect(parsed.contract.composableWith).toEqual(
+      expect.arrayContaining(["planning", "verification", "recovery"]),
+    );
+  });
 });

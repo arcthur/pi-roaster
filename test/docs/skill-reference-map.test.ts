@@ -28,6 +28,11 @@ describe("skill reference maps", () => {
       referencesDir: join(root, "skills/packs/goal-loop/references"),
     },
     {
+      name: "zca-structured-output",
+      skillPath: join(root, "skills/packs/zca-structured-output/SKILL.md"),
+      referencesDir: join(root, "skills/packs/zca-structured-output/references"),
+    },
+    {
       name: "recovery",
       skillPath: join(root, "skills/base/recovery/SKILL.md"),
       referencesDir: join(root, "skills/base/recovery/references"),
