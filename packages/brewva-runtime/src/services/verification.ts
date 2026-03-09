@@ -131,7 +131,7 @@ export interface VerificationServiceOptions {
         toolName: string;
         args: Record<string, unknown>;
         outputText: string;
-        success: boolean;
+        channelSuccess: boolean;
         verdict?: "pass" | "fail" | "inconclusive";
         metadata?: Record<string, unknown>;
       },
@@ -528,7 +528,7 @@ export class VerificationService {
         toolName: "brewva_verify",
         args: { check: checkName, command },
         outputText: outputSummary,
-        success: ok,
+        channelSuccess: ok,
         verdict: ok ? "pass" : "fail",
         metadata: {
           source: "verification_gate",

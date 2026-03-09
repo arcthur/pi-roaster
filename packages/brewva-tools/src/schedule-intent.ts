@@ -7,7 +7,7 @@ import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { addMilliseconds, formatISO } from "date-fns";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -221,7 +221,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionId(ctx);
       if (options.runtime.config?.schedule?.enabled === false) {
-        return textResult("Schedule intent rejected (scheduler_disabled).", {
+        return failTextResult("Schedule intent rejected (scheduler_disabled).", {
           ok: false,
           error: "scheduler_disabled",
         });
@@ -230,7 +230,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
       if (params.action === "create") {
         const reason = normalizeOptionalString(params.reason);
         if (!reason) {
-          return textResult("Schedule intent rejected (missing_reason).", {
+          return failTextResult("Schedule intent rejected (missing_reason).", {
             ok: false,
             error: "missing_reason",
           });
@@ -243,7 +243,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
           timeZone: params.timeZone,
         });
         if (!scheduleTarget.runAt && !scheduleTarget.cron) {
-          return textResult(
+          return failTextResult(
             `Schedule intent rejected (${scheduleTarget.error ?? "invalid_schedule"}).`,
             {
               ok: false,
@@ -265,7 +265,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
         });
 
         if (!created.ok) {
-          return textResult(`Schedule intent rejected (${created.error}).`, {
+          return failTextResult(`Schedule intent rejected (${created.error}).`, {
             ok: false,
             error: created.error,
           });
@@ -291,7 +291,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
       if (params.action === "update") {
         const intentId = normalizeOptionalString(params.intentId);
         if (!intentId) {
-          return textResult("Schedule intent update rejected (missing_intent_id).", {
+          return failTextResult("Schedule intent update rejected (missing_intent_id).", {
             ok: false,
             error: "missing_intent_id",
           });
@@ -304,7 +304,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
           timeZone: params.timeZone,
         });
         if (schedulePatch.error) {
-          return textResult(`Schedule intent update rejected (${schedulePatch.error}).`, {
+          return failTextResult(`Schedule intent update rejected (${schedulePatch.error}).`, {
             ok: false,
             error: schedulePatch.error,
           });
@@ -312,7 +312,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
 
         const reason = normalizeOptionalString(params.reason);
         if (params.reason !== undefined && !reason) {
-          return textResult("Schedule intent update rejected (invalid_reason).", {
+          return failTextResult("Schedule intent update rejected (invalid_reason).", {
             ok: false,
             error: "invalid_reason",
           });
@@ -320,7 +320,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
         const goalRef =
           params.goalRef !== undefined ? normalizeOptionalString(params.goalRef) : undefined;
         if (params.goalRef !== undefined && !goalRef) {
-          return textResult("Schedule intent update rejected (invalid_goal_ref).", {
+          return failTextResult("Schedule intent update rejected (invalid_goal_ref).", {
             ok: false,
             error: "invalid_goal_ref",
           });
@@ -332,7 +332,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
           params.maxRuns !== undefined ||
           params.convergenceCondition !== undefined;
         if (!schedulePatch.hasScheduleUpdate && !hasNonSchedulePatch) {
-          return textResult("Schedule intent update rejected (empty_update).", {
+          return failTextResult("Schedule intent update rejected (empty_update).", {
             ok: false,
             error: "empty_update",
           });
@@ -354,7 +354,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
 
         const updated = await options.runtime.schedule.updateIntent(sessionId, updateInput);
         if (!updated.ok) {
-          return textResult(`Schedule intent update rejected (${updated.error}).`, {
+          return failTextResult(`Schedule intent update rejected (${updated.error}).`, {
             ok: false,
             error: updated.error,
           });
@@ -380,7 +380,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
       if (params.action === "cancel") {
         const intentId = normalizeOptionalString(params.intentId);
         if (!intentId) {
-          return textResult("Schedule intent cancel rejected (missing_intent_id).", {
+          return failTextResult("Schedule intent cancel rejected (missing_intent_id).", {
             ok: false,
             error: "missing_intent_id",
           });
@@ -391,7 +391,7 @@ export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefini
           reason: normalizeOptionalString(params.reason),
         });
         if (!cancelled.ok) {
-          return textResult(
+          return failTextResult(
             `Schedule intent cancel rejected (${cancelled.error ?? "unknown_error"}).`,
             {
               ok: false,

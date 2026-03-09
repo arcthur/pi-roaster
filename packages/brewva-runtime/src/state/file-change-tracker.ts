@@ -196,7 +196,7 @@ export class FileChangeTracker {
   completeToolCall(input: {
     sessionId: string;
     toolCallId: string;
-    success: boolean;
+    channelSuccess: boolean;
   }): PatchSet | undefined {
     this.ensureHistoryLoaded(input.sessionId);
     const pendingForSession = this.pendingBySession.get(input.sessionId);
@@ -204,7 +204,7 @@ export class FileChangeTracker {
     if (!pending) return undefined;
 
     pendingForSession?.delete(input.toolCallId);
-    if (!input.success) return undefined;
+    if (!input.channelSuccess) return undefined;
 
     const changedFiles: AppliedMutation["changes"] = [];
     for (const tracked of pending.trackedFiles) {

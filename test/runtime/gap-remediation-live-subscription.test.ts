@@ -27,7 +27,7 @@ describe("Gap remediation: live event subscription", () => {
       toolName: "exec",
       args: { command: "echo ok" },
       outputText: "ok",
-      success: true,
+      channelSuccess: true,
     });
 
     expect(received.some((event) => event.schema === "brewva.event.v1")).toBe(true);

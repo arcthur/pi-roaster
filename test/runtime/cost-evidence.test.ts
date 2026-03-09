@@ -15,7 +15,7 @@ describe("cost evidence separation in digest", () => {
       toolName: "exec",
       args: { command: "echo hello" },
       outputText: "hello",
-      success: true,
+      channelSuccess: true,
     });
 
     runtime.cost.recordAssistantUsage({

@@ -43,7 +43,7 @@ describe("session state cleanup", () => {
       toolName: "exec",
       args: { command: "echo ok" },
       outputText: "ok",
-      success: true,
+      channelSuccess: true,
     });
     runtime.task.getState(sessionId);
     runtime.truth.getState(sessionId);

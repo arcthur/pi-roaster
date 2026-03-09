@@ -15,7 +15,7 @@ import {
   resolveParallelReadConfig,
   summarizeReadBatch,
 } from "./utils/parallel-read.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, inconclusiveTextResult, textResult, withVerdict } from "./utils/result.js";
 import { defineTool } from "./utils/tool.js";
 
 const CODE_EXTENSIONS = new Set([
@@ -431,10 +431,10 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       if (!existsSync(params.filePath))
-        return textResult(`Error: File not found: ${params.filePath}`);
+        return failTextResult(`Error: File not found: ${params.filePath}`);
 
       const symbol = wordAt(params.filePath, params.line, params.character);
-      if (!symbol) return textResult("No symbol found at cursor.");
+      if (!symbol) return inconclusiveTextResult("No symbol found at cursor.");
 
       const scan: LspParallelReadContext = {
         runtime: options?.runtime,
@@ -443,7 +443,9 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
         config: resolveParallelReadConfig(options?.runtime),
       };
       const matches = await findDefinition(ctx.cwd, symbol, scan, params.filePath, 1);
-      if (matches.length === 0) return textResult(`No definition found for '${symbol}'.`);
+      if (matches.length === 0) {
+        return inconclusiveTextResult(`No definition found for '${symbol}'.`);
+      }
 
       return textResult(matches.slice(0, 20).join("\n"), {
         symbol,
@@ -464,10 +466,10 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       if (!existsSync(params.filePath))
-        return textResult(`Error: File not found: ${params.filePath}`);
+        return failTextResult(`Error: File not found: ${params.filePath}`);
 
       const symbol = wordAt(params.filePath, params.line, params.character);
-      if (!symbol) return textResult("No symbol found at cursor.");
+      if (!symbol) return inconclusiveTextResult("No symbol found at cursor.");
 
       const scan: LspParallelReadContext = {
         runtime: options?.runtime,
@@ -481,7 +483,9 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
         refs = refs.filter((line) => !defs.has(line));
       }
 
-      if (refs.length === 0) return textResult(`No references found for '${symbol}'.`);
+      if (refs.length === 0) {
+        return inconclusiveTextResult(`No references found for '${symbol}'.`);
+      }
 
       return textResult(refs.slice(0, 200).join("\n"), {
         symbol,
@@ -507,28 +511,30 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
 
       if (scope === "document") {
         if (!existsSync(params.filePath))
-          return textResult(`Error: File not found: ${params.filePath}`);
+          return failTextResult(`Error: File not found: ${params.filePath}`);
         let targetStat: import("node:fs").Stats;
         try {
           targetStat = statSync(params.filePath);
         } catch (error) {
-          return textResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
+          return failTextResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
         }
         if (!targetStat.isFile()) {
-          return textResult(`Error: Path is not a file: ${params.filePath}`);
+          return failTextResult(`Error: Path is not a file: ${params.filePath}`);
         }
 
         let symbols: string[];
         try {
           symbols = listSymbolsInFile(params.filePath, limit);
         } catch (error) {
-          return textResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
+          return failTextResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
         }
-        return textResult(symbols.length > 0 ? symbols.join("\n") : "No symbols found");
+        return symbols.length > 0
+          ? textResult(symbols.join("\n"))
+          : inconclusiveTextResult("No symbols found");
       }
 
       if (!params.query || params.query.trim().length === 0) {
-        return textResult("Error: query is required for workspace scope.");
+        return failTextResult("Error: query is required for workspace scope.");
       }
 
       const scan: LspParallelReadContext = {
@@ -538,7 +544,9 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
         config: resolveParallelReadConfig(options?.runtime),
       };
       const refs = await findReferences(ctx.cwd, params.query, scan, limit);
-      return textResult(refs.length > 0 ? refs.join("\n") : "No symbols found");
+      return refs.length > 0
+        ? textResult(refs.join("\n"))
+        : inconclusiveTextResult("No symbols found");
     },
   });
 
@@ -561,20 +569,26 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     async execute(_id, params, _signal, _onUpdate, ctx) {
       try {
         const run = await diagnostics(ctx.cwd, params.filePath, params.severity);
-        return textResult(run.text, {
-          status: run.status,
-          reason: run.reason ?? null,
-          filePath: params.filePath,
-          severity: params.severity ?? "all",
-          exitCode: run.exitCode,
-          filteredLineCount: run.filteredLineCount,
-          diagnosticsCount: run.diagnostics.length,
-          truncated: run.truncated,
-          countsByCode: run.countsByCode,
-          diagnostics: run.diagnostics,
-        });
+        return textResult(
+          run.text,
+          withVerdict(
+            {
+              status: run.status,
+              reason: run.reason ?? null,
+              filePath: params.filePath,
+              severity: params.severity ?? "all",
+              exitCode: run.exitCode,
+              filteredLineCount: run.filteredLineCount,
+              diagnosticsCount: run.diagnostics.length,
+              truncated: run.truncated,
+              countsByCode: run.countsByCode,
+              diagnostics: run.diagnostics,
+            },
+            run.status === "unavailable" ? "inconclusive" : undefined,
+          ),
+        );
       } catch (error) {
-        return textResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        return failTextResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
       }
     },
   });
@@ -590,10 +604,12 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       if (!existsSync(params.filePath))
-        return textResult(`Error: File not found: ${params.filePath}`);
+        return failTextResult(`Error: File not found: ${params.filePath}`);
 
       const symbol = wordAt(params.filePath, params.line, params.character);
-      if (!symbol) return textResult("Rename not available: cursor is not on a symbol.");
+      if (!symbol) {
+        return inconclusiveTextResult("Rename not available: cursor is not on a symbol.");
+      }
 
       const scan: LspParallelReadContext = {
         runtime: options?.runtime,
@@ -623,13 +639,13 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       if (!existsSync(params.filePath))
-        return textResult(`Error: File not found: ${params.filePath}`);
+        return failTextResult(`Error: File not found: ${params.filePath}`);
 
       const symbol = wordAt(params.filePath, params.line, params.character);
-      if (!symbol) return textResult("Error: cursor is not on a symbol.");
+      if (!symbol) return failTextResult("Error: cursor is not on a symbol.");
 
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(params.newName)) {
-        return textResult("Error: newName must be a valid identifier.");
+        return failTextResult("Error: newName must be a valid identifier.");
       }
 
       const result = applyRename(ctx.cwd, symbol, params.newName);

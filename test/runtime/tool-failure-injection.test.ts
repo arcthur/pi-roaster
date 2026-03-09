@@ -21,7 +21,7 @@ describe("Tool failure context injection", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "Error: test suite failed with 3 failures",
-      success: false,
+      channelSuccess: false,
     });
 
     const injection = await runtime.context.buildInjection(sessionId, "continue");
@@ -44,21 +44,21 @@ describe("Tool failure context injection", () => {
       toolName: "tool_1",
       args: { value: 1 },
       outputText: "error-one",
-      success: false,
+      channelSuccess: false,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "tool_2",
       args: { value: 2 },
       outputText: "error-two with extra detail",
-      success: false,
+      channelSuccess: false,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "tool_3",
       args: { value: 3 },
       outputText: "error-three with even longer details",
-      success: false,
+      channelSuccess: false,
     });
 
     const injection = await runtime.context.buildInjection(sessionId, "continue");
@@ -82,7 +82,7 @@ describe("Tool failure context injection", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "Error: fail",
-      success: false,
+      channelSuccess: false,
     });
 
     const injection = await runtime.context.buildInjection(sessionId, "continue");
@@ -185,7 +185,7 @@ describe("Tool failure context injection", () => {
       toolName: "exec",
       args: { command: "bun test", retries: 1 },
       outputText: "Error: failing test run",
-      success: false,
+      channelSuccess: false,
     });
 
     const row = runtime.ledger.listRows(sessionId).at(-1);
@@ -219,7 +219,7 @@ describe("Tool failure context injection", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText,
-      success: false,
+      channelSuccess: false,
     });
 
     const injection = await runtime.context.buildInjection(sessionId, "continue");
@@ -237,14 +237,14 @@ describe("Tool failure context injection", () => {
       toolName: "brewva_custom_exec",
       args: { command: "custom-runner" },
       outputText: "Error: user tool failed",
-      success: false,
+      channelSuccess: false,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "brewva_verify",
       args: { check: "typecheck" },
       outputText: "Error: verifier failed",
-      success: false,
+      channelSuccess: false,
     });
 
     const injection = await runtime.context.buildInjection(sessionId, "continue");
@@ -269,7 +269,7 @@ describe("Tool failure context injection", () => {
         },
       },
       outputText: "Error: large args payload",
-      success: false,
+      channelSuccess: false,
     });
 
     const row = runtime.ledger.listRows(sessionId).at(-1);
@@ -298,21 +298,21 @@ describe("Tool failure context injection", () => {
       toolName: "tool_1",
       args: { command: "one", retries: 1 },
       outputText: `${"x".repeat(240)}TAIL_MARKER_1`,
-      success: false,
+      channelSuccess: false,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "tool_2",
       args: { command: "two", retries: 2 },
       outputText: `${"y".repeat(240)}TAIL_MARKER_2`,
-      success: false,
+      channelSuccess: false,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "tool_3",
       args: { command: "three", retries: 3 },
       outputText: `${"z".repeat(240)}TAIL_MARKER_3`,
-      success: false,
+      channelSuccess: false,
     });
 
     const injection = await runtime.context.buildInjection(sessionId, "continue");
@@ -331,7 +331,7 @@ describe("Tool failure context injection", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "Error: stale failure",
-      success: false,
+      channelSuccess: false,
     });
 
     const before = await runtime.context.buildInjection(sessionId, "continue");

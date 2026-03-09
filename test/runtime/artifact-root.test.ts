@@ -25,7 +25,7 @@ describe("runtime artifact root resolution", () => {
       toolName: "read",
       args: { file_path: "README.md" },
       outputText: "ok",
-      success: true,
+      channelSuccess: true,
     });
 
     expect(runtime.workspaceRoot).toBe(workspace);

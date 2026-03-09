@@ -298,7 +298,7 @@ export class BrewvaRuntime {
       toolName: string;
       args: Record<string, unknown>;
       outputText: string;
-      success: boolean;
+      channelSuccess: boolean;
       verdict?: "pass" | "fail" | "inconclusive";
       metadata?: Record<string, unknown>;
     }): void;
@@ -315,7 +315,7 @@ export class BrewvaRuntime {
       sessionId: string;
       toolCallId: string;
       toolName: string;
-      success: boolean;
+      channelSuccess: boolean;
     }): void;
     rollbackLastPatchSet(sessionId: string): RollbackResult;
     resolveUndoSessionId(preferredSessionId?: string): string | undefined;
@@ -324,7 +324,7 @@ export class BrewvaRuntime {
       toolName: string;
       args: Record<string, unknown>;
       outputText: string;
-      success: boolean;
+      channelSuccess: boolean;
       verdict?: "pass" | "fail" | "inconclusive";
       metadata?: Record<string, unknown>;
     }): string;

@@ -19,7 +19,7 @@ export interface TrackToolCallEndInput {
   sessionId: string;
   toolCallId: string;
   toolName: string;
-  success: boolean;
+  channelSuccess: boolean;
 }
 
 export interface FileChangeServiceOptions {
@@ -129,7 +129,7 @@ export class FileChangeService {
     const patchSet = this.fileChanges.completeToolCall({
       sessionId: input.sessionId,
       toolCallId: input.toolCallId,
-      success: input.success,
+      channelSuccess: input.channelSuccess,
     });
     if (!patchSet) return;
     this.recordEvent({

@@ -17,7 +17,7 @@ function createOpsConfig(): BrewvaConfig {
 }
 
 describe("event pipeline level classification", () => {
-  test("keeps tool_output_observed visible at audit level", () => {
+  test("keeps assertion evidence visible at audit level but drops query telemetry", () => {
     const runtime = new BrewvaRuntime({
       cwd: mkdtempSync(join(tmpdir(), "brewva-events-audit-")),
       config: createAuditConfig(),
@@ -57,6 +57,23 @@ describe("event pipeline level classification", () => {
     });
     runtime.events.record({
       sessionId,
+      type: "observability_query_executed",
+      payload: {
+        toolName: "obs_query",
+        queryCount: 1,
+        matchCount: 3,
+      },
+    });
+    runtime.events.record({
+      sessionId,
+      type: "observability_assertion_recorded",
+      payload: {
+        verdict: "pass",
+        metric: "latencyMs",
+      },
+    });
+    runtime.events.record({
+      sessionId,
       type: "tool_output_search",
       payload: {
         queryCount: 1,
@@ -69,6 +86,12 @@ describe("event pipeline level classification", () => {
     expect(runtime.events.query(sessionId, { type: "tool_output_distilled" })).toHaveLength(1);
     expect(
       runtime.events.query(sessionId, { type: "tool_output_artifact_persisted" }),
+    ).toHaveLength(1);
+    expect(runtime.events.query(sessionId, { type: "observability_query_executed" })).toHaveLength(
+      0,
+    );
+    expect(
+      runtime.events.query(sessionId, { type: "observability_assertion_recorded" }),
     ).toHaveLength(1);
     expect(runtime.events.query(sessionId, { type: "tool_output_search" })).toHaveLength(0);
     expect(runtime.events.query(sessionId, { type: "tool_execution_end" })).toHaveLength(0);
@@ -108,6 +131,28 @@ describe("event pipeline level classification", () => {
       const structured = runtime.events.queryStructured(sessionId, { type });
       expect(structured[0]?.category).toBe("governance");
     }
+  });
+
+  test("keeps observability query telemetry visible at ops level", () => {
+    const runtime = new BrewvaRuntime({
+      cwd: mkdtempSync(join(tmpdir(), "brewva-events-ops-observability-")),
+      config: createOpsConfig(),
+    });
+    const sessionId = "ops-level-observability-session";
+
+    runtime.events.record({
+      sessionId,
+      type: "observability_query_executed",
+      payload: {
+        toolName: "obs_query",
+        queryCount: 1,
+        matchCount: 3,
+      },
+    });
+
+    expect(runtime.events.query(sessionId, { type: "observability_query_executed" })).toHaveLength(
+      1,
+    );
   });
 
   test("drops governance events at audit level", () => {

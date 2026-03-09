@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { textResult } from "./utils/result.js";
+import { failTextResult, inconclusiveTextResult, textResult } from "./utils/result.js";
 import { defineTool } from "./utils/tool.js";
 
 function isLikelyText(content: Buffer): boolean {
@@ -121,12 +121,12 @@ export function createLookAtTool(): ToolDefinition {
     async execute(_id, params) {
       const absolute = resolve(params.file_path);
       if (!existsSync(absolute)) {
-        return textResult(`Error: File not found: ${absolute}`);
+        return failTextResult(`Error: File not found: ${absolute}`);
       }
 
       const stats = statSync(absolute);
       if (stats.isDirectory()) {
-        return textResult(`Error: Expected file path, got directory: ${absolute}`);
+        return failTextResult(`Error: Expected file path, got directory: ${absolute}`);
       }
 
       const raw = readFileSync(absolute);
@@ -148,7 +148,7 @@ export function createLookAtTool(): ToolDefinition {
       const text = raw.toString("utf8");
       const relevant = extractRelevantText(text, params.goal);
       if (relevant.kind === "unavailable") {
-        return textResult(
+        return inconclusiveTextResult(
           [
             "look_at unavailable: no high-confidence match for the current goal.",
             `reason=${relevant.reason}`,

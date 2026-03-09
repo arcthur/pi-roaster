@@ -61,7 +61,7 @@ describe("Context injection orchestrator characterization", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "Error: test failure marker",
-      success: false,
+      channelSuccess: false,
     });
 
     const injection = await runtime.context.buildInjection(

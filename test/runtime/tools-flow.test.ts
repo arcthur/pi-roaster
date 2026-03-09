@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { BrewvaRuntime, parseScheduleIntentEvent } from "@brewva/brewva-runtime";
 import {
   createCostViewTool,
+  createObsQueryTool,
+  createObsSloAssertTool,
+  createObsSnapshotTool,
   createOutputSearchTool,
   createRollbackLastPatchTool,
   createScheduleIntentTool,
@@ -59,14 +62,14 @@ describe("S-008 patching e2e loop", () => {
       toolName: "lsp_diagnostics",
       args: { severity: "all" },
       outputText: "No diagnostics found",
-      success: true,
+      channelSuccess: true,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "PASS 3 tests",
-      success: true,
+      channelSuccess: true,
     });
 
     const completed = await completeTool.execute(
@@ -123,6 +126,7 @@ describe("S-008 patching e2e loop", () => {
 
     const completedText = extractTextContent(completed);
     expect(completedText.includes("Verification gate blocked")).toBe(true);
+    expect((completed.details as { verdict?: string } | undefined)?.verdict).toBe("inconclusive");
     expect(runtime.skills.getActive(sessionId)?.name).toBe("patching");
   });
 });
@@ -148,7 +152,7 @@ describe("S-009 rollback tool flow", () => {
       sessionId,
       toolCallId: "tc-write",
       toolName: "edit",
-      success: true,
+      channelSuccess: true,
     });
 
     const rollbackTool = createRollbackLastPatchTool({ runtime });
@@ -195,6 +199,105 @@ describe("S-010 cost view tool flow", () => {
     expect(text.includes("# Cost View")).toBe(true);
     expect(text.includes("Top Skills")).toBe(true);
     expect(text.includes("Top Tools")).toBe(true);
+  });
+});
+
+describe("S-010a observability tools flow", () => {
+  test("obs_query persists a raw artifact and returns a compact summary", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-obs-query-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "s10-obs-query";
+
+    runtime.events.record({
+      sessionId,
+      type: "latency_sample",
+      payload: {
+        service: "api",
+        latencyMs: 810,
+      },
+    });
+    runtime.events.record({
+      sessionId,
+      type: "latency_sample",
+      payload: {
+        service: "api",
+        latencyMs: 790,
+      },
+    });
+
+    const tool = createObsQueryTool({ runtime });
+    const result = await tool.execute(
+      "tc-obs-query",
+      {
+        types: ["latency_sample"],
+        where: { service: "api" },
+        metric: "latencyMs",
+        aggregation: "p95",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+
+    const text = extractTextContent(result);
+    expect(text.includes("[ObsQuery]")).toBe(true);
+    expect(text.includes("query_ref:")).toBe(true);
+    expect(text.includes("observed_value:")).toBe(true);
+
+    const artifactOverride = (result.details as { artifactOverride?: { artifactRef?: string } })
+      ?.artifactOverride;
+    expect(typeof artifactOverride?.artifactRef).toBe("string");
+    expect(
+      readFileSync(join(workspace, artifactOverride?.artifactRef ?? ""), "utf8").includes(
+        '"schema": "brewva.observability.query.v1"',
+      ),
+    ).toBe(true);
+  });
+
+  test("obs_slo_assert returns fail verdict and obs_snapshot exposes runtime health", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-tools-obs-snapshot-"));
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "s10-obs-snapshot";
+
+    runtime.events.record({
+      sessionId,
+      type: "startup_sample",
+      payload: {
+        service: "api",
+        startupMs: 920,
+      },
+    });
+
+    const assertTool = createObsSloAssertTool({ runtime });
+    const assertResult = await assertTool.execute(
+      "tc-obs-assert",
+      {
+        types: ["startup_sample"],
+        where: { service: "api" },
+        metric: "startupMs",
+        aggregation: "p95",
+        operator: "<=",
+        threshold: 800,
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    const assertText = extractTextContent(assertResult);
+    expect(assertText.includes("verdict: fail")).toBe(true);
+
+    const snapshotTool = createObsSnapshotTool({ runtime });
+    const snapshotResult = await snapshotTool.execute(
+      "tc-obs-snapshot",
+      {},
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+    const snapshotText = extractTextContent(snapshotResult);
+    expect(snapshotText.includes("[ObsSnapshot]")).toBe(true);
+    expect(snapshotText.includes("tape_pressure:")).toBe(true);
+    expect(snapshotText.includes("context_pressure:")).toBe(true);
   });
 });
 
@@ -625,6 +728,7 @@ describe("S-012b output search tool flow", () => {
     expect(blockedText.includes("Blocked due to high-frequency single-query search calls.")).toBe(
       true,
     );
+    expect((blocked.details as { verdict?: string } | undefined)?.verdict).toBe("inconclusive");
   });
 
   test("output_search reuses cache and invalidates on artifact change", async () => {
@@ -922,6 +1026,7 @@ describe("S-014 schedule intent tool flow", () => {
         "Schedule intent update rejected (invalid_reason).",
       ),
     ).toBe(true);
+    expect((blankReasonResult.details as { verdict?: string } | undefined)?.verdict).toBe("fail");
 
     const blankGoalRefResult = await tool.execute(
       "tc-schedule-update-blank-goal-ref",
@@ -939,6 +1044,7 @@ describe("S-014 schedule intent tool flow", () => {
         "Schedule intent update rejected (invalid_goal_ref).",
       ),
     ).toBe(true);
+    expect((blankGoalRefResult.details as { verdict?: string } | undefined)?.verdict).toBe("fail");
   });
 
   test("schedule_intent update supports timezone-only patch for cron intent", async () => {
@@ -1011,5 +1117,6 @@ describe("S-014 schedule intent tool flow", () => {
 
     const createText = extractTextContent(createResult);
     expect(createText.includes("Schedule intent rejected (timeZone_requires_cron).")).toBe(true);
+    expect((createResult.details as { verdict?: string } | undefined)?.verdict).toBe("fail");
   });
 });

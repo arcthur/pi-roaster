@@ -20,6 +20,11 @@ import type {
   TruthState,
 } from "../types.js";
 import type { JsonValue } from "../utils/json.js";
+import {
+  isToolResultFail,
+  resolveToolResultVerdict,
+  type ToolResultVerdict,
+} from "../utils/tool-result.js";
 import { classifyEvidence } from "../verification/classifier.js";
 import type { VerificationGate } from "../verification/gate.js";
 import type { RuntimeCallback } from "./callback.js";
@@ -44,16 +49,16 @@ function resolveToolFailureClass(input: {
   toolName: string;
   args: Record<string, unknown>;
   outputText: string;
-  success: boolean;
+  verdict: ToolResultVerdict;
   metadata: Record<string, unknown> | undefined;
 }): CommandFailureClass | undefined {
-  if (input.success) return undefined;
+  if (!isToolResultFail(input.verdict)) return undefined;
 
   const artifacts = extractEvidenceArtifacts({
     toolName: input.toolName,
     args: input.args,
     outputText: input.outputText,
-    isError: !input.success,
+    isError: true,
     details: input.metadata?.details,
   });
   const commandFailure = artifacts.find((artifact) => artifact.kind === "command_failure");
@@ -189,18 +194,21 @@ export class LedgerService {
     toolName: string;
     args: Record<string, unknown>;
     outputText: string;
-    success: boolean;
+    channelSuccess: boolean;
     verdict?: "pass" | "fail" | "inconclusive";
     metadata?: Record<string, unknown>;
   }): string {
     const turn = this.getCurrentTurn(input.sessionId);
     const activeSkill = this.getActiveSkill(input.sessionId);
-    const verdict = input.verdict ?? (input.success ? "pass" : "fail");
+    const verdict = resolveToolResultVerdict({
+      verdict: input.verdict,
+      channelSuccess: input.channelSuccess,
+    });
     const failureClass = resolveToolFailureClass({
       toolName: input.toolName,
       args: input.args,
       outputText: input.outputText,
-      success: input.success,
+      verdict,
       metadata: input.metadata,
     });
     const metadata = withToolFailureContextMetadata(input.metadata, {
@@ -238,7 +246,7 @@ export class LedgerService {
         toolName: input.toolName,
         args: input.args,
         outputText: input.outputText,
-        success: input.success,
+        verdict,
         ledgerRow: {
           id: ledgerRow.id,
           outputHash: ledgerRow.outputHash,
@@ -254,7 +262,7 @@ export class LedgerService {
       toolName: input.toolName,
       args: input.args,
       outputText: input.outputText,
-      success: input.success,
+      verdict,
     });
     const outputObservation =
       metadata &&
@@ -292,7 +300,7 @@ export class LedgerService {
       payload: {
         toolName: input.toolName,
         verdict,
-        success: input.success,
+        channelSuccess: input.channelSuccess,
         ledgerId: ledgerRow.id,
         outputObservation,
         outputArtifact,

@@ -46,6 +46,9 @@ Default tool bundle (registered by `buildBrewvaTools()`):
 - `exec`
 - `process`
 - `cost_view`
+- `obs_query`
+- `obs_slo_assert`
+- `obs_snapshot`
 - `ledger_query`
 - `output_search`
 - `schedule_intent`
@@ -76,6 +79,7 @@ Notes:
 - `grep` is a read-only workspace search tool intended to replace ad-hoc `exec` usage for text search in read-only skills.
 - `skill_route_override` and `skill_chain_control` are control-plane tools for steering dispatch gating and cascade progression.
 - Repeated `read`, `grep`, `look_at`, navigation-only `lsp_*`, `ast_grep_search`, or low-signal `exec` turns can trigger the scan convergence guard. Preferred recovery tools are `output_search`, `ledger_query`, `tape_search`, `task_view_state`, and `task_*` ledger actions before resuming more retrieval.
+- `obs_query`, `obs_slo_assert`, and `obs_snapshot` are evidence-reuse tools. They inspect current-session runtime events and do not count as low-signal retrieval for scan-convergence reset.
 
 ### `grep`
 
@@ -149,6 +153,28 @@ For cron intents, runtime defaults `maxRuns` to `10000` when omitted.
 - throttling: repeated single-query calls can be limited or blocked; batch with `queries` to avoid pressure.
 - source data: only persisted `tool_output_artifact_persisted` artifacts are scanned.
 
+`obs_query` supports current-session structured event queries:
+
+- filters: `types`, `where` (payload top-level exact match), `windowMinutes`, `last`
+- optional metric aggregation: `count`, `min`, `max`, `avg`, `p50`, `p95`, `latest`
+- output model: raw result is written as a tool-output artifact and the tool returns only a compact summary plus `query_ref`
+- throttling: aligned with `output_search` single-query throttling (`90s` window; reduce after `4`; block after `10`)
+
+`obs_slo_assert` evaluates a metric assertion over current-session runtime events:
+
+- required fields: `metric`, `aggregation`, `operator`, `threshold`
+- optional fields: `types`, `where`, `windowMinutes`, `minSamples`, `severity`
+- verdicts: `pass`, `fail`, `inconclusive`
+- failure path: records observability assertion evidence and can sync to truth/task state through runtime truth extraction
+
+`obs_snapshot` returns a compact runtime health view:
+
+- tape status
+- context pressure
+- cost summary
+- task phase and blocker count
+- latest verification outcome, when available
+
 Definitions:
 
 - `packages/brewva-tools/src/look-at.ts`
@@ -157,6 +183,9 @@ Definitions:
 - `packages/brewva-tools/src/grep.ts`
 - `packages/brewva-tools/src/process.ts`
 - `packages/brewva-tools/src/cost-view.ts`
+- `packages/brewva-tools/src/observability/obs-query.ts`
+- `packages/brewva-tools/src/observability/obs-slo-assert.ts`
+- `packages/brewva-tools/src/observability/obs-snapshot.ts`
 - `packages/brewva-tools/src/ledger-query.ts`
 - `packages/brewva-tools/src/output-search.ts`
 - `packages/brewva-tools/src/schedule-intent.ts`

@@ -67,6 +67,7 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 - `explainAccess(input)`
 - `start(input)`
 - `finish(input)`
+  `finish(input)` and `recordResult(input)` use `channelSuccess` for tool/lifecycle transport success; semantic outcome is carried by `verdict`.
 - `acquireParallelSlot(sessionId, runId)`
 - `releaseParallelSlot(sessionId, runId)`
 - `markCall(sessionId, toolName)`

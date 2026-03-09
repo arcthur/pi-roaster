@@ -84,8 +84,13 @@ describe("exec/process tool flow", () => {
       undefined,
       fakeContext(sessionId),
     );
-    const startDetails = started.details as { status?: string; sessionId?: string };
+    const startDetails = started.details as {
+      status?: string;
+      verdict?: string;
+      sessionId?: string;
+    };
     expect(startDetails.status).toBe("running");
+    expect(startDetails.verdict).toBe("inconclusive");
     expect(typeof startDetails.sessionId).toBe("string");
 
     const sessionHandle = startDetails.sessionId ?? "";
@@ -100,9 +105,31 @@ describe("exec/process tool flow", () => {
       undefined,
       fakeContext(sessionId),
     );
-    const pollText = extractTextContent(polled);
-    expect(pollText.includes("done")).toBe(true);
-    expect((polled.details as { status?: string }).status).toBe("completed");
+    const firstPollText = extractTextContent(polled);
+    expect(firstPollText.includes("done")).toBe(true);
+
+    const firstPollDetails = polled.details as { status?: string; verdict?: string };
+    if (firstPollDetails.status === "running") {
+      expect(firstPollDetails.verdict).toBe("inconclusive");
+      const completed = await processTool.execute(
+        "tc-exec-poll-finished",
+        {
+          action: "poll",
+          sessionId: sessionHandle,
+          timeout: 2_000,
+        },
+        undefined,
+        undefined,
+        fakeContext(sessionId),
+      );
+      const completedText = extractTextContent(completed);
+      expect(completedText.includes("done")).toBe(true);
+      expect((completed.details as { status?: string; verdict?: string }).status).toBe("completed");
+      expect((completed.details as { status?: string; verdict?: string }).verdict).toBeUndefined();
+    } else {
+      expect(firstPollDetails.status).toBe("completed");
+      expect(firstPollDetails.verdict).toBeUndefined();
+    }
   });
 
   test("process kill stops a background session", async () => {
@@ -137,7 +164,8 @@ describe("exec/process tool flow", () => {
       undefined,
       fakeContext(sessionId),
     );
-    expect((killed.details as { status?: string }).status).toBe("failed");
+    expect((killed.details as { status?: string; verdict?: string }).status).toBe("failed");
+    expect((killed.details as { status?: string; verdict?: string }).verdict).toBe("fail");
 
     const polled = await processTool.execute(
       "tc-process-poll",
@@ -152,6 +180,29 @@ describe("exec/process tool flow", () => {
     );
     const pollStatus = (polled.details as { status?: string }).status;
     expect(pollStatus === "completed" || pollStatus === "failed").toBe(true);
+  });
+
+  test("exec rejects missing command with explicit fail verdict", async () => {
+    const { runtime } = createRuntimeForExecTests({
+      mode: "permissive",
+      backend: "host",
+    });
+    const execTool = createExecTool({ runtime });
+    const sessionId = "s13-exec-missing-command";
+
+    const rejected = await execTool.execute(
+      "tc-exec-missing-command",
+      {
+        command: "   ",
+      },
+      undefined,
+      undefined,
+      fakeContext(sessionId),
+    );
+
+    const details = rejected.details as { status?: string; verdict?: string };
+    expect(details.status).toBe("failed");
+    expect(details.verdict).toBe("fail");
   });
 
   test("exec throws on non-zero exit code", async () => {

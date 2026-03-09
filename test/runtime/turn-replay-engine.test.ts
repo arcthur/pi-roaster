@@ -130,7 +130,7 @@ function toolResultFailureEvent(input: {
     payload: {
       toolName: input.toolName,
       verdict: "fail",
-      success: false,
+      channelSuccess: false,
       failureContext: {
         args: {
           command: "bun test",

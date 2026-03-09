@@ -7,7 +7,7 @@ import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { formatISO } from "date-fns";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -130,7 +130,10 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
         nextSteps: params.next_steps,
       });
       if (!handoff.ok) {
-        return textResult(`Tape handoff rejected (${handoff.error ?? "unknown_error"}).`, handoff);
+        return failTextResult(
+          `Tape handoff rejected (${handoff.error ?? "unknown_error"}).`,
+          handoff,
+        );
       }
 
       const status = handoff.tapeStatus ?? options.runtime.events.getTapeStatus(sessionId);
@@ -195,7 +198,7 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
       const sessionId = getSessionId(ctx);
       const query = normalizeQuery(params.query);
       if (!query) {
-        return textResult("Tape search rejected (missing_query).", {
+        return failTextResult("Tape search rejected (missing_query).", {
           ok: false,
           error: "missing_query",
         });

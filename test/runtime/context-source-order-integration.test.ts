@@ -75,7 +75,7 @@ describe("context source order integration", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "Error: deterministic source order failure block",
-      success: false,
+      channelSuccess: false,
     });
     runtime.truth.upsertFact(sessionId, {
       id: "truth:order",

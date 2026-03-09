@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -40,7 +40,7 @@ export function createSkillRouteOverrideTool(options: BrewvaToolOptions): ToolDe
       });
 
       if (!result.ok) {
-        return textResult(result.reason ?? "No pending skill dispatch to override.", {
+        return failTextResult(result.reason ?? "No pending skill dispatch to override.", {
           ok: false,
         });
       }

@@ -25,7 +25,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
       outputText: diagnosticsOutput,
-      success: true,
+      channelSuccess: true,
     });
 
     const truth1 = runtime.truth.getState(sessionId);
@@ -44,7 +44,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
       outputText: "No diagnostics found",
-      success: true,
+      channelSuccess: true,
     });
 
     const truth2 = runtime.truth.getState(sessionId);
@@ -67,7 +67,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       args: { filePath: "src/foo.ts" },
       outputText:
         "src/foo.ts(10,5): error TS2322: Type 'number' is not assignable to type 'string'.",
-      success: true,
+      channelSuccess: true,
     });
 
     runtime.tools.recordResult({
@@ -75,7 +75,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       toolName: "lsp_diagnostics",
       args: { filePath: "src/bar.ts" },
       outputText: "src/bar.ts(2,1): error TS2304: Cannot find name 'bar'.",
-      success: true,
+      channelSuccess: true,
     });
 
     runtime.tools.recordResult({
@@ -83,7 +83,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
       outputText: "No diagnostics found",
-      success: true,
+      channelSuccess: true,
     });
 
     const truth = runtime.truth.getState(sessionId);
@@ -116,7 +116,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
         "src/foo.ts(10,5): error TS2322: Type 'number' is not assignable to type 'string'.",
         "src/foo.ts(11,5): error TS2304: Cannot find name 'bar'.",
       ].join("\n"),
-      success: true,
+      channelSuccess: true,
     });
 
     runtime.tools.recordResult({
@@ -125,7 +125,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       args: { filePath: "src/foo.ts" },
       outputText:
         "src/foo.ts(10,5): error TS2322: Type 'number' is not assignable to type 'string'.",
-      success: true,
+      channelSuccess: true,
     });
 
     const truth = runtime.truth.getState(sessionId);
@@ -157,7 +157,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       args: { filePath: "src/foo.ts" },
       outputText:
         "src/foo.ts(10,5): error TS2322: Type 'number' is not assignable to type 'string'.",
-      success: true,
+      channelSuccess: true,
     });
 
     runtime.tools.recordResult({
@@ -165,7 +165,7 @@ describe("Truth extraction from lsp_diagnostics", () => {
       toolName: "lsp_diagnostics",
       args: { filePath: "src/foo.ts" },
       outputText: "No matching diagnostics for the requested file/severity scope.",
-      success: true,
+      channelSuccess: true,
       metadata: {
         details: {
           status: "unavailable",

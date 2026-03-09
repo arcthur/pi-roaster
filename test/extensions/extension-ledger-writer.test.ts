@@ -43,7 +43,7 @@ describe("Extension gaps: ledger writer", () => {
     expect(finished).toHaveLength(1);
     expect(finished[0].sessionId).toBe("lw-1");
     expect(finished[0].toolName).toBe("exec");
-    expect(finished[0].success).toBe(false);
+    expect(finished[0].channelSuccess).toBe(false);
     expect(finished[0].verdict).toBe("fail");
     expect(finished[0].outputText).toBe("line-a\nline-b");
     expect(finished[0].metadata.toolCallId).toBe("tc-err");
@@ -84,7 +84,7 @@ describe("Extension gaps: ledger writer", () => {
     expect(finished[0].sessionId).toBe("lw-fallback-1");
     expect(finished[0].toolCallId).toBe("tc-fallback");
     expect(finished[0].toolName).toBe("skill_complete");
-    expect(finished[0].success).toBe(false);
+    expect(finished[0].channelSuccess).toBe(false);
     expect(finished[0].verdict).toBe("fail");
     expect(finished[0].args).toEqual({});
     expect(String(finished[0].outputText)).toContain("[ToolResultFallback]");
@@ -106,5 +106,46 @@ describe("Extension gaps: ledger writer", () => {
     );
 
     expect(finished).toHaveLength(1);
+  });
+
+  test("given legacy status-only tool_result, when ledger writer runs, then status does not override the latest verdict model", () => {
+    const { api, handlers } = createMockExtensionAPI();
+
+    const finished: any[] = [];
+    const runtime = createRuntimeFixture({
+      tools: {
+        finish: (input: any) => {
+          finished.push(input);
+        },
+      },
+    });
+
+    registerLedgerWriter(api, runtime);
+
+    invokeHandler(
+      handlers,
+      "tool_result",
+      {
+        toolCallId: "tc-legacy-status",
+        toolName: "process",
+        input: { action: "poll", sessionId: "exec-1" },
+        isError: false,
+        content: [{ type: "text", text: "Process still running." }],
+        details: { status: "running", sessionId: "exec-1" },
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "lw-latest-only-1",
+        },
+      },
+    );
+
+    expect(finished).toHaveLength(1);
+    expect(finished[0].channelSuccess).toBe(true);
+    expect(finished[0].verdict).toBe("pass");
+    expect(finished[0].metadata.details).toEqual({
+      status: "running",
+      sessionId: "exec-1",
+    });
   });
 });

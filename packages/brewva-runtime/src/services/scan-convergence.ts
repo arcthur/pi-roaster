@@ -1,6 +1,11 @@
 import { SCAN_CONVERGENCE_BLOCKER_ID } from "../task/watchdog.js";
 import type { BrewvaEventQuery, BrewvaEventRecord, TaskBlocker, TaskState } from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
+import {
+  isToolResultFail,
+  isToolResultPass,
+  type ToolResultVerdict,
+} from "../utils/tool-result.js";
 import type { RuntimeCallback } from "./callback.js";
 import {
   type RuntimeSessionStateStore,
@@ -22,6 +27,9 @@ const LOW_SIGNAL_TOOL_NAMES = new Set([
 ]);
 const EVIDENCE_REUSE_TOOL_NAMES = new Set([
   "ledger_query",
+  "obs_query",
+  "obs_slo_assert",
+  "obs_snapshot",
   "output_search",
   "tape_info",
   "tape_search",
@@ -108,7 +116,7 @@ export interface ObserveScanConvergenceToolResultInput {
   toolCallId: string;
   toolName: string;
   args?: Record<string, unknown>;
-  success: boolean;
+  verdict: ToolResultVerdict;
   outputText: string;
 }
 
@@ -620,13 +628,14 @@ export class ScanConvergenceService {
     const state = this.getState(input.sessionId);
     const normalizedToolName = normalizeToolName(input.toolName);
     if (!normalizedToolName) return;
+    const verdict = input.verdict;
 
     const strategy =
       state.toolStrategyByCallId.get(input.toolCallId) ??
       classifyToolStrategy(normalizedToolName, input.args);
     state.toolStrategyByCallId.set(input.toolCallId, strategy);
 
-    if (input.success && strategy !== "raw_scan" && strategy !== "low_signal") {
+    if (isToolResultPass(verdict) && strategy !== "raw_scan" && strategy !== "low_signal") {
       if (state.armedReason !== null) {
         this.resetGuard(input.sessionId, state, "strategy_shift", strategy);
       }
@@ -638,8 +647,11 @@ export class ScanConvergenceService {
     if (strategy !== "raw_scan") {
       return;
     }
-    if (input.success) {
+    if (isToolResultPass(verdict)) {
       state.consecutiveScanFailures = 0;
+      return;
+    }
+    if (!isToolResultFail(verdict)) {
       return;
     }
 

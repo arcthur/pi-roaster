@@ -2,7 +2,7 @@ import { formatTaskStateBlock } from "@brewva/brewva-runtime";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -72,7 +72,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
         status: params.status,
       });
       if (!result.ok) {
-        return textResult(`Task item rejected (${result.error ?? "unknown_error"}).`, result);
+        return failTextResult(`Task item rejected (${result.error ?? "unknown_error"}).`, result);
       }
       return textResult(`Task item added (${result.itemId}).`, result);
     },
@@ -95,7 +95,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
         status: params.status,
       });
       if (!result.ok) {
-        return textResult(
+        return failTextResult(
           `Task item update rejected (${result.error ?? "unknown_error"}).`,
           result,
         );
@@ -123,7 +123,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
         truthFactId: params.truthFactId,
       });
       if (!result.ok) {
-        return textResult(`Blocker rejected (${result.error ?? "unknown_error"}).`, result);
+        return failTextResult(`Blocker rejected (${result.error ?? "unknown_error"}).`, result);
       }
       return textResult(`Blocker recorded (${result.blockerId}).`, result);
     },
@@ -140,7 +140,10 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
       const sessionId = getSessionId(ctx);
       const result = options.runtime.task.resolveBlocker(sessionId, params.id);
       if (!result.ok) {
-        return textResult(`Blocker resolve rejected (${result.error ?? "unknown_error"}).`, result);
+        return failTextResult(
+          `Blocker resolve rejected (${result.error ?? "unknown_error"}).`,
+          result,
+        );
       }
       return textResult("Blocker resolved.", result);
     },

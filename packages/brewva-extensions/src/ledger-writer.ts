@@ -16,6 +16,13 @@ interface ToolLifecycleState {
 
 type ToolOutcomeVerdict = "pass" | "fail" | "inconclusive";
 
+interface ArtifactOverride {
+  artifactRef: string;
+  rawChars: number;
+  rawBytes: number;
+  sha256: string;
+}
+
 function normalizeArgs(input: unknown): Record<string, unknown> | undefined {
   if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
   return input as Record<string, unknown>;
@@ -30,16 +37,56 @@ function normalizeToolResultStatus(
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function normalizeToolResultVerdict(
+  details: Record<string, unknown> | undefined,
+): ToolOutcomeVerdict | undefined {
+  const raw = details?.verdict;
+  if (raw === "pass" || raw === "fail" || raw === "inconclusive") {
+    return raw;
+  }
+  return undefined;
+}
+
+function normalizeArtifactOverride(
+  details: Record<string, unknown> | undefined,
+): ArtifactOverride | undefined {
+  const raw = details?.artifactOverride;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
+
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.artifactRef !== "string" || candidate.artifactRef.trim().length === 0) {
+    return undefined;
+  }
+  if (typeof candidate.sha256 !== "string" || candidate.sha256.trim().length === 0) {
+    return undefined;
+  }
+  if (typeof candidate.rawChars !== "number" || !Number.isFinite(candidate.rawChars)) {
+    return undefined;
+  }
+  if (typeof candidate.rawBytes !== "number" || !Number.isFinite(candidate.rawBytes)) {
+    return undefined;
+  }
+
+  return {
+    artifactRef: candidate.artifactRef.trim(),
+    rawChars: Math.max(0, Math.floor(candidate.rawChars)),
+    rawBytes: Math.max(0, Math.floor(candidate.rawBytes)),
+    sha256: candidate.sha256.trim(),
+  };
+}
+
 function resolveToolOutcome(input: {
   isError: boolean;
   details: Record<string, unknown> | undefined;
 }): { isError: boolean; verdict: ToolOutcomeVerdict } {
-  const status = normalizeToolResultStatus(input.details);
-  if (status === "running") {
-    return { isError: false, verdict: "inconclusive" };
-  }
-  if (status === "failed") {
-    return { isError: true, verdict: "fail" };
+  const explicitVerdict = normalizeToolResultVerdict(input.details);
+  if (explicitVerdict) {
+    return {
+      isError: input.isError,
+      verdict: explicitVerdict,
+    };
   }
   return {
     isError: input.isError,
@@ -202,14 +249,17 @@ function recordToolOutcome(
     lifecycleFallbackReason?: string;
   },
 ): void {
-  const outputArtifact = persistToolOutputArtifact({
-    workspaceRoot: resolveWorkspaceRoot(runtime, input.context),
-    sessionId: input.sessionId,
-    toolCallId: input.toolCallId,
-    toolName: input.toolName,
-    outputText: input.outputText,
-    timestamp: Date.now(),
-  });
+  const artifactOverride = normalizeArtifactOverride(input.details);
+  const outputArtifact =
+    artifactOverride ??
+    persistToolOutputArtifact({
+      workspaceRoot: resolveWorkspaceRoot(runtime, input.context),
+      sessionId: input.sessionId,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      outputText: input.outputText,
+      timestamp: Date.now(),
+    });
   const outputObservation = buildOutputObservation(runtime, input.sessionId, input.outputText);
   const outputDistillation = distillToolOutput({
     toolName: input.toolName,
@@ -272,7 +322,7 @@ function recordToolOutcome(
     toolName: input.toolName,
     args: input.args,
     outputText: input.outputText,
-    success: !input.isError,
+    channelSuccess: !input.isError,
     verdict: input.verdict,
     metadata: {
       toolCallId: input.toolCallId,

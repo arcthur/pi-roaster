@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { runCommand } from "./utils/exec.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { defineTool } from "./utils/tool.js";
 
 function buildAstGrepUnavailableResult(
@@ -9,7 +9,7 @@ function buildAstGrepUnavailableResult(
   error: unknown,
 ): ReturnType<typeof textResult> {
   const reason = error instanceof Error ? error.message : String(error);
-  return textResult(
+  return failTextResult(
     [
       `ast_grep_${action} unavailable: ast-grep (sg) is required for semantic ${action}.`,
       `reason=${reason}`,

@@ -1,4 +1,5 @@
 import type { VerificationEvidence } from "../types.js";
+import { isToolResultPass, type ToolResultVerdict } from "../utils/tool-result.js";
 
 const WRITE_TOOLS = new Set([
   "write",
@@ -31,9 +32,9 @@ export function classifyEvidence(input: {
   toolName: string;
   args?: Record<string, unknown>;
   outputText?: string;
-  success: boolean;
+  verdict: ToolResultVerdict;
 }): VerificationEvidence[] {
-  if (!input.success) {
+  if (!isToolResultPass(input.verdict)) {
     return [];
   }
 

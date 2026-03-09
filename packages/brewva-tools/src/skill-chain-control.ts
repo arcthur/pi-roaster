@@ -2,7 +2,7 @@ import type { SkillChainIntent } from "@brewva/brewva-runtime";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -64,7 +64,7 @@ export function createSkillChainControlTool(options: BrewvaToolOptions): ToolDef
       const runtimeSkills = options.runtime.skills;
 
       if (!runtimeSkills.getCascadeIntent) {
-        return textResult("Cascade control is not available in this runtime.", {
+        return failTextResult("Cascade control is not available in this runtime.", {
           ok: false,
           error: "cascade_unavailable",
         });
@@ -87,14 +87,14 @@ export function createSkillChainControlTool(options: BrewvaToolOptions): ToolDef
 
       if (params.action === "pause") {
         if (!runtimeSkills.pauseCascade) {
-          return textResult("Cascade pause is not available in this runtime.", {
+          return failTextResult("Cascade pause is not available in this runtime.", {
             ok: false,
             error: "cascade_pause_unavailable",
           });
         }
         const result = runtimeSkills.pauseCascade(sessionId, params.reason);
         if (!result.ok) {
-          return textResult(`Cascade pause rejected (${result.reason ?? "unknown"}).`, {
+          return failTextResult(`Cascade pause rejected (${result.reason ?? "unknown"}).`, {
             ok: false,
             error: result.reason ?? "unknown",
           });
@@ -108,14 +108,14 @@ export function createSkillChainControlTool(options: BrewvaToolOptions): ToolDef
 
       if (params.action === "resume") {
         if (!runtimeSkills.resumeCascade) {
-          return textResult("Cascade resume is not available in this runtime.", {
+          return failTextResult("Cascade resume is not available in this runtime.", {
             ok: false,
             error: "cascade_resume_unavailable",
           });
         }
         const result = runtimeSkills.resumeCascade(sessionId, params.reason);
         if (!result.ok) {
-          return textResult(`Cascade resume rejected (${result.reason ?? "unknown"}).`, {
+          return failTextResult(`Cascade resume rejected (${result.reason ?? "unknown"}).`, {
             ok: false,
             error: result.reason ?? "unknown",
           });
@@ -129,14 +129,14 @@ export function createSkillChainControlTool(options: BrewvaToolOptions): ToolDef
 
       if (params.action === "cancel") {
         if (!runtimeSkills.cancelCascade) {
-          return textResult("Cascade cancel is not available in this runtime.", {
+          return failTextResult("Cascade cancel is not available in this runtime.", {
             ok: false,
             error: "cascade_cancel_unavailable",
           });
         }
         const result = runtimeSkills.cancelCascade(sessionId, params.reason);
         if (!result.ok) {
-          return textResult(`Cascade cancel rejected (${result.reason ?? "unknown"}).`, {
+          return failTextResult(`Cascade cancel rejected (${result.reason ?? "unknown"}).`, {
             ok: false,
             error: result.reason ?? "unknown",
           });
@@ -149,13 +149,13 @@ export function createSkillChainControlTool(options: BrewvaToolOptions): ToolDef
       }
 
       if (!runtimeSkills.startCascade) {
-        return textResult("Cascade start is not available in this runtime.", {
+        return failTextResult("Cascade start is not available in this runtime.", {
           ok: false,
           error: "cascade_start_unavailable",
         });
       }
       if (!params.steps || params.steps.length === 0) {
-        return textResult("Cascade start rejected (missing_steps).", {
+        return failTextResult("Cascade start rejected (missing_steps).", {
           ok: false,
           error: "missing_steps",
         });
@@ -164,7 +164,7 @@ export function createSkillChainControlTool(options: BrewvaToolOptions): ToolDef
         steps: params.steps,
       });
       if (!started.ok) {
-        return textResult(`Cascade start rejected (${started.reason ?? "unknown"}).`, {
+        return failTextResult(`Cascade start rejected (${started.reason ?? "unknown"}).`, {
           ok: false,
           error: started.reason ?? "unknown",
         });

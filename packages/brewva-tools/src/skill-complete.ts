@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, inconclusiveTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -19,7 +19,7 @@ export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinit
 
       const completion = options.runtime.skills.validateOutputs(sessionId, outputs);
       if (!completion.ok) {
-        return textResult(
+        return failTextResult(
           `Skill completion rejected. Missing required outputs: ${completion.missing.join(", ")}`,
           { ok: false, missing: completion.missing },
         );
@@ -31,7 +31,7 @@ export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinit
       });
 
       if (!verification.passed) {
-        return textResult(
+        return inconclusiveTextResult(
           `Verification gate blocked. Skill not completed: ${verification.missingEvidence.join(", ")}`,
           {
             ok: false,

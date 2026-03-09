@@ -9,6 +9,12 @@ import { redactSecrets } from "../security/redact.js";
 import type { TaskState, TruthFact, TruthFactSeverity, TruthState } from "../types.js";
 import { sha256 } from "../utils/hash.js";
 import { normalizeToolName } from "../utils/tool-name.js";
+import {
+  isToolResultFail,
+  isToolResultInconclusive,
+  isToolResultPass,
+  type ToolResultVerdict,
+} from "../utils/tool-result.js";
 
 export interface TruthSyncContext {
   cwd: string;
@@ -291,7 +297,7 @@ export interface TruthSyncInput {
   toolName: string;
   args: Record<string, unknown>;
   outputText: string;
-  success: boolean;
+  verdict: ToolResultVerdict;
   ledgerRow: {
     id: string;
     outputHash: string;
@@ -299,6 +305,224 @@ export interface TruthSyncInput {
     outputSummary: string;
   };
   metadata?: Record<string, unknown>;
+}
+
+type ObservabilityAssertionSpec = {
+  types: string[];
+  where: Record<string, string | number | boolean | null>;
+  metric: string;
+  aggregation: string;
+  operator: string;
+  threshold: number;
+  windowMinutes: number | null;
+  minSamples: number;
+};
+
+type ObservabilityAssertionRecord = {
+  verdict: "pass" | "fail" | "inconclusive";
+  severity: TruthFactSeverity;
+  observedValue: number | null;
+  sampleSize: number;
+  queryRef: string | null;
+  spec: ObservabilityAssertionSpec;
+};
+
+function normalizeObservabilityAssertionSpec(
+  value: unknown,
+): ObservabilityAssertionSpec | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.metric !== "string" || record.metric.trim().length === 0) {
+    return undefined;
+  }
+  if (typeof record.aggregation !== "string" || record.aggregation.trim().length === 0) {
+    return undefined;
+  }
+  if (typeof record.operator !== "string" || record.operator.trim().length === 0) {
+    return undefined;
+  }
+  if (typeof record.threshold !== "number" || !Number.isFinite(record.threshold)) {
+    return undefined;
+  }
+
+  const types = Array.isArray(record.types)
+    ? record.types
+        .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+        .map((entry) => entry.trim())
+        .toSorted()
+    : [];
+  const whereInput =
+    record.where && typeof record.where === "object" && !Array.isArray(record.where)
+      ? (record.where as Record<string, unknown>)
+      : {};
+  const where: Record<string, string | number | boolean | null> = {};
+  for (const key of Object.keys(whereInput).toSorted()) {
+    const raw = whereInput[key];
+    if (
+      typeof raw === "string" ||
+      typeof raw === "number" ||
+      typeof raw === "boolean" ||
+      raw === null
+    ) {
+      where[key] = raw;
+    }
+  }
+
+  const windowMinutes =
+    typeof record.windowMinutes === "number" && Number.isFinite(record.windowMinutes)
+      ? Math.max(1, Math.floor(record.windowMinutes))
+      : null;
+  const minSamples =
+    typeof record.minSamples === "number" && Number.isFinite(record.minSamples)
+      ? Math.max(1, Math.floor(record.minSamples))
+      : 1;
+
+  return {
+    types,
+    where,
+    metric: record.metric.trim(),
+    aggregation: record.aggregation.trim(),
+    operator: record.operator.trim(),
+    threshold: record.threshold,
+    windowMinutes,
+    minSamples,
+  };
+}
+
+function normalizeObservabilityAssertion(
+  input: TruthSyncInput,
+): ObservabilityAssertionRecord | undefined {
+  if (input.toolName !== "obs_slo_assert") {
+    return undefined;
+  }
+
+  const details =
+    input.metadata?.details &&
+    typeof input.metadata.details === "object" &&
+    !Array.isArray(input.metadata.details)
+      ? (input.metadata.details as Record<string, unknown>)
+      : undefined;
+  if (!details) {
+    return undefined;
+  }
+
+  const verdict = details.verdict;
+  if (verdict !== "pass" && verdict !== "fail" && verdict !== "inconclusive") {
+    return undefined;
+  }
+
+  const assertion =
+    details.observabilityAssertion &&
+    typeof details.observabilityAssertion === "object" &&
+    !Array.isArray(details.observabilityAssertion)
+      ? (details.observabilityAssertion as Record<string, unknown>)
+      : undefined;
+  if (!assertion || assertion.kind !== "slo_assert") {
+    return undefined;
+  }
+
+  const spec = normalizeObservabilityAssertionSpec(assertion.spec);
+  if (!spec) {
+    return undefined;
+  }
+
+  const severityRaw = assertion.severity;
+  const severity: TruthFactSeverity =
+    severityRaw === "info" || severityRaw === "warn" || severityRaw === "error"
+      ? severityRaw
+      : "warn";
+  const observedValue =
+    typeof assertion.observedValue === "number" && Number.isFinite(assertion.observedValue)
+      ? assertion.observedValue
+      : null;
+  const sampleSize =
+    typeof assertion.sampleSize === "number" && Number.isFinite(assertion.sampleSize)
+      ? Math.max(0, Math.floor(assertion.sampleSize))
+      : 0;
+  const queryRef =
+    typeof assertion.queryRef === "string" && assertion.queryRef.trim().length > 0
+      ? assertion.queryRef.trim()
+      : null;
+
+  return {
+    verdict,
+    severity,
+    observedValue,
+    sampleSize,
+    queryRef,
+    spec,
+  };
+}
+
+function observabilityAssertionFactId(assertion: ObservabilityAssertionRecord): string {
+  const digest = sha256(JSON.stringify(assertion.spec)).slice(0, 16);
+  return `truth:observability:${digest}`;
+}
+
+function syncObservabilityAssertionTruth(ctx: TruthSyncContext, input: TruthSyncInput): void {
+  const assertion = normalizeObservabilityAssertion(input);
+  if (!assertion) {
+    return;
+  }
+
+  const factId = observabilityAssertionFactId(assertion);
+  if (assertion.verdict === "inconclusive") {
+    return;
+  }
+
+  if (assertion.verdict === "pass") {
+    const truthState = ctx.getTruthState(input.sessionId);
+    const active = truthState.facts.find((fact) => fact.id === factId && fact.status === "active");
+    if (active) {
+      ctx.resolveTruthFact(input.sessionId, factId);
+    }
+    resolveTruthBackedBlocker(ctx, input.sessionId, factId);
+    return;
+  }
+
+  const thresholdText = Number.isInteger(assertion.spec.threshold)
+    ? String(assertion.spec.threshold)
+    : assertion.spec.threshold.toFixed(2);
+  const observedText =
+    assertion.observedValue === null
+      ? "unknown"
+      : Number.isInteger(assertion.observedValue)
+        ? String(assertion.observedValue)
+        : assertion.observedValue.toFixed(2);
+  const summary = `observability SLO violated: ${assertion.spec.metric} ${assertion.spec.aggregation} ${assertion.spec.operator} ${thresholdText} (observed=${observedText})`;
+
+  ctx.upsertTruthFact(input.sessionId, {
+    id: factId,
+    kind: "observability_slo_violation",
+    severity: assertion.severity,
+    summary,
+    evidenceIds: [input.ledgerRow.id],
+    details: {
+      metric: assertion.spec.metric,
+      aggregation: assertion.spec.aggregation,
+      operator: assertion.spec.operator,
+      threshold: assertion.spec.threshold,
+      observedValue: assertion.observedValue,
+      sampleSize: assertion.sampleSize,
+      windowMinutes: assertion.spec.windowMinutes,
+      queryRef: assertion.queryRef,
+      types: assertion.spec.types,
+      where: assertion.spec.where,
+      minSamples: assertion.spec.minSamples,
+      argsSummary: input.ledgerRow.argsSummary,
+      outputSummary: input.ledgerRow.outputSummary,
+    },
+  });
+
+  recordTruthBackedBlocker(ctx, input.sessionId, {
+    blockerId: factId,
+    truthFactId: factId,
+    message: summary,
+    source: "truth_extractor",
+  });
 }
 
 export function syncTruthFromToolResult(ctx: TruthSyncContext, input: TruthSyncInput): void {
@@ -309,7 +533,7 @@ export function syncTruthFromToolResult(ctx: TruthSyncContext, input: TruthSyncI
     toolName: input.toolName,
     args: input.args,
     outputText: input.outputText,
-    isError: !input.success,
+    isError: isToolResultFail(input.verdict),
     details: input.metadata?.details,
   });
   const artifacts = dedupeArtifacts([...metadataArtifacts, ...extractedArtifacts]);
@@ -321,6 +545,11 @@ export function syncTruthFromToolResult(ctx: TruthSyncContext, input: TruthSyncI
 
   if (normalizedTool === "lsp_diagnostics") {
     syncDiagnosticsTruth(ctx, input);
+    return;
+  }
+
+  if (normalizedTool === "obs_slo_assert") {
+    syncObservabilityAssertionTruth(ctx, input);
   }
 }
 
@@ -343,7 +572,11 @@ function syncExecTruth(
   const commandDetail = redactAndClamp(command, 480);
   const factId = truthFactIdForCommand(command);
 
-  if (input.success) {
+  if (isToolResultInconclusive(input.verdict)) {
+    return;
+  }
+
+  if (isToolResultPass(input.verdict)) {
     resolveCommandFailureFact(ctx, input.sessionId, factId);
     return;
   }

@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -54,7 +54,7 @@ export function createSessionCompactTool(options: BrewvaToolOptions): ToolDefini
             error: errorMessage,
           },
         });
-        return textResult(`Session compaction request failed (${errorMessage}).`, {
+        return failTextResult(`Session compaction request failed (${errorMessage}).`, {
           ok: false,
           error: errorMessage,
         });

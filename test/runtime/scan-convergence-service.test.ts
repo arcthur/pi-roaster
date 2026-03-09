@@ -16,7 +16,8 @@ function startAndFinishTool(input: {
   toolCallId: string;
   toolName: string;
   args: Record<string, unknown>;
-  success?: boolean;
+  channelSuccess?: boolean;
+  verdict?: "pass" | "fail" | "inconclusive";
   outputText?: string;
 }): { allowed: boolean; reason?: string } {
   const started = input.runtime.tools.start({
@@ -35,7 +36,8 @@ function startAndFinishTool(input: {
     toolName: input.toolName,
     args: input.args,
     outputText: input.outputText ?? `${input.toolName} output`,
-    success: input.success !== false,
+    channelSuccess: input.channelSuccess !== false,
+    verdict: input.verdict,
   });
   return started;
 }
@@ -179,5 +181,96 @@ describe("scan convergence service", () => {
     })[0];
     expect(reset?.payload?.reason).toBe("strategy_shift");
     expect(reset?.payload?.toolStrategy).toBe("evidence_reuse");
+  });
+
+  test("obs_query is classified as evidence reuse and clears the guard", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-obs-query-"));
+    const runtime = createRuntime(workspace);
+    const sessionId = "scan-runtime-obs-query-1";
+
+    runtime.context.onUserInput(sessionId);
+
+    for (let turn = 1; turn <= 3; turn += 1) {
+      runtime.context.onTurnStart(sessionId, turn);
+      startAndFinishTool({
+        runtime,
+        sessionId,
+        toolCallId: `tc-read-obs-${turn}`,
+        toolName: "read",
+        args: { file_path: `src/obs-${turn}.ts` },
+      });
+      runtime.context.onTurnEnd(sessionId);
+    }
+
+    runtime.context.onTurnStart(sessionId, 4);
+    const evidenceReuse = startAndFinishTool({
+      runtime,
+      sessionId,
+      toolCallId: "tc-obs-query",
+      toolName: "obs_query",
+      args: { types: ["tool_result_recorded"], metric: "rawTokens", aggregation: "p95" },
+      outputText: "[ObsQuery]\nmatch_count: 1",
+    });
+    expect(evidenceReuse.allowed).toBe(true);
+
+    const rawScan = runtime.tools.start({
+      sessionId,
+      toolCallId: "tc-read-after-obs-query",
+      toolName: "read",
+      args: { file_path: "src/after-obs-query.ts" },
+    });
+    expect(rawScan.allowed).toBe(true);
+
+    const reset = runtime.events.query(sessionId, {
+      type: "scan_convergence_reset",
+      last: 1,
+    })[0];
+    expect(reset?.payload?.toolStrategy).toBe("evidence_reuse");
+  });
+
+  test("non-pass evidence reuse does not clear the guard", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-non-pass-reset-"));
+    const runtime = createRuntime(workspace);
+    const sessionId = "scan-runtime-non-pass-reset-1";
+
+    runtime.context.onUserInput(sessionId);
+
+    for (let turn = 1; turn <= 3; turn += 1) {
+      runtime.context.onTurnStart(sessionId, turn);
+      startAndFinishTool({
+        runtime,
+        sessionId,
+        toolCallId: `tc-read-non-pass-${turn}`,
+        toolName: "read",
+        args: { file_path: `src/non-pass-${turn}.ts` },
+      });
+      runtime.context.onTurnEnd(sessionId);
+    }
+
+    runtime.context.onTurnStart(sessionId, 4);
+    const evidenceReuse = startAndFinishTool({
+      runtime,
+      sessionId,
+      toolCallId: "tc-output-search-inconclusive",
+      toolName: "output_search",
+      args: { query: "runtime facade" },
+      outputText: "Search throttled; no stable answer yet.",
+      verdict: "inconclusive",
+    });
+    expect(evidenceReuse.allowed).toBe(true);
+
+    const stillBlocked = runtime.tools.start({
+      sessionId,
+      toolCallId: "tc-read-still-blocked",
+      toolName: "read",
+      args: { file_path: "src/still-blocked.ts" },
+    });
+    expect(stillBlocked.allowed).toBe(false);
+
+    const reset = runtime.events.query(sessionId, {
+      type: "scan_convergence_reset",
+      last: 1,
+    })[0];
+    expect(reset).toBeUndefined();
   });
 });

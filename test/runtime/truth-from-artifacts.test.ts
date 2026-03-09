@@ -27,7 +27,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: failureOutput,
-      success: false,
+      channelSuccess: false,
       metadata: {
         details: { result: { exitCode: 1 } },
       },
@@ -69,7 +69,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "",
-      success: true,
+      channelSuccess: true,
       metadata: {
         details: { result: { exitCode: 0 } },
       },
@@ -94,7 +94,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "Process exited with code 2.",
-      success: false,
+      channelSuccess: false,
       metadata: {
         details: { result: { exitCode: 2 } },
       },
@@ -113,7 +113,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: "bun test", timeout: 120_000 },
       outputText: "Invalid arguments: timeout must be <= 7200",
-      success: false,
+      channelSuccess: false,
       metadata: {
         details: {
           message: "Schema validation failed",
@@ -157,7 +157,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: 'rg "needle" src' },
       outputText: "(no output)\n\nProcess exited with code 1.",
-      success: false,
+      channelSuccess: false,
       metadata: {
         details: { result: { exitCode: 1 } },
       },
@@ -182,7 +182,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: 'grep -c "needle" src/file.ts' },
       outputText: "0\n\nProcess exited with code 1.",
-      success: false,
+      channelSuccess: false,
       metadata: {
         details: { result: { exitCode: 1 } },
       },
@@ -207,7 +207,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: 'git -C repo grep "needle" src' },
       outputText: "(no output)\n\nProcess exited with code 1.",
-      success: false,
+      channelSuccess: false,
       metadata: {
         details: { result: { exitCode: 1 } },
       },
@@ -232,7 +232,7 @@ describe("Truth extraction from evidence artifacts", () => {
       toolName: "exec",
       args: { command: 'rg "needle" src' },
       outputText: "(no output)\r\n\r\nProcess exited with code 1.",
-      success: false,
+      channelSuccess: false,
       metadata: {
         details: {},
       },
@@ -245,5 +245,168 @@ describe("Truth extraction from evidence artifacts", () => {
 
     const task = runtime.task.getState(sessionId);
     expect(task.blockers.length).toBe(0);
+  });
+
+  test("records and resolves observability SLO violations from obs_slo_assert evidence", () => {
+    const workspace = createWorkspace("truth-from-artifacts-observability");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-artifacts-observability-1";
+
+    const assertionSpec = {
+      types: ["startup_sample"],
+      where: { service: "api" },
+      metric: "startupMs",
+      aggregation: "p95",
+      operator: "<=",
+      threshold: 800,
+      windowMinutes: 15,
+      minSamples: 2,
+    };
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "obs_slo_assert",
+      args: assertionSpec,
+      outputText: "verdict: fail",
+      channelSuccess: true,
+      metadata: {
+        details: {
+          verdict: "fail",
+          observabilityAssertion: {
+            kind: "slo_assert",
+            spec: assertionSpec,
+            observedValue: 930,
+            sampleSize: 2,
+            queryRef: ".orchestrator/tool-output-artifacts/sample-1.json",
+            severity: "warn",
+          },
+        },
+      },
+    });
+
+    const failFact = runtime.truth
+      .getState(sessionId)
+      .facts.find(
+        (fact) => fact.kind === "observability_slo_violation" && fact.status === "active",
+      );
+    expect(failFact).toBeDefined();
+    expect(failFact?.details?.queryRef).toBe(".orchestrator/tool-output-artifacts/sample-1.json");
+    expect(
+      runtime.task.getState(sessionId).blockers.some((blocker) => blocker.id === failFact?.id),
+    ).toBe(true);
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "obs_slo_assert",
+      args: assertionSpec,
+      outputText: "verdict: inconclusive",
+      channelSuccess: true,
+      metadata: {
+        details: {
+          verdict: "inconclusive",
+          observabilityAssertion: {
+            kind: "slo_assert",
+            spec: assertionSpec,
+            observedValue: null,
+            sampleSize: 1,
+            queryRef: ".orchestrator/tool-output-artifacts/sample-2.json",
+            severity: "warn",
+          },
+        },
+      },
+    });
+
+    expect(
+      runtime.truth.getState(sessionId).facts.find((fact) => fact.id === failFact?.id)?.status,
+    ).toBe("active");
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "obs_slo_assert",
+      args: assertionSpec,
+      outputText: "verdict: pass",
+      channelSuccess: true,
+      metadata: {
+        details: {
+          verdict: "pass",
+          observabilityAssertion: {
+            kind: "slo_assert",
+            spec: assertionSpec,
+            observedValue: 780,
+            sampleSize: 2,
+            queryRef: ".orchestrator/tool-output-artifacts/sample-3.json",
+            severity: "warn",
+          },
+        },
+      },
+    });
+
+    expect(
+      runtime.truth.getState(sessionId).facts.find((fact) => fact.id === failFact?.id)?.status,
+    ).toBe("resolved");
+    expect(
+      runtime.task.getState(sessionId).blockers.some((blocker) => blocker.id === failFact?.id),
+    ).toBe(false);
+  });
+
+  test("uses explicit verdicts for exec truth sync even when the tool channel succeeds", () => {
+    const workspace = createWorkspace("truth-from-artifacts-explicit-verdict");
+    const runtime = new BrewvaRuntime({ cwd: workspace });
+    const sessionId = "truth-from-artifacts-explicit-verdict-1";
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: "bun test" },
+      outputText: "FAIL src/foo.test.ts\nProcess exited with code 1.",
+      channelSuccess: true,
+      verdict: "fail",
+      metadata: {
+        details: { result: { exitCode: 1 } },
+      },
+    });
+
+    const activeFailure = runtime.truth
+      .getState(sessionId)
+      .facts.find((fact) => fact.kind === "command_failure" && fact.status === "active");
+    expect(activeFailure).toBeDefined();
+    expect(
+      runtime.task.getState(sessionId).blockers.some((blocker) => blocker.id === activeFailure?.id),
+    ).toBe(true);
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: "bun test" },
+      outputText: "Process still running.",
+      channelSuccess: true,
+      verdict: "inconclusive",
+      metadata: {
+        details: { status: "running" },
+      },
+    });
+
+    expect(
+      runtime.truth.getState(sessionId).facts.find((fact) => fact.id === activeFailure?.id)?.status,
+    ).toBe("active");
+
+    runtime.tools.recordResult({
+      sessionId,
+      toolName: "exec",
+      args: { command: "bun test" },
+      outputText: "All tests passed",
+      channelSuccess: true,
+      verdict: "pass",
+      metadata: {
+        details: { result: { exitCode: 0 } },
+      },
+    });
+
+    expect(
+      runtime.truth.getState(sessionId).facts.find((fact) => fact.id === activeFailure?.id)?.status,
+    ).toBe("resolved");
+    expect(
+      runtime.task.getState(sessionId).blockers.some((blocker) => blocker.id === activeFailure?.id),
+    ).toBe(false);
   });
 });

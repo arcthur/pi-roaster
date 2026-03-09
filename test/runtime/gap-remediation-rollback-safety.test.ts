@@ -27,7 +27,7 @@ describe("Gap remediation: rollback safety net", () => {
       toolName: "lsp_diagnostics",
       args: { severity: "all" },
       outputText: "No diagnostics found",
-      success: true,
+      channelSuccess: true,
     });
 
     runtime.tools.trackCallStart({
@@ -41,7 +41,7 @@ describe("Gap remediation: rollback safety net", () => {
       sessionId,
       toolCallId: "tool-1",
       toolName: "edit",
-      success: true,
+      channelSuccess: true,
     });
 
     const rollback = runtime.tools.rollbackLastPatchSet(sessionId);
@@ -74,7 +74,7 @@ describe("Gap remediation: rollback safety net", () => {
       sessionId,
       toolCallId: "tool-add",
       toolName: "write",
-      success: true,
+      channelSuccess: true,
     });
 
     const rollback = runtime.tools.rollbackLastPatchSet(sessionId);
@@ -105,7 +105,7 @@ describe("Gap remediation: rollback safety net", () => {
       sessionId,
       toolCallId: "tool-1",
       toolName: "edit",
-      success: true,
+      channelSuccess: true,
     });
 
     const snapshotDir = join(workspace, ".orchestrator/snapshots", sessionId);
@@ -182,7 +182,7 @@ describe("Gap remediation: rollback safety net", () => {
       sessionId,
       toolCallId: "persist-1",
       toolName: "edit",
-      success: true,
+      channelSuccess: true,
     });
 
     const runtimeB = new BrewvaRuntime({

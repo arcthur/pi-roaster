@@ -218,7 +218,7 @@ describe("Gap remediation: event stream and context budget", () => {
         toolName: "exec",
         args: { command: `echo ${"x".repeat(240)} ${i}` },
         outputText: "ok",
-        success: true,
+        channelSuccess: true,
       });
     }
 
@@ -254,7 +254,7 @@ describe("Gap remediation: event stream and context budget", () => {
         toolName: "exec",
         args: { command: `echo ${"x".repeat(240)} ${i}` },
         outputText: "ok",
-        success: true,
+        channelSuccess: true,
       });
     }
 
@@ -573,14 +573,14 @@ describe("Gap remediation: event stream and context budget", () => {
       toolName: "exec",
       args: { command: "echo one" },
       outputText: "one",
-      success: true,
+      channelSuccess: true,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo two" },
       outputText: "two",
-      success: true,
+      channelSuccess: true,
     });
     runtime.cost.recordAssistantUsage({
       sessionId,

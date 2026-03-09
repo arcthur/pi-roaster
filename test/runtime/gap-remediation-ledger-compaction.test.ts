@@ -30,7 +30,7 @@ describe("Gap remediation: ledger compaction and redaction", () => {
         toolName: "exec",
         args: { command: `echo ${i}` },
         outputText: `ok-${i}`,
-        success: true,
+        channelSuccess: true,
       });
     }
 
@@ -53,7 +53,7 @@ describe("Gap remediation: ledger compaction and redaction", () => {
       toolName: "read",
       args: { token: "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789" },
       outputText: "Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789",
-      success: true,
+      channelSuccess: true,
       metadata: {
         nested: {
           key: "AKIA1234567890ABCDEF",
@@ -78,7 +78,7 @@ describe("Gap remediation: ledger compaction and redaction", () => {
       toolName: "read",
       args: { path: "src/a.ts" },
       outputText: "ok-a",
-      success: true,
+      channelSuccess: true,
     });
 
     appendFileSync(runtime.ledger.getPath(), "\nnot-json", "utf8");

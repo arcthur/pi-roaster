@@ -15,7 +15,7 @@ describe("S-003 ledger write/query", () => {
       toolName: "exec",
       args: { command: "bun test" },
       outputText: "PASS",
-      success: true,
+      channelSuccess: true,
     });
 
     const text = runtime.ledger.query(sessionId, { last: 5 });

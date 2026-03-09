@@ -4,7 +4,7 @@ import type { BrewvaEventRecord } from "@brewva/brewva-runtime";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { inconclusiveTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -724,7 +724,7 @@ export function createOutputSearchTool(options: BrewvaToolOptions): ToolDefiniti
           blocked: true,
         });
 
-        return textResult(clampOutput(blockedText, maxOutputChars), {
+        return inconclusiveTextResult(clampOutput(blockedText, maxOutputChars), {
           sessionId,
           queryCount: queryList.length,
           artifactsConsidered: candidates.length,

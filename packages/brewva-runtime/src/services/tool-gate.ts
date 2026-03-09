@@ -8,6 +8,7 @@ import type {
   SkillDocument,
 } from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
+import { resolveToolResultVerdict } from "../utils/tool-result.js";
 import type { RuntimeCallback } from "./callback.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 
@@ -35,7 +36,7 @@ export interface FinishToolCallInput {
   toolName: string;
   args: Record<string, unknown>;
   outputText: string;
-  success: boolean;
+  channelSuccess: boolean;
   verdict?: "pass" | "fail" | "inconclusive";
   metadata?: Record<string, unknown>;
 }
@@ -84,7 +85,7 @@ export interface ToolGateServiceOptions {
         toolName: string;
         args: Record<string, unknown>;
         outputText: string;
-        success: boolean;
+        channelSuccess: boolean;
         verdict?: "pass" | "fail" | "inconclusive";
         metadata?: Record<string, unknown>;
       },
@@ -97,7 +98,7 @@ export interface ToolGateServiceOptions {
         sessionId: string;
         toolCallId: string;
         toolName: string;
-        success: boolean;
+        channelSuccess: boolean;
       },
     ]
   >;
@@ -119,7 +120,7 @@ export interface ToolGateServiceOptions {
         toolCallId: string;
         toolName: string;
         args?: Record<string, unknown>;
-        success: boolean;
+        verdict: "pass" | "fail" | "inconclusive";
         outputText: string;
       },
     ]
@@ -583,13 +584,17 @@ export class ToolGateService {
   }
 
   finishToolCall(input: FinishToolCallInput): string {
+    const verdict = resolveToolResultVerdict({
+      verdict: input.verdict,
+      channelSuccess: input.channelSuccess,
+    });
     const ledgerId = this.recordToolResult({
       sessionId: input.sessionId,
       toolName: input.toolName,
       args: input.args,
       outputText: input.outputText,
-      success: input.success,
-      verdict: input.verdict,
+      channelSuccess: input.channelSuccess,
+      verdict,
       metadata: input.metadata,
     });
     this.observeScanConvergenceToolResult({
@@ -597,14 +602,14 @@ export class ToolGateService {
       toolCallId: input.toolCallId,
       toolName: input.toolName,
       args: input.args,
-      success: input.success,
+      verdict,
       outputText: input.outputText,
     });
     this.trackToolCallEnd({
       sessionId: input.sessionId,
       toolCallId: input.toolCallId,
       toolName: input.toolName,
-      success: input.success,
+      channelSuccess: input.channelSuccess,
     });
     return ledgerId;
   }

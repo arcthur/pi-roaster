@@ -39,6 +39,7 @@ describe("look_at tool", () => {
     expect(text.includes("next_step=")).toBe(true);
     expect(text.includes("export const alpha")).toBe(false);
     expect(details?.status).toBe("unavailable");
+    expect(details?.verdict).toBe("inconclusive");
     expect(details?.reason).toBe("no_high_confidence_match");
   });
 
@@ -61,6 +62,7 @@ describe("look_at tool", () => {
 
     const details = (result as { details?: Record<string, unknown> }).details;
     expect(details?.status).toBe("unavailable");
+    expect(details?.verdict).toBe("inconclusive");
     expect(details?.reason).toBe("goal_keywords_insufficient");
   });
 
@@ -83,6 +85,7 @@ describe("look_at tool", () => {
 
     const details = (result as { details?: Record<string, unknown> }).details;
     expect(details?.status).toBe("unavailable");
+    expect(details?.verdict).toBe("inconclusive");
     expect(details?.reason).toBe("unsupported_goal_language");
   });
 });

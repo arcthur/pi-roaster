@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolRuntime } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult, withVerdict } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -26,7 +26,7 @@ export function createA2ATools(options: CreateA2AToolsOptions): ToolDefinition[]
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const adapter = options.runtime.orchestration?.a2a;
       if (!adapter) {
-        return textResult("A2A orchestration is unavailable in this session.", { ok: false });
+        return failTextResult("A2A orchestration is unavailable in this session.", { ok: false });
       }
       const sessionId = getSessionId(ctx);
       const result = await adapter.send({
@@ -38,7 +38,7 @@ export function createA2ATools(options: CreateA2AToolsOptions): ToolDefinition[]
         hops: params.hops,
       });
       if (!result.ok) {
-        return textResult(
+        return failTextResult(
           `agent_send failed for ${result.toAgentId}: ${result.error ?? "unknown_error"}`,
           result as Record<string, unknown>,
         );
@@ -64,7 +64,7 @@ export function createA2ATools(options: CreateA2AToolsOptions): ToolDefinition[]
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const adapter = options.runtime.orchestration?.a2a;
       if (!adapter) {
-        return textResult("A2A orchestration is unavailable in this session.", { ok: false });
+        return failTextResult("A2A orchestration is unavailable in this session.", { ok: false });
       }
       const sessionId = getSessionId(ctx);
       const result = await adapter.broadcast({
@@ -86,7 +86,12 @@ export function createA2ATools(options: CreateA2AToolsOptions): ToolDefinition[]
             : `- ${entry.toAgentId}: ${entry.error ?? "unknown_error"}`,
         ),
       ];
-      return textResult(lines.join("\n"), result as Record<string, unknown>);
+      return textResult(
+        lines.join("\n"),
+        failCount > 0
+          ? withVerdict(result as Record<string, unknown>, "fail")
+          : (result as Record<string, unknown>),
+      );
     },
   });
 
@@ -100,7 +105,7 @@ export function createA2ATools(options: CreateA2AToolsOptions): ToolDefinition[]
     async execute(_toolCallId, params) {
       const adapter = options.runtime.orchestration?.a2a;
       if (!adapter) {
-        return textResult("A2A orchestration is unavailable in this session.", { ok: false });
+        return failTextResult("A2A orchestration is unavailable in this session.", { ok: false });
       }
       const agents = await adapter.listAgents({
         includeDeleted: params.includeDeleted,

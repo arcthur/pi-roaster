@@ -16,7 +16,7 @@ import {
   type ManagedExecFinishedSession,
   type ManagedExecRunningSession,
 } from "./exec-process-registry.js";
-import { textResult } from "./utils/result.js";
+import { textResult, type ToolResultVerdict, withVerdict } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -127,6 +127,14 @@ function defaultTailHint(totalLines: number, usingDefaultTail: boolean): string 
   return `\n\n[showing last ${DEFAULT_LOG_TAIL_LINES} of ${totalLines} lines; pass offset/limit to page]`;
 }
 
+function resolveProcessVerdict(
+  status: "running" | "completed" | "failed",
+): ToolResultVerdict | undefined {
+  if (status === "running") return "inconclusive";
+  if (status === "failed") return "fail";
+  return undefined;
+}
+
 export function createProcessTool(): ToolDefinition {
   return defineTool({
     name: "process",
@@ -180,7 +188,10 @@ export function createProcessTool(): ToolDefinition {
 
       const sessionId = pickSessionId(params);
       if (!sessionId) {
-        return textResult("sessionId is required for this action.", { status: "failed" });
+        return textResult(
+          "sessionId is required for this action.",
+          withVerdict({ status: "failed" }, "fail"),
+        );
       }
 
       if (params.action === "poll") {
@@ -190,32 +201,48 @@ export function createProcessTool(): ToolDefinition {
         const running = getRunningSession(ownerSessionId, sessionId);
         if (running) {
           if (!running.backgrounded) {
-            return textResult(`Session ${sessionId} is not backgrounded.`, {
-              status: "failed",
-            });
+            return textResult(
+              `Session ${sessionId} is not backgrounded.`,
+              withVerdict({ status: "failed" }, "fail"),
+            );
           }
           const output = normalizeOutputText(drainSessionOutput(running), "(no new output)");
-          return textResult(`${output}\n\nProcess still running.`, {
-            status: "running",
-            sessionId,
-            pid: running.pid ?? undefined,
-            name: formatSessionLabel(running.command),
-          });
+          return textResult(
+            `${output}\n\nProcess still running.`,
+            withVerdict(
+              {
+                status: "running",
+                sessionId,
+                pid: running.pid ?? undefined,
+                name: formatSessionLabel(running.command),
+              },
+              "inconclusive",
+            ),
+          );
         }
 
         const finished = getFinishedSession(ownerSessionId, sessionId);
         if (!finished) {
-          return textResult(`No session found for ${sessionId}`, { status: "failed" });
+          return textResult(
+            `No session found for ${sessionId}`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
 
         const output = normalizeOutputText(drainSessionOutput(finished), "(no new output)");
-        return textResult(`${output}\n\nProcess exited with ${exitLabel(finished)}.`, {
-          status: finished.status,
-          sessionId,
-          exitCode: finished.exitCode ?? undefined,
-          exitSignal: finished.exitSignal ?? undefined,
-          name: formatSessionLabel(finished.command),
-        });
+        return textResult(
+          `${output}\n\nProcess exited with ${exitLabel(finished)}.`,
+          withVerdict(
+            {
+              status: finished.status,
+              sessionId,
+              exitCode: finished.exitCode ?? undefined,
+              exitSignal: finished.exitSignal ?? undefined,
+              name: formatSessionLabel(finished.command),
+            },
+            resolveProcessVerdict(finished.status),
+          ),
+        );
       }
 
       if (params.action === "log") {
@@ -223,10 +250,16 @@ export function createProcessTool(): ToolDefinition {
         const finished = running ? undefined : getFinishedSession(ownerSessionId, sessionId);
         const session = running ?? finished;
         if (!session) {
-          return textResult(`No session found for ${sessionId}`, { status: "failed" });
+          return textResult(
+            `No session found for ${sessionId}`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
         if (!session.backgrounded) {
-          return textResult(`Session ${sessionId} is not backgrounded.`, { status: "failed" });
+          return textResult(
+            `Session ${sessionId} is not backgrounded.`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
 
         const log = readSessionLog(session, params.offset, params.limit);
@@ -234,26 +267,42 @@ export function createProcessTool(): ToolDefinition {
           log.output,
           running ? "(no output yet)" : "(no output recorded)",
         );
-        return textResult(content + defaultTailHint(log.totalLines, log.usingDefaultTail), {
-          status: running ? "running" : (finished?.status ?? "completed"),
-          sessionId,
-          totalLines: log.totalLines,
-          totalChars: log.totalChars,
-          truncated: session.truncated,
-          name: formatSessionLabel(session.command),
-        });
+        const status = running ? "running" : (finished?.status ?? "completed");
+        return textResult(
+          content + defaultTailHint(log.totalLines, log.usingDefaultTail),
+          withVerdict(
+            {
+              status,
+              sessionId,
+              totalLines: log.totalLines,
+              totalChars: log.totalChars,
+              truncated: session.truncated,
+              name: formatSessionLabel(session.command),
+            },
+            resolveProcessVerdict(status),
+          ),
+        );
       }
 
       if (params.action === "write") {
         const running = getRunningSession(ownerSessionId, sessionId);
         if (!running) {
-          return textResult(`No active session found for ${sessionId}`, { status: "failed" });
+          return textResult(
+            `No active session found for ${sessionId}`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
         if (!running.backgrounded) {
-          return textResult(`Session ${sessionId} is not backgrounded.`, { status: "failed" });
+          return textResult(
+            `Session ${sessionId} is not backgrounded.`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
         if (!running.stdin || running.stdin.destroyed) {
-          return textResult(`Session ${sessionId} stdin is not writable.`, { status: "failed" });
+          return textResult(
+            `Session ${sessionId} stdin is not writable.`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
 
         const data = typeof params.data === "string" ? params.data : "";
@@ -261,51 +310,66 @@ export function createProcessTool(): ToolDefinition {
           await writeToStdin(running, data, params.eof === true);
           return textResult(
             `Wrote ${data.length} bytes to session ${sessionId}${params.eof ? " (stdin closed)" : ""}.`,
-            {
-              status: "running",
-              sessionId,
-              name: formatSessionLabel(running.command),
-            },
+            withVerdict(
+              {
+                status: "running",
+                sessionId,
+                name: formatSessionLabel(running.command),
+              },
+              "inconclusive",
+            ),
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          return textResult(`Failed to write to session ${sessionId}: ${message}`, {
-            status: "failed",
-          });
+          return textResult(
+            `Failed to write to session ${sessionId}: ${message}`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
       }
 
       if (params.action === "kill") {
         const running = getRunningSession(ownerSessionId, sessionId);
         if (!running) {
-          return textResult(`No active session found for ${sessionId}`, { status: "failed" });
+          return textResult(
+            `No active session found for ${sessionId}`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
         if (!running.backgrounded) {
-          return textResult(`Session ${sessionId} is not backgrounded.`, { status: "failed" });
+          return textResult(
+            `Session ${sessionId} is not backgrounded.`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
 
         const terminated = terminateRunningSession(running, true);
         if (!terminated) {
           return textResult(
             `Unable to terminate session ${sessionId}: no active process id or handle.`,
-            {
-              status: "failed",
-            },
+            withVerdict({ status: "failed" }, "fail"),
           );
         }
-        return textResult(`Termination requested for session ${sessionId}.`, {
-          status: "failed",
-          sessionId,
-          name: formatSessionLabel(running.command),
-        });
+        return textResult(
+          `Termination requested for session ${sessionId}.`,
+          withVerdict(
+            {
+              status: "failed",
+              sessionId,
+              name: formatSessionLabel(running.command),
+            },
+            "fail",
+          ),
+        );
       }
 
       if (params.action === "clear") {
         const finished = getFinishedSession(ownerSessionId, sessionId);
         if (!finished) {
-          return textResult(`No finished session found for ${sessionId}`, {
-            status: "failed",
-          });
+          return textResult(
+            `No finished session found for ${sessionId}`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
         deleteManagedSession(ownerSessionId, sessionId);
         return textResult(`Cleared session ${sessionId}.`, { status: "completed" });
@@ -322,20 +386,28 @@ export function createProcessTool(): ToolDefinition {
           if (!running.exited) {
             return textResult(
               `Session ${sessionId} did not exit after termination. Use kill then try remove again.`,
-              { status: "failed" },
+              withVerdict({ status: "failed" }, "fail"),
             );
           }
         }
         const removed = deleteManagedSession(ownerSessionId, sessionId);
         if (!removed) {
-          return textResult(`No session found for ${sessionId}`, { status: "failed" });
+          return textResult(
+            `No session found for ${sessionId}`,
+            withVerdict({ status: "failed" }, "fail"),
+          );
         }
-        return textResult(`Removed session ${sessionId}.`, {
-          status: running ? "failed" : "completed",
-        });
+        const status = running ? "failed" : "completed";
+        return textResult(
+          `Removed session ${sessionId}.`,
+          withVerdict({ status }, resolveProcessVerdict(status)),
+        );
       }
 
-      return textResult(`Unknown action: ${String(params.action)}`, { status: "failed" });
+      return textResult(
+        `Unknown action: ${String(params.action)}`,
+        withVerdict({ status: "failed" }, "fail"),
+      );
     },
   });
 }

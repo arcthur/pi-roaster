@@ -19,7 +19,7 @@ import {
   type ManagedExecRunningSession,
 } from "./exec-process-registry.js";
 import type { BrewvaToolRuntime } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { textResult, withVerdict } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -451,6 +451,7 @@ function runningResult(session: ManagedExecRunningSession) {
   }
   return textResult(lines.join("\n"), {
     status: "running",
+    verdict: "inconclusive",
     sessionId: session.id,
     pid: session.pid ?? undefined,
     startedAt: session.startedAt,
@@ -748,12 +749,18 @@ async function executeHostCommand(input: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return textResult(`Exec failed to start: ${message}`, {
-      status: "failed",
-      command: input.command,
-      cwd: input.cwd,
-      backend: "host",
-    });
+    return textResult(
+      `Exec failed to start: ${message}`,
+      withVerdict(
+        {
+          status: "failed",
+          command: input.command,
+          cwd: input.cwd,
+          backend: "host",
+        },
+        "fail",
+      ),
+    );
   }
 
   const onAbort = () => {
@@ -993,7 +1000,10 @@ export function createExecTool(options?: ExecToolOptions): ToolDefinition {
         typeof ctx.cwd === "string" && ctx.cwd.trim().length > 0 ? ctx.cwd : process.cwd();
       const command = normalizeCommand(params.command);
       if (!command) {
-        return textResult("Exec rejected (missing_command).", { status: "failed" });
+        return textResult(
+          "Exec rejected (missing_command).",
+          withVerdict({ status: "failed" }, "fail"),
+        );
       }
 
       const requestedWorkdir = normalizeOptionalString(params.workdir);

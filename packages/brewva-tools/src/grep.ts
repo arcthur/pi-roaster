@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { defineTool } from "./utils/tool.js";
 
 type GrepCase = "smart" | "ignore" | "sensitive";
@@ -212,7 +212,7 @@ export function createGrepTool(options: BrewvaToolOptions): ToolDefinition {
         }
 
         const stderr = result.stderr ? `\n\nstderr:\n${result.stderr}` : "";
-        return textResult([...header, "", "(rg failed)", stderr.trim()].join("\n").trim(), {
+        return failTextResult([...header, "", "(rg failed)", stderr.trim()].join("\n").trim(), {
           ok: false,
           ...result,
         });
@@ -220,7 +220,7 @@ export function createGrepTool(options: BrewvaToolOptions): ToolDefinition {
         const message = error instanceof Error ? error.message : String(error);
         const notFound = /ENOENT|not found|spawn rg/i.test(message);
         const hint = notFound ? " (install ripgrep: rg)" : "";
-        return textResult(`grep failed: ${message}${hint}`, {
+        return failTextResult(`grep failed: ${message}${hint}`, {
           ok: false,
           error: message,
           hint,

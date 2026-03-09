@@ -2,6 +2,9 @@ export const TOOL_RESULT_RECORDED_EVENT_TYPE = "tool_result_recorded" as const;
 export const TOOL_OUTPUT_OBSERVED_EVENT_TYPE = "tool_output_observed" as const;
 export const TOOL_OUTPUT_DISTILLED_EVENT_TYPE = "tool_output_distilled" as const;
 export const TOOL_OUTPUT_ARTIFACT_PERSISTED_EVENT_TYPE = "tool_output_artifact_persisted" as const;
+export const OBSERVABILITY_QUERY_EXECUTED_EVENT_TYPE = "observability_query_executed" as const;
+export const OBSERVABILITY_ASSERTION_RECORDED_EVENT_TYPE =
+  "observability_assertion_recorded" as const;
 
 export const EXEC_ROUTED_EVENT_TYPE = "exec_routed" as const;
 export const EXEC_FALLBACK_HOST_EVENT_TYPE = "exec_fallback_host" as const;

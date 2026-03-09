@@ -6,6 +6,9 @@ import { createGrepTool } from "./grep.js";
 import { createLedgerQueryTool } from "./ledger-query.js";
 import { createLookAtTool } from "./look-at.js";
 import { createLspTools } from "./lsp.js";
+import { createObsQueryTool } from "./observability/obs-query.js";
+import { createObsSloAssertTool } from "./observability/obs-slo-assert.js";
+import { createObsSnapshotTool } from "./observability/obs-snapshot.js";
 import { createOutputSearchTool } from "./output-search.js";
 import { createProcessTool } from "./process.js";
 import { createRollbackLastPatchTool } from "./rollback-last-patch.js";
@@ -32,6 +35,9 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
     createExecTool({ runtime: options.runtime }),
     createProcessTool(),
     createCostViewTool({ runtime: options.runtime }),
+    createObsQueryTool({ runtime: options.runtime }),
+    createObsSloAssertTool({ runtime: options.runtime }),
+    createObsSnapshotTool({ runtime: options.runtime }),
     createLedgerQueryTool({ runtime: options.runtime }),
     createOutputSearchTool({ runtime: options.runtime }),
     createScheduleIntentTool({ runtime: options.runtime }),
@@ -56,6 +62,9 @@ export { createGrepTool } from "./grep.js";
 export { createExecTool } from "./exec.js";
 export { createProcessTool } from "./process.js";
 export { createCostViewTool } from "./cost-view.js";
+export { createObsQueryTool } from "./observability/obs-query.js";
+export { createObsSloAssertTool } from "./observability/obs-slo-assert.js";
+export { createObsSnapshotTool } from "./observability/obs-snapshot.js";
 export { createLedgerQueryTool } from "./ledger-query.js";
 export { createOutputSearchTool } from "./output-search.js";
 export { createTapeTools } from "./tape.js";

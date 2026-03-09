@@ -217,7 +217,7 @@ describe("runtime core bridge extension", () => {
     expect(calls.finished).toHaveLength(1);
     expect(calls.finished[0]?.sessionId).toBe("core-tool-result");
     expect(calls.finished[0]?.toolCallId).toBe("tc-1");
-    expect(calls.finished[0]?.success).toBe(true);
+    expect(calls.finished[0]?.channelSuccess).toBe(true);
   });
 
   test("given session_compact event, when bridge handles it, then compaction is marked and event recorded", () => {

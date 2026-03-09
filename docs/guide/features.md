@@ -26,6 +26,9 @@
 - `exec`
 - `process`
 - `cost_view`
+- `obs_query`
+- `obs_slo_assert`
+- `obs_snapshot`
 - `ledger_query`
 - `output_search`
 - `schedule_intent`

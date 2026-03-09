@@ -279,21 +279,21 @@ describe("tape checkpoint automation", () => {
       toolName: "exec",
       args: { command: "echo first-a" },
       outputText: "ok",
-      success: true,
+      channelSuccess: true,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo first-b" },
       outputText: "ok",
-      success: true,
+      channelSuccess: true,
     });
     runtime.tools.recordResult({
       sessionId,
       toolName: "exec",
       args: { command: "echo first-c" },
       outputText: "ok",
-      success: true,
+      channelSuccess: true,
     });
     expect(runtime.events.query(sessionId, { type: "ledger_compacted" })).toHaveLength(1);
 
@@ -304,7 +304,7 @@ describe("tape checkpoint automation", () => {
       toolName: "exec",
       args: { command: "echo second" },
       outputText: "ok",
-      success: true,
+      channelSuccess: true,
     });
     expect(reloaded.events.query(sessionId, { type: "ledger_compacted" })).toHaveLength(1);
   });

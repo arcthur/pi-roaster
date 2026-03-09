@@ -513,6 +513,7 @@ describe("tool parallel read runtime integration", () => {
     expect(text.includes("next_step=")).toBe(true);
     const details = (result as { details?: Record<string, unknown> }).details;
     expect(details?.status).toBe("unavailable");
+    expect(details?.verdict).toBe("fail");
     expect(details?.reason).toBe("ast_grep_unavailable");
     expect(getParallelReadPayloads(runtime, sessionId)).toHaveLength(0);
   });
@@ -543,6 +544,7 @@ describe("tool parallel read runtime integration", () => {
     expect(text.includes("next_step=")).toBe(true);
     const details = (result as { details?: Record<string, unknown> }).details;
     expect(details?.status).toBe("unavailable");
+    expect(details?.verdict).toBe("fail");
     expect(details?.reason).toBe("ast_grep_unavailable");
     expect(getParallelReadPayloads(runtime, sessionId)).toHaveLength(0);
   });
@@ -625,6 +627,7 @@ describe("tool parallel read runtime integration", () => {
     expect(text).toContain("No matching diagnostics for the requested file/severity scope.");
     const details = (result as { details?: Record<string, unknown> }).details;
     expect(details?.status).toBe("unavailable");
+    expect(details?.verdict).toBe("inconclusive");
     expect(details?.reason).toBe("diagnostics_scope_mismatch");
     expect(typeof details?.exitCode).toBe("number");
     expect((details?.exitCode as number) !== 0).toBe(true);

@@ -21,6 +21,8 @@ Every runtime event follows the same envelope shape:
 - `task_event`
 - `truth_event`
 - `tool_result_recorded`
+  Tool-result payloads now use `channelSuccess` for execution-channel success and `verdict` for semantic outcome.
+- `observability_assertion_recorded`
 - `verification_outcome_recorded`
 - schedule lifecycle events
 - execution routing/isolation events
@@ -35,6 +37,7 @@ These are retained under `infrastructure.events.level=audit`.
 - `context_arena_slo_enforced`
 - `cost_update`
 - `budget_alert`
+- `observability_query_executed`
 - `scan_convergence_*`
 - `task_stuck_*`
 - `skill_*` lifecycle and cascade events

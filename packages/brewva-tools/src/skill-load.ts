@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
-import { textResult } from "./utils/result.js";
+import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
 import { defineTool } from "./utils/tool.js";
 
@@ -68,7 +68,9 @@ export function createSkillLoadTool(options: BrewvaToolOptions): ToolDefinition 
       const sessionId = getSessionId(ctx);
       const result = options.runtime.skills.activate(sessionId, params.name);
       if (!result.ok || !result.skill) {
-        return textResult(`Error: ${result.reason ?? "Skill activation failed."}`, { ok: false });
+        return failTextResult(`Error: ${result.reason ?? "Skill activation failed."}`, {
+          ok: false,
+        });
       }
 
       const availableConsumedOutputs = options.runtime.skills.getConsumedOutputs(
