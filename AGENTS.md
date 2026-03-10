@@ -1,283 +1,92 @@
-# PROJECT KNOWLEDGE BASE
+# Brewva Agent Guide
 
-## OVERVIEW
+## Purpose
 
-`Brewva` is a Bun + TypeScript monorepo for an AI-native coding-agent runtime
-built on top of `@mariozechner/pi-coding-agent`.
+- This file is the repository-specific operating guide for agents working in `brewva/`.
+- Keep it short, current, and action-oriented. If the repo state and this guide diverge, update this guide in the same change or call out the drift explicitly.
+- Use it as a map, not as the full source of truth. Long-form design detail belongs in `docs/**`; code and tests remain authoritative.
+- Priority order: `Hard Invariants` -> `Workflow Gates` -> `Verification` -> `Where to Look`.
 
-Primary deliverables:
+## Repo At A Glance
 
-- Runtime core (`@brewva/brewva-runtime`)
-- Deliberation/control-plane helpers (`@brewva/brewva-deliberation`)
-- Channel adapter package (`@brewva/brewva-channels-telegram`)
-- Telegram edge ingress package (`@brewva/brewva-ingress`)
-- Tool registry (`@brewva/brewva-tools`)
-- Extension composition (`@brewva/brewva-extensions`)
-- CLI entrypoint/session bootstrap (`@brewva/brewva-cli`)
-- Gateway daemon/control plane (`@brewva/brewva-gateway`)
-- Cross-platform launcher binaries (`distribution/*`)
+- `Brewva` is a Bun + TypeScript monorepo for an AI-native coding-agent runtime built on `@mariozechner/pi-coding-agent`.
+- Workspace packages live under `packages/*`; the primary surfaces are `runtime`, `deliberation`, `skill-broker`, `channels-telegram`, `ingress`, `tools`, `extensions`, `cli`, and `gateway`.
+- Distribution surfaces live under `distribution/brewva`, `distribution/brewva-*`, and `distribution/worker`.
+- Support roots: `script/` for build and verification, `docs/` for design/reference material, and `test/` for workspace coverage.
 
----
+## Hard Invariants
 
-## STRUCTURE
+### Branding and Packaging
 
-```text
-brewva/
-├── packages/
-│   ├── brewva-runtime/            # runtime facade, services, replay, projection, schedule, policy
-│   ├── brewva-deliberation/       # proposal producers, evidence builders, control-plane planning
-│   ├── brewva-channels-telegram/  # telegram adapter, transport, projector
-│   ├── brewva-ingress/            # edge ingress server + worker adapters for webhook delivery
-│   ├── brewva-tools/              # runtime-aware tools (lsp/ast/ledger/task/schedule/tape)
-│   ├── brewva-extensions/         # SDK hook wiring for runtime integration
-│   ├── brewva-cli/                # CLI modes, session wiring, replay/undo, daemon command surface
-│   └── brewva-gateway/            # local control-plane daemon and session supervisor
-├── distribution/                  # launcher + per-platform binary packages
-├── script/                        # build-binaries.ts, verify-dist.ts, schema generator
-├── docs/                          # index / guide / architecture / journeys / reference / troubleshooting / research
-├── skills/                        # core / domain / operator / meta / internal + project shared/overlays
-└── test/                          # runtime / cli / extensions / gateway / docs coverage
-```
+- The user-facing command is `brewva`.
+- Help text, examples, process titles, launcher metadata, and packaging output must stay aligned with `brewva`.
+- Dist smoke checks must continue validating the `brewva` help banner.
 
----
+### Workspace Boundaries
 
-## CRITICAL RULES
-
-### 1) CLI Branding and Command Surface
-
-- User-facing command is `brewva`.
-- Help text/examples/process title/launcher metadata must stay aligned with `brewva`.
-- Dist smoke check must continue validating the `brewva` CLI help banner.
-
-### 2) Workspace Boundary and Import Policy
-
-- Use workspace package imports across package boundaries:
-  - `@brewva/brewva-runtime`
-  - `@brewva/brewva-deliberation`
-  - `@brewva/brewva-runtime/channels`
-  - `@brewva/brewva-tools`
-  - `@brewva/brewva-extensions`
-  - `@brewva/brewva-cli`
-  - `@brewva/brewva-gateway`
-- Do not reintroduce local alias schemes (for example `@/...`).
+- Use workspace package imports across package boundaries. Allowed public imports are `@brewva/brewva-runtime`, `@brewva/brewva-runtime/channels`, `@brewva/brewva-deliberation`, `@brewva/brewva-skill-broker`, `@brewva/brewva-channels-telegram`, `@brewva/brewva-ingress`, `@brewva/brewva-tools`, `@brewva/brewva-extensions`, `@brewva/brewva-cli`, and `@brewva/brewva-gateway`.
+- Do not reintroduce local alias schemes such as `@/...`.
 - Do not mix `src` and `dist` class types at public boundaries.
+- Do not import from `distribution/**` packages inside workspace package code; treat them as release artifacts.
 
-### 3) Runtime Public API Model (Current)
+### Runtime Contract
 
-- `BrewvaRuntime` is domain-based, not a flat method bag.
-- Public surface is organized as:
-  - `runtime.skills.*`
-  - `runtime.proposals.*`
-  - `runtime.context.*`
-  - `runtime.tools.*`
-  - `runtime.task.*`
-  - `runtime.truth.*`
-  - `runtime.ledger.*`
-  - `runtime.schedule.*`
-  - `runtime.turnWal.*`
-  - `runtime.events.*`
-  - `runtime.verification.*`
-  - `runtime.cost.*`
-  - `runtime.session.*`
-- Integration direction is async-first; avoid introducing parallel sync facade APIs.
+- `BrewvaRuntime` stays domain-based, not a flat method bag. Keep the public API organized under the existing runtime domains in `packages/brewva-runtime/src/runtime.ts`.
+- Current runtime domain groups are `runtime.skills.*`, `runtime.proposals.*`, `runtime.context.*`, `runtime.tools.*`, `runtime.task.*`, `runtime.truth.*`, `runtime.ledger.*`, `runtime.schedule.*`, `runtime.turnWal.*`, `runtime.events.*`, `runtime.verification.*`, `runtime.cost.*`, and `runtime.session.*`.
+- Integration direction is async-first; do not add parallel sync facade APIs.
+- Preserve the current security, event-level, and fail-fast config semantics described in `packages/brewva-runtime/src/types.ts`, `packages/brewva-runtime/src/security/mode.ts`, and `docs/reference/configuration.md`.
+- Preserve the current context model: deterministic single-path injection, explicit context source labels, working-only projection, deterministic `skill_routing_selection` telemetry, and WAL-based turn durability/recovery.
+- Keep `governancePort` governance-only and do not re-expose removed internal tuning knobs unless they represent a clear user-facing decision boundary.
 
-### 4) Runtime Semantics Baseline (Current)
+### Build Baseline
 
-- Security policy is strategy-based:
-  - `security.mode: permissive | standard | strict`
-  - `security.sanitizeContext: boolean`
-- Execution routing is policy-explicit:
-  - `security.execution.backend=best_available` prefers sandbox first and
-    implicitly falls back to host when sandbox is unavailable.
-  - `security.execution.backend=sandbox` is isolation-first; `fallbackToHost`
-    defaults to `false`.
-  - `strict` or `enforceIsolation=true` always fail-closed.
-- Event stream is level-based:
-  - `infrastructure.events.level: audit | ops | debug` (default `ops`)
-- Config loading is fail-fast:
-  - JSON parse/non-object/schema invalid/schema unavailable are startup-blocking.
-  - Runtime does not continue with default-config fallback on invalid config.
-- Context injection is single-path and deterministic:
-  - global injection cap + hard-limit compaction gate
-  - arena SLO enforcement (`maxEntriesPerSession`, hard boundary)
-- Context injection uses explicit context source labels:
-  - `brewva.identity`
-  - `brewva.truth-static` / `brewva.truth-facts`
-  - `brewva.skill-candidates` / `brewva.skill-dispatch-gate` / `brewva.skill-cascade-gate`
-  - `brewva.context-packets`
-  - `brewva.task-state`
-  - `brewva.tool-failures`
-  - `brewva.tool-outputs-distilled`
-  - `brewva.projection-working`
-- Projection model is working-only:
-  - no recall lane
-  - no external recall runtime branch
-  - no cognitive/adaptive inference path in runtime core
-- `registerContextTransform` emits deterministic governance routing telemetry:
-  - `skill_routing_selection`: `status=selected|empty|failed|skipped`, with `skipped` used under `critical_compaction_gate`
-- Optional `governancePort` is governance-only:
-  - `verifySpec`
-  - `detectCostAnomaly`
-  - `checkCompactionIntegrity`
-- Turn durability/recovery is WAL-based through `runtime.turnWal.*` and
-  `infrastructure.turnWal.*` configuration.
-- Internal tuning knobs removed from public config should stay internal unless they
-  represent a clear user-facing decision boundary.
+- Build and test with Bun, not npm or yarn. Baseline is Bun `1.3.9`, Node `^20.19.0 || >=22.12.0`, ESM, strict TypeScript, and a root `tsconfig.json` that continues covering `packages/*` and `script/`.
 
-### 5) Typecheck and Script Coverage
+## Workflow Gates
 
-- Root `tsconfig.json` project references include `packages/*` and `script/`.
-- Build scripts under `script/` must remain covered by `tsc -b`.
+- If a task matches multiple gates, run the union of required checks.
+- If a named helper workflow is unavailable, do the equivalent manual steps and report that fallback.
+- Helper workflows:
+  - `$implementation-strategy`: record compatibility boundary, migration or rollback posture, affected public or persisted surfaces, and validation scope before editing
+  - `$exec-plan`: keep a short milestone plan with statuses
+  - `$code-change-verification`: `bun run check && bun test`
+  - `$docs-verification`: `bun run test:docs` plus `bun run format:docs:check` when Markdown formatting changed
+  - `$dist-safety-gate`: `bun run test:dist`
+  - `$binary-packaging-verification`: `bun run build:binaries` plus a built `brewva --help` smoke test
+  - `$pi-docs-sync`: read relevant Pi docs and linked references first
+- Mandatory triggers:
+  - Runtime public APIs, exported package surfaces, config schema or default semantics, persisted formats, WAL recovery semantics, wire protocols, or user-facing CLI behavior: run `$implementation-strategy` before writing code
+  - Multi-step, cross-package, refactor-heavy, or long-running work: maintain `$exec-plan`
+  - Changes under `packages/**`, `test/**`, `script/**`, `package.json`, `tsconfig*.json`, `bunfig.toml`, or `.github/workflows/**`: run `$code-change-verification`
+  - Changes under `docs/**`, `README.md`, or `test/docs/**`: run `$docs-verification`
+  - Changes to exports, CLI, or distribution surfaces, including `packages/brewva-cli/**`, `distribution/**`, `script/verify-dist.ts`, or package export maps: run `$dist-safety-gate`
+  - Changes to launcher or binary packaging behavior, including `script/build-binaries.ts` or `distribution/**` packaging metadata: run `$binary-packaging-verification`
+  - Pi-specific tasks covering SDK, extensions, themes, skills, prompt templates, TUI, keybindings, providers, models, or packages: run `$pi-docs-sync` first
+  - Pure meta-guidance edits such as `AGENTS.md` or skill docs with no code, config, or runtime impact may skip code and docs verification unless explicitly requested
 
-### 6) Dist Safety Gate Is Mandatory
+## Verification
 
-- `bun run test:dist` is the release guardrail:
-  - verifies CLI help behavior in dist artifacts
-  - verifies package resolution/import through `dist` under Node
-- Do not skip `test:dist` for export surface / CLI / distribution changes.
+- Default quality stack: `bun run check` and `bun test`.
+- Docs stack: `bun run test:docs`; add `bun run format:docs:check` for Markdown formatting changes, including `README.md`.
+- Dist safety gate: `bun run test:dist`.
+- Binary packaging verification: `bun run build:binaries` and smoke `./distribution/brewva-linux-x64/bin/brewva --help | head -n 1`.
+- Release-facing changes must keep the command/help surface `brewva`-consistent.
 
-### 7) Bun Is the Build/Test Runtime
+## Where To Look
 
-- Use Bun commands for workspace workflows (`bun run`, `bun test`, `bun build`).
-- CI setup is Bun `1.3.9` (`oven-sh/setup-bun@v2`).
+- Runtime API and contracts: `packages/brewva-runtime/src/runtime.ts`, `packages/brewva-runtime/src/types.ts`
+- Runtime config and semantics: `packages/brewva-runtime/src/config/defaults.ts`, `packages/brewva-runtime/src/config/normalize.ts`, `packages/brewva-runtime/src/security/mode.ts`, `packages/brewva-runtime/src/services/event-pipeline.ts`
+- Runtime context and durability: `packages/brewva-runtime/src/context/arena.ts`, `packages/brewva-runtime/src/context/injection-orchestrator.ts`, `packages/brewva-runtime/src/services/context*.ts`, `packages/brewva-runtime/src/channels/turn-wal*.ts`, `packages/brewva-runtime/src/governance/port.ts`
+- Package entrypoints: `packages/brewva-deliberation/src/index.ts`, `packages/brewva-skill-broker/src/index.ts`, `packages/brewva-tools/src/index.ts`, `packages/brewva-extensions/src/index.ts`, `packages/brewva-extensions/src/debug-loop.ts`, `packages/brewva-ingress/src/index.ts`, `packages/brewva-cli/src/index.ts`, `packages/brewva-cli/src/session.ts`, `packages/brewva-gateway/src`
+- Verification and release tooling: `script/verify-dist.ts`, `script/build-binaries.ts`, `distribution/worker`, `.github/workflows/ci.yml`
+- Reference docs: `docs/index.md`, `docs/architecture/system-architecture.md`, `docs/reference/*.md`, `docs/research/README.md`
 
----
+## Anti-Patterns
 
-## WHERE TO LOOK
-
-| Task                           | Location                                                               | Notes                                           |
-| ------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------- |
-| Runtime facade/API shape       | `packages/brewva-runtime/src/runtime.ts`                               | domain API surface and dependency wiring        |
-| Deliberation helpers           | `packages/brewva-deliberation/src/index.ts`                            | proposal/evidence/control-plane helper surface  |
-| Runtime contracts              | `packages/brewva-runtime/src/types.ts`                                 | shared config/event/runtime types               |
-| Runtime event filtering        | `packages/brewva-runtime/src/services/event-pipeline.ts`               | audit/ops/debug level classification            |
-| Security mode mapping          | `packages/brewva-runtime/src/security/mode.ts`                         | `security.mode` -> effective enforcement policy |
-| Runtime defaults               | `packages/brewva-runtime/src/config/defaults.ts`                       | canonical default config                        |
-| Runtime config normalization   | `packages/brewva-runtime/src/config/normalize.ts`                      | type/enum/range normalization                   |
-| Context arena allocator        | `packages/brewva-runtime/src/context/arena.ts`                         | append-only arena and SLO enforcement           |
-| Context injection orchestrator | `packages/brewva-runtime/src/context/injection-orchestrator.ts`        | injection decision and telemetry emission       |
-| Context service façade         | `packages/brewva-runtime/src/services/context.ts`                      | runtime.context.\* facade and orchestration     |
-| Context pressure               | `packages/brewva-runtime/src/services/context-pressure.ts`             | pressure ratios, compaction gate/request        |
-| Context projection injection   | `packages/brewva-runtime/src/services/context-projection-injection.ts` | working-only projection injection boundary      |
-| Context compaction             | `packages/brewva-runtime/src/services/context-compaction.ts`           | compaction side effects, event/ledger emission  |
-| Context supplemental budget    | `packages/brewva-runtime/src/services/context-supplemental-budget.ts`  | supplemental injection budget accounting        |
-| Governance port contract       | `packages/brewva-runtime/src/governance/port.ts`                       | governance-only runtime checks                  |
-| Offline projection analysis    | `script/analyze-projection.ts`                                         | projects working-projection quality from tape   |
-| Turn WAL durability/recovery   | `packages/brewva-runtime/src/channels/turn-wal*.ts`                    | append/recover/compact turn WAL rows            |
-| Tool registry                  | `packages/brewva-tools/src/index.ts`                                   | assembled tool surface                          |
-| Extension composition          | `packages/brewva-extensions/src/index.ts`                              | runtime hook wiring and bridge helpers          |
-| Debug-loop controller          | `packages/brewva-extensions/src/debug-loop.ts`                         | extension-side retry + handoff orchestration    |
-| Telegram ingress               | `packages/brewva-ingress/src/index.ts`                                 | webhook ingress worker/server bootstrap         |
-| CLI command surface            | `packages/brewva-cli/src/index.ts`                                     | mode routing, args, entrypoint behavior         |
-| CLI session bootstrap          | `packages/brewva-cli/src/session.ts`                                   | runtime/session creation and options            |
-| Gateway daemon core            | `packages/brewva-gateway/src`                                          | websocket API, supervisor, policies             |
-| Dist verification              | `script/verify-dist.ts`                                                | release guardrail checks                        |
-| Binary build                   | `script/build-binaries.ts`                                             | platform binaries and launcher copy             |
-| CI workflow                    | `.github/workflows/ci.yml`                                             | quality + binaries jobs                         |
-
----
-
-## CONVENTIONS
-
-- Package manager: Bun (`packageManager: bun@1.3.9`).
-- Node.js: `^20.19.0 || >=22.12.0`.
-- Module system: ESM (`type: module`).
-- TypeScript: strict mode, NodeNext, ES2023 target.
-- Root quality command: `bun run check` (`format:check + lint + typecheck + typecheck:test`).
-- Package export pattern:
-  - `bun` condition points to `src` for local Bun workflows
-  - `import/default` points to `dist` for published consumption
-
----
-
-## ANTI-PATTERNS (THIS REPO)
-
-| Category        | Avoid                                                       |
-| --------------- | ----------------------------------------------------------- |
-| Imports         | `../../packages/...` cross-package imports                  |
-| Aliases         | reintroducing `@/...` / `baseUrl` alias model               |
-| Typing          | mixing `src`/`dist` class types across boundaries           |
-| Type safety     | `as any`, `@ts-ignore`, `@ts-expect-error` quick fixes      |
-| Runtime API     | adding new flat runtime methods instead of domain APIs      |
-| Config surface  | re-exposing removed low-level tuning knobs as public fields |
-| Dist flow       | editing generated distribution artifacts by hand            |
-| Release safety  | skipping `bun run test:dist` for export/CLI/dist changes    |
-| Package manager | npm/yarn workflows in this repository                       |
-
----
-
-## COMMANDS
-
-```bash
-bun install
-bun run check
-bun run typecheck
-bun run typecheck:test
-bun test
-bun run test:docs
-bun run test:dist
-bun run build:binaries
-bun run build
-```
-
-Useful extended checks:
-
-```bash
-bun run lint
-bun run format
-bun run format:check
-bun run test:e2e
-bun run test:e2e:live
-```
-
-Formatting policy note:
-
-- Use `bun run format` / `bun run format:check` (script entrypoint), not direct `oxfmt ...` commands.
-- This keeps formatter invocation consistent with repo policy and avoids PATH drift across environments.
-
----
-
-## CI PIPELINE
-
-Workflow: `.github/workflows/ci.yml`
-
-### quality job
-
-1. `bun install --frozen-lockfile`
-2. `bun run check`
-3. `bun test`
-4. `bun run test:docs`
-5. `bun run test:dist`
-
-### binaries job
-
-1. `bun install --frozen-lockfile`
-2. `bun run build:binaries`
-3. Linux smoke: `./distribution/brewva-linux-x64/bin/brewva --help | head -n 1`
-
----
-
-## DEFINITION OF DONE (FOR CODE CHANGES)
-
-Before finalizing:
-
-1. `bun run typecheck` passes.
-2. `bun run typecheck:test` passes.
-3. `bun test` passes.
-4. `bun run test:docs` passes for docs/config/runtime-reference edits.
-5. `bun run test:dist` passes for export/CLI/distribution surface edits.
-6. `bun run build:binaries` succeeds when packaging/launcher behavior changes.
-7. User-facing command/help text remains `brewva`-consistent.
-
----
-
-## RELATED REFERENCE DOCS
-
-- `docs/index.md`
-- `docs/architecture/system-architecture.md`
-- `docs/reference/runtime.md`
-- `docs/reference/configuration.md`
-- `docs/reference/events.md`
-- `docs/reference/extensions.md`
-- `docs/reference/limitations.md`
-- `docs/research/README.md`
+- Cross-package relative imports such as `../../packages/...`
+- Reintroducing alias-based import models
+- `as any`, `@ts-ignore`, or `@ts-expect-error` quick fixes
+- Adding new flat runtime methods instead of extending domain APIs
+- Re-exposing removed low-level tuning knobs as public config
+- Editing generated distribution artifacts by hand
+- Skipping `test:dist` for export, CLI, or distribution changes

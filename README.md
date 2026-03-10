@@ -6,86 +6,75 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache-blue.svg?style=for-the-badge" alt="Apache License"></a>
 </p>
 
-Brewva is a commitment runtime for AI coding agents. It keeps governance explicit, evented, and recoverable, and records every accepted commitment in an append-only tape that doubles as audit trail and recovery source.
+Brewva is an AI-native coding-agent runtime built with Bun and TypeScript. It keeps agent execution explicit, evented, and recoverable: intelligence can propose, but the runtime decides what becomes a durable system commitment.
 
 **Intelligence proposes. Kernel commits. Tape remembers.**
 
-## Core Position
+## What Brewva Optimizes For
 
-**Brewva's kernel does not try to make the agent smarter. Brewva decides what is allowed to become a system commitment.**
+- Deterministic runtime boundaries for context, tools, verification, cost, and state mutation
+- Tape-first durability and replay, with working state rebuilt from event history
+- Explicit proposal and governance boundaries instead of implicit agent-side mutation
+- Bounded autonomy through policy-driven execution, context pressure controls, and failure handling
+- Extensible operator surfaces through CLI, gateway, extensions, channel adapters, and ingress packages
 
-Optional control-plane helpers may rank, plan, summarize, or judge. Those
-deliberation paths stay outside the kernel. The kernel only accepts proposals,
-commits or rejects them, and records the resulting execution path.
-
-The runtime is optimized for one question:
+The runtime is optimized around one question:
 
 `Why can we trust this agent action?`
 
-Design principles:
-
-1. **Single-path explainability** — context injection, tool gating, compaction, and budget decisions follow deterministic runtime paths.
-2. **Tape-first replayability** — event tape + checkpoint replay is the recovery source of truth; behavior is reconstructable after failure.
-3. **Bounded autonomy** — context, tools, cost, and parallelism all have explicit limits and fail-closed behavior under pressure.
-4. **Evidence-first contracts** — verification, ledger, task/truth updates, and skill lifecycle are explicit contract boundaries.
-5. **Working projection only** — projection state is a deterministic fold from tape (`units` + `working.md`), not adaptive cognition.
-6. **Proposal, not power** — cognition can happen anywhere, but only kernel commitments may mutate authoritative state.
-
 ## Architecture
-
-Conceptual architecture view (high-level intent and control model):
 
 ```mermaid
 flowchart TD
   AGENT["Agent (LLM)"]
-  TRUST["Trust Layer<br/>Evidence Ledger + Verification + Truth"]
-  BOUNDARY["Boundary Layer<br/>Tool Gate + Cost Gate + Context Compaction Gate"]
-  CONTRACT["Contract Layer<br/>Skill Lifecycle + Cascade + Task State"]
-  DURABILITY["Durability Layer<br/>Event Tape + Checkpoint Replay + Turn WAL"]
+  BOUNDARY["Boundary Layer<br/>Tool Gate + Cost Gate + Context Compaction"]
+  CONTRACT["Contract Layer<br/>Proposals + Task/Truth + Verification"]
+  DURABILITY["Durability Layer<br/>Event Tape + Replay + Turn WAL"]
   PROJECTION["Working Projection<br/>units.jsonl + working.md"]
-  UX["Operator Surfaces<br/>CLI / Gateway / Extensions"]
+  OPERATORS["Operator Surfaces<br/>CLI + Gateway + Extensions + Channels"]
 
   AGENT --> BOUNDARY
   BOUNDARY --> CONTRACT
-  CONTRACT --> TRUST
-  TRUST --> DURABILITY
+  CONTRACT --> DURABILITY
   DURABILITY --> PROJECTION
-  UX --> BOUNDARY
-  UX --> DURABILITY
+  OPERATORS --> BOUNDARY
+  OPERATORS --> DURABILITY
 ```
 
-Implementation-level architecture (package DAG, execution profiles, hook wiring):
-`docs/architecture/system-architecture.md` · `docs/architecture/design-axioms.md` · `docs/architecture/control-and-data-flow.md` · `docs/reference/proposal-boundary.md` · `docs/journeys/working-projection.md`
+Implementation detail and system boundaries:
 
-Primary package surfaces:
+- `docs/architecture/system-architecture.md`
+- `docs/architecture/design-axioms.md`
+- `docs/architecture/control-and-data-flow.md`
+- `docs/reference/proposal-boundary.md`
+- `docs/journeys/working-projection.md`
 
-- `@brewva/brewva-runtime`: governance runtime contracts, tape replay, verification, working projection, cost.
-- `@brewva/brewva-deliberation`: proposal producers, evidence/query helpers, cognition artifact bridges, and control-plane planning helpers.
-- `@brewva/brewva-tools`: runtime-aware tools (ledger/task/tape/skill/cost/governance flows).
-- `@brewva/brewva-extensions`: lifecycle hook wiring, runtime integration guards, deterministic handoff, and extension-side debug loops.
-- `@brewva/brewva-cli`: user entrypoint and session bootstrap (`interactive` / `--print` / `--json` / replay/undo).
-- `@brewva/brewva-gateway`: local control-plane daemon and worker supervision.
-- `@brewva/brewva-channels-telegram`: Telegram channel adapter and transport.
-- `@brewva/brewva-ingress`: webhook worker/server ingress for Telegram edge delivery.
+## Package Surfaces
 
-Skills v2 taxonomy:
+- `@brewva/brewva-runtime`: runtime contracts, replay, projection, verification, governance, cost, and WAL durability
+- `@brewva/brewva-deliberation`: proposal producers, evidence helpers, and control-plane planning helpers
+- `@brewva/brewva-skill-broker`: broker-backed skill selection and control-plane integration
+- `@brewva/brewva-tools`: runtime-aware tools for code, tape, task, schedule, observability, and skill control flows
+- `@brewva/brewva-extensions`: runtime hook wiring, integration guards, and debug-loop orchestration
+- `@brewva/brewva-cli`: interactive CLI, print/json modes, replay/undo, daemon, and channel entrypoints
+- `@brewva/brewva-gateway`: local control-plane daemon and worker supervision
+- `@brewva/brewva-channels-telegram`: Telegram adapter and transport
+- `@brewva/brewva-ingress`: webhook worker/server ingress for Telegram edge delivery
+- `distribution/brewva` and `distribution/brewva-*`: launcher and per-platform binary packages
+- `distribution/worker`: edge deployment templates for webhook ingress
 
-- Core capability skills (`skills/core/`): `repository-analysis`, `design`, `implementation`, `debugging`, `review`
-- Domain capability skills (`skills/domain/`): `agent-browser`, `frontend-design`, `github`, `telegram`, `structured-extraction`
-- Continuity-gated domain skill: `goal-loop`
-- Operator skills (`skills/operator/`): `runtime-forensics`, `git-ops`
-- Meta skills (`skills/meta/`): `skill-authoring`, `self-improve`
-- Project context (`skills/project/`):
-  - shared context: `critical-rules`, `migration-priority-matrix`, `package-boundaries`, `runtime-artifacts`
-  - overlays: `repository-analysis`, `design`, `implementation`, `debugging`, `review`, `runtime-forensics`
+## Skill Surface
 
-Lifecycle choreography such as verification, finishing, recovery, and compose-style planning is now runtime/control-plane behavior, not public routable skill surface.
+- Core skills: `repository-analysis`, `design`, `implementation`, `debugging`, `review`
+- Domain skills: `agent-browser`, `frontend-design`, `github`, `goal-loop`, `structured-extraction`, `telegram`
+- Operator skills: `git-ops`, `runtime-forensics`
+- Meta skills: `self-improve`, `skill-authoring`
+
+For taxonomy details and project overlays, see `docs/guide/features.md` and `docs/reference/skills.md`.
 
 ## Quick Start
 
-Choose one entry path:
-
-### 1) Repository Mode (Contributor)
+### Repository Mode
 
 ```bash
 bun install
@@ -94,7 +83,7 @@ bun run start -- --help
 bun run start
 ```
 
-### 2) Installed CLI Mode (Local Command)
+### Local `brewva` Command
 
 ```bash
 bun run install:local
@@ -102,65 +91,55 @@ brewva --help
 brewva "Summarize recent runtime changes"
 ```
 
-For complete CLI modes and gateway/onboard operations:
+The local installer targets macOS and Linux and can build missing binaries automatically.
 
-- `docs/guide/cli.md`
+For complete installation, CLI, daemon, and channel setup guidance:
+
 - `docs/guide/installation.md`
+- `docs/guide/cli.md`
 - `docs/guide/gateway-control-plane-daemon.md`
-
-## Runtime Defaults Snapshot
-
-- Execution routing defaults to `security.execution.backend=best_available` with
-  `security.execution.fallbackToHost=false`.
-- Read-only verification is explicitly reported as `skipped` (not `pass`).
-- Skill selection now crosses an explicit proposal boundary:
-  `runtime.proposals.submit(sessionId, proposal) -> DecisionReceipt`.
-  The kernel no longer exposes public selector/preselection APIs and no longer
-  performs implicit cognition-side skill routing on its own.
-- Broker- or planner-produced selection/chain intents are deliberation-layer
-  proposals. Kernel acceptance creates pending dispatch gates, cascade intents,
-  receipts, and replayable tape evidence.
-- Standard routing profile defaults to `skills.routing.profile=standard` with
-  `skills.routing.scopes=["core","domain"]`, so operator/meta skills are
-  loaded but hidden from standard deliberation profiles.
-- Cascade source defaults are now `["explicit", "dispatch"]`; compose-originated
-  chain plans are no longer a public runtime source.
-- Cascade missing consumes is deterministic pause (`reason=missing_consumes`);
-  runtime no longer auto-replans dependency chains.
-- Verification failures can now arm an extension-side debug loop that persists
-  `debug-loop.json`, `failure-case.json`, and `handoff.json` under
-  `.orchestrator/artifacts/` while reusing explicit cascade for retry.
-  `retryCount` tracks scheduled retries after the first failed implementation
-  verification, and `handoff.json` is the latest-wins session handoff snapshot.
+- `docs/guide/telegram-webhook-edge-ingress.md`
 
 ## Development
 
 ```bash
-bun run check              # Full quality gate (format + lint + typecheck + typecheck:test)
-bun test                   # Run unit + integration tests
-bun run test:docs          # Validate documentation quality
-bun run analyze:projection  # Project working-projection quality from tape events (offline)
+bun run check
+bun test
+bun run test:docs
+bun run test:dist
+bun run build:binaries
 ```
 
-For distribution/release verification:
+Useful additional commands:
 
 ```bash
-bun run test:dist          # Verify dist exports + CLI help banner
-bun run build:binaries     # Compile platform binaries
+bun run analyze:projection
+bun run test:e2e
+bun run test:e2e:live
 ```
 
-## Documentation
+## Documentation Map
 
 | Section         | Path                    | Purpose                                                                 |
 | --------------- | ----------------------- | ----------------------------------------------------------------------- |
-| Guides          | `docs/guide/`           | Operational usage and system understanding                              |
-| Architecture    | `docs/architecture/`    | System layers, control flow, invariants                                 |
-| Journeys        | `docs/journeys/`        | End-to-end cross-module workflows                                       |
-| Reference       | `docs/reference/`       | Contract-level definitions (config, tools, skills, events, runtime API) |
-| Research        | `docs/research/`        | Incubating roadmap notes and design hypotheses with promotion targets   |
+| Guides          | `docs/guide/`           | Installation, operation, feature walkthroughs, and usage flows          |
+| Architecture    | `docs/architecture/`    | Implemented design, invariants, and control/data boundaries             |
+| Journeys        | `docs/journeys/`        | End-to-end flows across runtime, gateway, channels, and orchestration   |
+| Reference       | `docs/reference/`       | Stable contracts for config, runtime API, tools, events, and extensions |
 | Troubleshooting | `docs/troubleshooting/` | Failure patterns and remediation                                        |
+| Research        | `docs/research/`        | Incubating design notes and roadmap material                            |
 
-## Inspired by
+Start from `docs/index.md` for the full documentation map.
+
+## Related Guides
+
+- `docs/guide/overview.md`
+- `docs/guide/features.md`
+- `docs/guide/orchestration.md`
+- `docs/guide/understanding-runtime-system.md`
+- `docs/reference/commands.md`
+
+## Inspired By
 
 - [Amp](https://ampcode.com/)
 - [bub](https://bub.build/)
