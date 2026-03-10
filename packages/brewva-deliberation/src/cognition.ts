@@ -27,6 +27,13 @@ export interface StatusSummaryField {
   value: string | string[] | null | undefined;
 }
 
+export interface ParsedStatusSummaryPacket {
+  profile: string | null;
+  summaryKind: string | null;
+  status: string | null;
+  fields: Record<string, string>;
+}
+
 export interface CognitionArtifactSelection {
   artifact: CognitionArtifactRecord;
   content: string;
@@ -205,6 +212,37 @@ export function buildStatusSummaryPacketContent(input: {
   }
 
   return lines.join("\n");
+}
+
+export function parseStatusSummaryPacketContent(content: string): ParsedStatusSummaryPacket | null {
+  const text = content.trim();
+  if (!text.startsWith("[StatusSummary]")) {
+    return null;
+  }
+
+  const fields: Record<string, string> = {};
+  let profile: string | null = null;
+  let summaryKind: string | null = null;
+  let status: string | null = null;
+
+  for (const line of text.split("\n").slice(1)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!key) continue;
+    fields[key] = value;
+    if (key === "profile") profile = value || null;
+    if (key === "summary_kind") summaryKind = value || null;
+    if (key === "status") status = value || null;
+  }
+
+  return {
+    profile,
+    summaryKind,
+    status,
+    fields,
+  };
 }
 
 export function resolveCognitionArtifactsDir(

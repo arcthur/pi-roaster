@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { registerRuntimeCoreBridge } from "@brewva/brewva-extensions";
 import {
   createMockExtensionAPI,
@@ -32,6 +35,7 @@ function createRuntimeFixture(
   };
 
   const runtime = {
+    workspaceRoot: mkdtempSync(join(tmpdir(), "brewva-core-bridge-")),
     tools: {
       start(payload: Record<string, unknown>) {
         calls.started.push(payload);
@@ -39,6 +43,9 @@ function createRuntimeFixture(
           allowed: input.startAllowed ?? true,
           reason: input.startReason,
         };
+      },
+      explainAccess() {
+        return { allowed: true };
       },
       finish(payload: Record<string, unknown>) {
         calls.finished.push(payload);
@@ -65,6 +72,7 @@ function createRuntimeFixture(
       async buildInjection() {
         return {
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -84,6 +92,9 @@ function createRuntimeFixture(
       getCompactionThresholdRatio() {
         return 0.8;
       },
+      getPendingCompactionReason() {
+        return "hard_limit";
+      },
       getHardLimitRatio() {
         return 0.98;
       },
@@ -94,6 +105,9 @@ function createRuntimeFixture(
     events: {
       record(payload: Record<string, unknown>) {
         calls.events.push(payload);
+      },
+      query() {
+        return [];
       },
       getTapeStatus() {
         return {
@@ -173,12 +187,12 @@ describe("runtime core bridge extension", () => {
     if (!beforeStart) {
       throw new Error("Expected runtime core bridge before_agent_start output.");
     }
-    expect(beforeStart.systemPrompt?.includes("[Brewva Core Context Contract]")).toBe(true);
-    expect(beforeStart.message?.content?.includes("[CoreTapeStatus]")).toBe(true);
-    expect(beforeStart.message?.content?.includes("required_action: session_compact_now")).toBe(
-      true,
-    );
+    expect(beforeStart.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
+    expect(beforeStart.message?.content?.includes("[ContextCompactionGate]")).toBe(true);
+    expect(beforeStart.message?.content?.includes("[OperationalDiagnostics]")).toBe(true);
+    expect(beforeStart.message?.content?.includes("tape_pressure:")).toBe(false);
     expect(beforeStart.message?.details?.profile).toBe("runtime-core");
+    expect(calls.events.some((event) => event.type === "context_composed")).toBe(true);
     expect(calls.observedContext).toHaveLength(1);
     expect(calls.observedContext[0]?.sessionId).toBe("core-before-start");
   });
@@ -204,11 +218,21 @@ describe("runtime core bridge extension", () => {
     expect(calls.started[0]?.toolName).toBe("exec");
   });
 
-  test("given tool_result event, when bridge handles it, then runtime.tools.finish is invoked", () => {
+  test("given tool_result event, when bridge handles it, then ledger persistence finishes the runtime tool call", () => {
     const { api, handlers } = createMockExtensionAPI();
     const { runtime, calls } = createRuntimeFixture();
     registerRuntimeCoreBridge(api, runtime as any);
     invokeHandler(
+      handlers,
+      "tool_call",
+      {
+        toolCallId: "tc-1",
+        toolName: "exec",
+        input: { command: "echo ok" },
+      },
+      createSessionContext("core-tool-result"),
+    );
+    invokeHandlers(
       handlers,
       "tool_result",
       {

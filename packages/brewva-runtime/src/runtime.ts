@@ -5,7 +5,7 @@ import { loadBrewvaConfig } from "./config/loader.js";
 import { resolveWorkspaceRootDir } from "./config/paths.js";
 import { ContextBudgetManager } from "./context/budget.js";
 import { normalizeAgentId } from "./context/identity.js";
-import { ContextInjectionCollector } from "./context/injection.js";
+import { ContextInjectionCollector, type ContextInjectionEntry } from "./context/injection.js";
 import type { ToolOutputDistillationEntry } from "./context/tool-output-distilled.js";
 import { SessionCostTracker } from "./cost/tracker.js";
 import {
@@ -243,6 +243,7 @@ export class BrewvaRuntime {
       injectionScopeId?: string,
     ): Promise<{
       text: string;
+      entries: ContextInjectionEntry[];
       accepted: boolean;
       originalTokens: number;
       finalTokens: number;

@@ -71,7 +71,7 @@ describe("Context injection orchestrator characterization", () => {
       "leaf-a",
     );
     expect(injection.accepted).toBe(true);
-    expect(injection.text.includes("[Identity]")).toBe(true);
+    expect(injection.text.includes("[PersonaProfile]")).toBe(true);
     expect(injection.text.includes("[TruthLedger]")).toBe(true);
     expect(injection.text.includes("[TruthFacts]")).toBe(true);
     expect(injection.text.includes("[TaskLedger]")).toBe(true);

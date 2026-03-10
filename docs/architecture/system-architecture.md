@@ -22,6 +22,7 @@ Design priority:
 Further reading:
 
 - `docs/architecture/design-axioms.md`
+- `docs/architecture/cognitive-product-architecture.md`
 - `docs/reference/proposal-boundary.md`
 
 ## Three Rings
@@ -36,6 +37,14 @@ Boundary rule:
 - kernel may accept, reject, or defer
 - every committed decision produces a receipt
 - tape is commitment memory, not a best-effort log
+
+## Operational Planes
+
+- `Working State Plane`: projection, context arena, pending dispatch, active tool surface
+- `Cognitive Product Plane`: context composition, memory curation, persona/profile rendering
+- `Control Plane`: broker, debug-loop, heartbeat policy, scheduling triggers, future planners
+
+Rings define authority. Planes define product behavior.
 
 ## State Taxonomy
 
@@ -115,6 +124,13 @@ Projection and arena are not parallel memories:
 - projection provides one deterministic source snapshot
 - arena plans which sources fit the current injection budget
 
+Model-facing composition is a separate concern:
+
+- runtime admission decides which sources are allowed and budget-safe
+- `ContextComposer` decides how admitted blocks are shown to the model
+- default full-extension behavior is narrative-first
+- concise diagnostics appear only on anomaly or explicit diagnostic request
+
 ## Tool Surface
 
 Tool visibility is part of governance, not just packaging.
@@ -151,7 +167,7 @@ Cross-session cognition sediment follows the same rule:
 
 - control-plane or extension code writes non-authoritative artifacts under
   `.brewva/cognition/*`
-- a producer may rehydrate selected artifacts into `context_packet` proposals
+- `MemoryCurator` may rehydrate selected artifacts into `context_packet` proposals
 - kernel commitment still happens only at the proposal boundary
 
 When that path is enabled:

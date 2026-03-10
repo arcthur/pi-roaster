@@ -2,22 +2,22 @@ import { resolveSkillSelectionProjection } from "@brewva/brewva-deliberation";
 import type {
   BrewvaRuntime,
   ContextCompactionGateStatus,
-  ContextPressureStatus,
+  ContextInjectionEntry,
 } from "@brewva/brewva-runtime";
 import { coerceContextBudgetUsage } from "@brewva/brewva-runtime";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { ToolInfo } from "@mariozechner/pi-coding-agent";
-import { buildCapabilityView } from "./capability-view.js";
+import { prepareContextComposerSupport } from "./context-composer-support.js";
+import { buildContextComposedEventPayload, composeContextBlocks } from "./context-composer.js";
+import { applyContextContract } from "./context-contract.js";
 import {
   extractCompactionEntryId,
   extractCompactionSummary,
-  formatPercent,
   resolveInjectionScopeId,
 } from "./context-shared.js";
 import { clearRuntimeTurnClock, observeRuntimeTurnStart } from "./runtime-turn-clock.js";
 
 const CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
-const CONTEXT_CONTRACT_MARKER = "[Brewva Context Contract]";
+const CONTEXT_COMPOSED_EVENT_TYPE = "context_composed";
 
 export interface ContextTransformOptions {
   autoCompactionWatchdogMs?: number;
@@ -77,6 +77,23 @@ function emitRuntimeEvent(
   });
 }
 
+function emitContextComposedEvent(
+  runtime: BrewvaRuntime,
+  input: {
+    sessionId: string;
+    turn: number;
+    composed: ReturnType<typeof composeContextBlocks>;
+    injectionAccepted: boolean;
+  },
+): void {
+  emitRuntimeEvent(runtime, {
+    sessionId: input.sessionId,
+    turn: input.turn,
+    type: CONTEXT_COMPOSED_EVENT_TYPE,
+    payload: buildContextComposedEventPayload(input.composed, input.injectionAccepted),
+  });
+}
+
 function normalizeRuntimeError(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) return error.message.trim();
   if (typeof error === "string" && error.trim().length > 0) return error.trim();
@@ -93,6 +110,7 @@ async function resolveContextInjection(
   },
 ): Promise<{
   text: string;
+  entries: ContextInjectionEntry[];
   accepted: boolean;
   originalTokens: number;
   finalTokens: number;
@@ -119,111 +137,6 @@ function resolveRoutingProjection(
   error: string | null;
 } {
   return resolveSkillSelectionProjection(runtime, sessionId);
-}
-
-function buildCompactionGateMessage(input: { pressure: ContextPressureStatus }): string {
-  const usagePercent = formatPercent(input.pressure.usageRatio);
-  const hardLimitPercent = formatPercent(input.pressure.hardLimitRatio);
-  const reasonLine = "Context pressure is critical.";
-  return [
-    "[ContextCompactionGate]",
-    reasonLine,
-    `Current usage: ${usagePercent} (hard limit: ${hardLimitPercent}).`,
-    "Call tool `session_compact` immediately before any other tool call.",
-    "Do not run `session_compact` via `exec` or shell.",
-  ].join("\n");
-}
-
-function buildTapeStatusBlock(input: {
-  runtime: BrewvaRuntime;
-  sessionId: string;
-  gateStatus: ContextCompactionGateStatus;
-  pendingCompactionReason?: string | null;
-}): string {
-  const tapeStatus = input.runtime.events.getTapeStatus(input.sessionId);
-  const usagePercent = formatPercent(input.gateStatus.pressure.usageRatio);
-  const hardLimitPercent = formatPercent(input.gateStatus.pressure.hardLimitRatio);
-  const pendingReason = input.pendingCompactionReason ?? null;
-  const action = input.gateStatus.required
-    ? "session_compact_now"
-    : pendingReason
-      ? "session_compact_recommended"
-      : "none";
-  const tapePressure = tapeStatus.tapePressure;
-  const totalEntries = String(tapeStatus.totalEntries);
-  const entriesSinceAnchor = String(tapeStatus.entriesSinceAnchor);
-  const entriesSinceCheckpoint = String(tapeStatus.entriesSinceCheckpoint);
-  const lastAnchorName = tapeStatus.lastAnchor?.name ?? "none";
-  const lastAnchorId = tapeStatus.lastAnchor?.id ?? "none";
-
-  return [
-    "[TapeStatus]",
-    `tape_pressure: ${tapePressure}`,
-    `tape_entries_total: ${totalEntries}`,
-    `tape_entries_since_anchor: ${entriesSinceAnchor}`,
-    `tape_entries_since_checkpoint: ${entriesSinceCheckpoint}`,
-    `last_anchor_name: ${lastAnchorName}`,
-    `last_anchor_id: ${lastAnchorId}`,
-    `context_pressure: ${input.gateStatus.pressure.level}`,
-    `context_usage: ${usagePercent}`,
-    `context_hard_limit: ${hardLimitPercent}`,
-    `compaction_gate_reason: ${input.gateStatus.reason ?? "none"}`,
-    `pending_compaction_reason: ${pendingReason ?? "none"}`,
-    `recent_compact_performed: ${input.gateStatus.recentCompaction ? "true" : "false"}`,
-    `turns_since_compaction: ${input.gateStatus.turnsSinceCompaction ?? "none"}`,
-    `recent_compaction_window_turns: ${input.gateStatus.windowTurns}`,
-    `required_action: ${action}`,
-  ].join("\n");
-}
-
-function buildCompactionAdvisoryMessage(input: {
-  reason: string;
-  pressure: ContextPressureStatus;
-}): string {
-  const usagePercent = formatPercent(input.pressure.usageRatio);
-  const thresholdPercent = formatPercent(input.pressure.compactionThresholdRatio);
-  return [
-    "[ContextCompactionAdvisory]",
-    `Pending compaction request: ${input.reason}.`,
-    `Current usage: ${usagePercent} (compact-soon threshold: ${thresholdPercent}).`,
-    "Prefer calling tool `session_compact` before long tool chains or broad repository scans.",
-    "If no further tool work is needed, answer directly instead of compacting first.",
-  ].join("\n");
-}
-
-function buildContextContractBlock(runtime: BrewvaRuntime): string {
-  const tapeThresholds = runtime.events.getTapePressureThresholds();
-  const hardLimitPercent = formatPercent(runtime.context.getHardLimitRatio());
-  const highThresholdPercent = formatPercent(runtime.context.getCompactionThresholdRatio());
-
-  return [
-    CONTEXT_CONTRACT_MARKER,
-    "You manage two independent resources.",
-    "1) State tape:",
-    "- use `tape_handoff` for semantic phase boundaries and handoffs.",
-    "- use `tape_info` to inspect tape/context pressure.",
-    "- use `tape_search` when you need historical recall.",
-    `- tape_pressure is based on entries_since_anchor (low=${tapeThresholds.low}, medium=${tapeThresholds.medium}, high=${tapeThresholds.high}).`,
-    "2) Message buffer (LLM context window):",
-    "- use `session_compact` to reduce message history tokens.",
-    `- context_pressure >= high (${highThresholdPercent}) means compact soon.`,
-    `- context_pressure == critical (${hardLimitPercent}) means compact immediately.`,
-    "Hard rules:",
-    "- `tape_handoff` does not reduce message tokens.",
-    "- `session_compact` does not change tape state semantics.",
-    "- never run `session_compact` through `exec` or shell; call the tool directly.",
-    "- if context pressure is critical without recent compaction, runtime blocks non-`session_compact` tools.",
-  ].join("\n");
-}
-
-function applyContextContract(systemPrompt: unknown, runtime: BrewvaRuntime): string {
-  const base = typeof systemPrompt === "string" ? systemPrompt : "";
-  if (base.includes(CONTEXT_CONTRACT_MARKER)) {
-    return base;
-  }
-  const contract = buildContextContractBlock(runtime);
-  if (base.trim().length === 0) return contract;
-  return `${base}\n\n${contract}`;
 }
 
 export function registerContextTransform(
@@ -460,8 +373,13 @@ export function registerContextTransform(
       });
     };
 
-    let gateStatus = runtime.context.getCompactionGateStatus(sessionId, usage);
-    const pendingCompactionReason = runtime.context.getPendingCompactionReason(sessionId);
+    let { gateStatus, pendingCompactionReason, capabilityView } = prepareContextComposerSupport({
+      runtime,
+      pi,
+      sessionId,
+      prompt: event.prompt,
+      usage,
+    });
     if (gateStatus.required) {
       emitGateEvents(gateStatus, "hard_limit");
     }
@@ -470,26 +388,6 @@ export function registerContextTransform(
       runtime,
     );
     const originalPrompt = event.prompt;
-    const allToolsGetter = (pi as { getAllTools?: () => ToolInfo[] }).getAllTools;
-    const activeToolsGetter = (pi as { getActiveTools?: () => string[] }).getActiveTools;
-    const capabilityView = buildCapabilityView({
-      prompt: originalPrompt,
-      allTools:
-        typeof allToolsGetter === "function"
-          ? allToolsGetter.call(pi).map((tool) => ({
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.parameters,
-            }))
-          : [],
-      activeToolNames: typeof activeToolsGetter === "function" ? activeToolsGetter.call(pi) : [],
-      resolveAccess: (toolName) =>
-        runtime.tools.explainAccess({
-          sessionId,
-          toolName,
-          usage,
-        }),
-    });
 
     if (gateStatus.required) {
       state.lastRuntimeGateRequired = true;
@@ -508,34 +406,39 @@ export function registerContextTransform(
         },
       });
 
-      const blocks: string[] = [
-        buildTapeStatusBlock({
-          runtime,
-          sessionId,
-          gateStatus,
-          pendingCompactionReason,
-        }),
-      ];
-      if (capabilityView.block) {
-        blocks.push(capabilityView.block);
-      }
-      blocks.push(
-        buildCompactionGateMessage({
-          pressure: gateStatus.pressure,
-        }),
-      );
+      const composed = composeContextBlocks({
+        runtime,
+        sessionId,
+        gateStatus,
+        pendingCompactionReason,
+        capabilityView,
+        admittedEntries: [],
+        injectionAccepted: false,
+      });
+      emitContextComposedEvent(runtime, {
+        sessionId,
+        turn: state.turnIndex,
+        composed,
+        injectionAccepted: false,
+      });
 
       return {
         systemPrompt: systemPromptWithContract,
         message: {
           customType: CONTEXT_INJECTION_MESSAGE_TYPE,
-          content: blocks.join("\n\n"),
+          content: composed.content,
           display: false,
           details: {
             originalTokens: 0,
             finalTokens: 0,
             truncated: false,
             gateRequired: true,
+            contextComposition: {
+              narrativeRatio: composed.metrics.narrativeRatio,
+              narrativeTokens: composed.metrics.narrativeTokens,
+              constraintTokens: composed.metrics.constraintTokens,
+              diagnosticTokens: composed.metrics.diagnosticTokens,
+            },
             routingSelection: {
               status: "skipped",
               reason: skippedReason,
@@ -558,11 +461,20 @@ export function registerContextTransform(
       injectionScopeId,
     });
     const routingProjection = resolveRoutingProjection(runtime, sessionId);
-    const gateStatusAfterInjection = runtime.context.getCompactionGateStatus(sessionId, usage);
+    const supportAfterInjection = prepareContextComposerSupport({
+      runtime,
+      pi,
+      sessionId,
+      prompt: originalPrompt,
+      usage,
+    });
+    const gateStatusAfterInjection = supportAfterInjection.gateStatus;
     if (!gateStatus.required && gateStatusAfterInjection.required) {
       emitGateEvents(gateStatusAfterInjection, "hard_limit");
     }
     gateStatus = gateStatusAfterInjection;
+    pendingCompactionReason = supportAfterInjection.pendingCompactionReason;
+    capabilityView = supportAfterInjection.capabilityView;
     state.lastRuntimeGateRequired = gateStatus.required;
 
     emitRuntimeEvent(runtime, {
@@ -579,24 +491,6 @@ export function registerContextTransform(
       },
     });
 
-    const blocks: string[] = [
-      buildTapeStatusBlock({
-        runtime,
-        sessionId,
-        gateStatus,
-        pendingCompactionReason,
-      }),
-    ];
-    if (capabilityView.block) {
-      blocks.push(capabilityView.block);
-    }
-    if (gateStatus.required) {
-      blocks.push(
-        buildCompactionGateMessage({
-          pressure: gateStatus.pressure,
-        }),
-      );
-    }
     if (pendingCompactionReason && !gateStatus.required) {
       emitRuntimeEvent(runtime, {
         sessionId,
@@ -611,28 +505,40 @@ export function registerContextTransform(
           requiredTool: "session_compact",
         },
       });
-      blocks.push(
-        buildCompactionAdvisoryMessage({
-          reason: pendingCompactionReason,
-          pressure: gateStatus.pressure,
-        }),
-      );
     }
-    if (injection.accepted && injection.text.trim().length > 0) {
-      blocks.push(injection.text);
-    }
+    const composed = composeContextBlocks({
+      runtime,
+      sessionId,
+      gateStatus,
+      pendingCompactionReason,
+      capabilityView,
+      admittedEntries: injection.entries,
+      injectionAccepted: injection.accepted,
+    });
+    emitContextComposedEvent(runtime, {
+      sessionId,
+      turn: state.turnIndex,
+      composed,
+      injectionAccepted: injection.accepted,
+    });
 
     return {
       systemPrompt: systemPromptWithContract,
       message: {
         customType: CONTEXT_INJECTION_MESSAGE_TYPE,
-        content: blocks.join("\n\n"),
+        content: composed.content,
         display: false,
         details: {
           originalTokens: injection.originalTokens,
           finalTokens: injection.finalTokens,
           truncated: injection.truncated,
           gateRequired: gateStatus.required,
+          contextComposition: {
+            narrativeRatio: composed.metrics.narrativeRatio,
+            narrativeTokens: composed.metrics.narrativeTokens,
+            constraintTokens: composed.metrics.constraintTokens,
+            diagnosticTokens: composed.metrics.diagnosticTokens,
+          },
           routingSelection: {
             status: routingProjection.selection.status,
             reason: routingProjection.selection.reason,

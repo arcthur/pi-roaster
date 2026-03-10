@@ -190,6 +190,17 @@ Common async calls:
 - `runtime.turnWal.recover()`
 - `runtime.verification.verify(...)`
 
+`runtime.context.buildInjection(...)` returns:
+
+- merged `text`
+- admitted `entries`
+- `accepted`
+- token accounting (`originalTokens`, `finalTokens`, `truncated`)
+
+Those entries represent kernel-admitted sources after deterministic budget,
+deduplication, and fingerprint checks. Extension profiles may compose those
+entries into model-facing blocks, but they do not bypass kernel admission.
+
 ## Default Context Injection Semantics
 
 The default injection path is organized around deterministic governance sources:
@@ -229,6 +240,15 @@ Context packet behavior:
   `status_summary` profile with scoped, TTL-bound injection
 - packets stop injecting after `expiresAt`
 
+Model-facing composition behavior:
+
+- runtime admission decides which context entries are allowed
+- full extensions may reorder admitted entries into narrative, constraint, and
+  diagnostic blocks
+- default full-extension behavior is narrative-first
+- concise diagnostics are reserved for anomaly cases or explicit diagnostic
+  requests
+
 Identity source behavior:
 
 - Source file path: `.brewva/agents/<agent-id>/identity.md` (workspace-relative).
@@ -237,6 +257,12 @@ Identity source behavior:
 - Missing or empty identity file means no `brewva.identity` injection.
 - Runtime never auto-generates or rewrites identity files.
 - `brewva.identity` is registered as `oncePerSession`.
+- When `identity.md` uses the headings `Who I Am`, `How I Work`, and
+  `What I Care About`, runtime renders a structured `[PersonaProfile]` block
+  with those sections.
+- When those headings are absent, runtime falls back deterministically by
+  treating the full file as `WhoIAm` content instead of inventing a richer
+  persona structure.
 
 Skill cascade source extension behavior:
 
@@ -264,7 +290,12 @@ Execution profile note:
 - Extension-enabled profile (`createBrewvaExtension`) uses full governance lifecycle hooks and projects proposal-derived selection telemetry.
 - The full extension profile also owns extension-side closed loops such as automatic
   debug retry and deterministic handoff packet synthesis.
-- Runtime-core profile (`--no-extensions`) injects only `[CoreTapeStatus]` + core autonomy contract.
+- Runtime-core profile (`--no-extensions`) still composes model-facing context
+  through `ContextComposer`, applies the standard Brewva context contract, and
+  may rehydrate accepted memory context packets through `MemoryCurator`.
+- Runtime-core keeps the reduced lifecycle surface by omitting the `context`
+  hook, event streaming, completion guard, notification, and debug-loop
+  orchestration.
 
 ## Event Emission Levels
 

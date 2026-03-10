@@ -21,8 +21,9 @@ Default extension composition wires:
 
 - `registerEventStream`
 - `registerToolSurface`
-- `registerCognitionSediment`
+- `registerMemoryCurator`
 - `registerContextTransform`
+- `registerCognitiveMetrics`
 - `registerScanConvergenceGuard`
 - `registerQualityGate`
 - `registerDebugLoop`
@@ -34,8 +35,11 @@ Implementation files:
 
 - `packages/brewva-extensions/src/event-stream.ts`
 - `packages/brewva-extensions/src/tool-surface.ts`
-- `packages/brewva-extensions/src/cognition-sediment.ts`
+- `packages/brewva-extensions/src/memory-curator.ts`
+- `packages/brewva-extensions/src/context-composer.ts`
+- `packages/brewva-extensions/src/context-contract.ts`
 - `packages/brewva-extensions/src/context-transform.ts`
+- `packages/brewva-extensions/src/cognitive-metrics.ts`
 - `packages/brewva-extensions/src/scan-convergence-guard.ts`
 - `packages/brewva-extensions/src/quality-gate.ts`
 - `packages/brewva-extensions/src/debug-loop.ts`
@@ -156,21 +160,43 @@ When debug-loop emits a cognition summary packet:
   reference artifact under `.brewva/cognition/reference/` so later sessions can
   rehydrate the terminal investigation state through the proposal boundary
 
-## Cognition Sediment
+## Memory Curator
 
-`registerCognitionSediment` is a control-plane rehydration hook.
+`registerMemoryCurator` is the control-plane entry point for cross-session
+memory rehydration.
 
 It does not turn cognition artifacts into kernel memory. Instead it:
 
 - scans `.brewva/cognition/reference/` for prompt-relevant artifacts
+- scans `.brewva/cognition/summaries/` for prompt-relevant summaries and
+  continuation-oriented open loops
 - wraps selected artifacts as evidence-backed `context_packet` proposals
 - relies on kernel receipts before those artifacts become visible as
   `brewva.context-packets`
 
 Telemetry:
 
-- `cognition_reference_rehydrated`
-- `cognition_reference_rehydration_failed`
+- `memory_reference_rehydrated`
+- `memory_reference_rehydration_failed`
+- `memory_summary_rehydrated`
+- `memory_summary_rehydration_failed`
+- `memory_open_loop_rehydrated`
+- `memory_open_loop_rehydration_failed`
+
+## Cognitive Metrics
+
+`registerCognitiveMetrics` emits control-plane telemetry about cognitive
+product outcomes.
+
+Current derived metrics:
+
+- `cognitive_metric_first_productive_action`
+- `cognitive_metric_resumption_progress`
+- `cognitive_metric_rehydration_usefulness`
+
+These metrics are derived from existing runtime evidence such as
+`tool_result_recorded` and `memory_*_rehydrated` events. They do not introduce
+new kernel authority.
 
 ## Runtime Integration Contract
 
@@ -187,11 +213,20 @@ Key implications:
 
 `registerContextTransform` runs on `before_agent_start` and:
 
-- appends a system-level context contract block
+- applies a compact system-level context contract
+- calls `ContextComposer` with kernel-admitted context entries
 - injects a capability view block for progressive disclosure (compact tool list; expand with `$name`)
-- injects runtime-built context via async injection path
 - enforces compaction gate behavior under critical context pressure
 - projects proposal-derived selection telemetry (`skill_routing_selection`)
+
+Boundary split:
+
+- runtime context services own source registration, budget, deduplication, and
+  admission
+- `ContextComposer` owns block ordering and category (`narrative`,
+  `constraint`, `diagnostic`)
+- `registerContextTransform` remains the lifecycle adapter for `turn_start`,
+  `context`, `before_agent_start`, `session_compact`, and `session_shutdown`
 
 CLI and gateway session bootstrap prepend `createSkillBrokerExtension` before the runtime extension stack.
 That broker:
@@ -232,14 +267,22 @@ Retained hooks in this profile:
 
 - `tool_call` (`registerQualityGate`) for runtime policy + compaction gate checks
 - `tool_result` / `tool_execution_*` ledger persistence (`registerLedgerWriter`)
-- `before_agent_start` core context block (`[CoreTapeStatus]` + autonomy contract + runtime context injection result)
-- `session_compact` / `session_shutdown` lifecycle bookkeeping
+- `before_agent_start` narrative-first context composition over admitted runtime
+  entries (`ContextComposer` + standard Brewva context contract)
+- cross-session memory rehydration (`registerMemoryCurator`)
+- outcome metrics (`registerCognitiveMetrics`)
+- `session_start` / `turn_start` / `session_shutdown` support for metric state
+  and reduced lifecycle bookkeeping
+- `session_compact` lifecycle bookkeeping
 
 Disabled full-extension hooks in this profile:
 
-- `registerContextTransform` (`turn_start`, `context`, governance context lifecycle)
+- `registerContextTransform` (`context` hook, auto-compaction lifecycle, full
+  before-agent context adapter)
 - `registerCompletionGuard`
 - `registerEventStream`
+- `registerScanConvergenceGuard`
+- `registerDebugLoop`
 - `registerNotification`
 
 This means no-extensions keeps core safety/evidence guarantees, but omits presentation-oriented lifecycle orchestration from the full extension stack.

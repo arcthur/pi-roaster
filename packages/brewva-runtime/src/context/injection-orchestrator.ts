@@ -9,7 +9,11 @@ import type {
   TruthState,
 } from "../types.js";
 import { sha256 } from "../utils/hash.js";
-import type { ContextInjectionPlanResult, RegisterContextInjectionInput } from "./injection.js";
+import type {
+  ContextInjectionEntry,
+  ContextInjectionPlanResult,
+  RegisterContextInjectionInput,
+} from "./injection.js";
 import { CONTEXT_SOURCES } from "./sources.js";
 import { buildRecentToolFailuresBlock, type ToolFailureEntry } from "./tool-failures.js";
 import {
@@ -30,6 +34,7 @@ export interface BuildContextInjectionInput {
 
 export interface BuildContextInjectionResult {
   text: string;
+  entries: ContextInjectionEntry[];
   accepted: boolean;
   originalTokens: number;
   finalTokens: number;
@@ -255,6 +260,7 @@ export function buildContextInjection(
       });
       return {
         text: "",
+        entries: merged.entries,
         accepted: false,
         originalTokens: decision.originalTokens,
         finalTokens: 0,
@@ -280,6 +286,7 @@ export function buildContextInjection(
     });
     return {
       text: decision.finalText,
+      entries: merged.entries,
       accepted: true,
       originalTokens: decision.originalTokens,
       finalTokens: decision.finalTokens,
@@ -301,6 +308,7 @@ export function buildContextInjection(
   });
   return {
     text: "",
+    entries: merged.entries,
     accepted: false,
     originalTokens: decision.originalTokens,
     finalTokens: 0,

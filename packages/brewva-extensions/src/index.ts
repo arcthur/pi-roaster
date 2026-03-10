@@ -1,12 +1,13 @@
 import { BrewvaRuntime, type BrewvaRuntimeOptions } from "@brewva/brewva-runtime";
 import { buildBrewvaTools } from "@brewva/brewva-tools";
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
-import { registerCognitionSediment } from "./cognition-sediment.js";
+import { registerCognitiveMetrics } from "./cognitive-metrics.js";
 import { registerCompletionGuard } from "./completion-guard.js";
 import { registerContextTransform } from "./context-transform.js";
 import { registerDebugLoop } from "./debug-loop.js";
 import { registerEventStream } from "./event-stream.js";
 import { registerLedgerWriter } from "./ledger-writer.js";
+import { registerMemoryCurator } from "./memory-curator.js";
 import { registerNotification } from "./notification.js";
 import { registerQualityGate } from "./quality-gate.js";
 import { registerScanConvergenceGuard } from "./scan-convergence-guard.js";
@@ -20,8 +21,9 @@ export interface CreateBrewvaExtensionOptions extends BrewvaRuntimeOptions {
 function registerAllHandlers(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
   registerEventStream(pi, runtime);
   registerToolSurface(pi, runtime);
-  registerCognitionSediment(pi, runtime);
+  registerMemoryCurator(pi, runtime);
   registerContextTransform(pi, runtime);
+  registerCognitiveMetrics(pi, runtime);
   registerScanConvergenceGuard(pi, runtime);
   registerQualityGate(pi, runtime);
   registerDebugLoop(pi, runtime);
@@ -55,8 +57,17 @@ export {
   createRuntimeCoreBridgeExtension,
   registerRuntimeCoreBridge,
 } from "./runtime-core-bridge.js";
-export { registerCognitionSediment } from "./cognition-sediment.js";
+export { registerMemoryCurator } from "./memory-curator.js";
+export { registerCognitiveMetrics } from "./cognitive-metrics.js";
 export { registerContextTransform } from "./context-transform.js";
+export {
+  composeContextBlocks,
+  type ComposedContextBlock,
+  type ContextBlockCategory,
+  type ContextComposerInput,
+  type ContextComposerMetrics,
+  type ContextComposerResult,
+} from "./context-composer.js";
 export {
   buildCapabilityView,
   type CapabilityAccessDecision,
@@ -71,6 +82,7 @@ export { registerDebugLoop } from "./debug-loop.js";
 export { registerCompletionGuard } from "./completion-guard.js";
 export { registerNotification } from "./notification.js";
 export { registerToolSurface } from "./tool-surface.js";
+export { applyContextContract, buildContextContractBlock } from "./context-contract.js";
 export { createRuntimeChannelTurnBridge } from "./channel-turn-bridge.js";
 export { createRuntimeTelegramChannelBridge } from "./telegram-channel-bridge.js";
 export {

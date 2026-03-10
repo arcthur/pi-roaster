@@ -14,7 +14,7 @@ import type {
 export const DELIBERATION_ISSUERS = {
   skillBroker: "brewva.skill-broker",
   debugLoop: "brewva.extensions.debug-loop",
-  cognitionSediment: "brewva.extensions.cognition-sediment",
+  memoryCurator: "brewva.extensions.memory-curator",
 } as const;
 
 type ProposalRuntime = Pick<BrewvaRuntime, "proposals">;

@@ -5,6 +5,7 @@ import {
   COGNITION_ARTIFACT_EXTENSIONS,
   ensureCognitionArtifactsDirs,
   listCognitionArtifacts,
+  parseStatusSummaryPacketContent,
   readCognitionArtifact,
   resolveCognitionArtifactsDir,
   submitCognitionContextPacket,
@@ -202,5 +203,31 @@ describe("deliberation cognition artifacts", () => {
         ],
       }),
     ).toContain("blocked_on: none");
+  });
+
+  test("parseStatusSummaryPacketContent exposes stable fields for curator strategies", () => {
+    const parsed = parseStatusSummaryPacketContent(
+      [
+        "[StatusSummary]",
+        "profile: status_summary",
+        "summary_kind: debug_loop_handoff",
+        "status: blocked",
+        "next_action: resume proposal admission fix",
+        "blocked_on: verification evidence",
+      ].join("\n"),
+    );
+
+    expect(parsed).toEqual({
+      profile: "status_summary",
+      summaryKind: "debug_loop_handoff",
+      status: "blocked",
+      fields: {
+        profile: "status_summary",
+        summary_kind: "debug_loop_handoff",
+        status: "blocked",
+        next_action: "resume proposal admission fix",
+        blocked_on: "verification evidence",
+      },
+    });
   });
 });

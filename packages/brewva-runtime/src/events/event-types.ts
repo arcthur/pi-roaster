@@ -25,6 +25,12 @@ export const DEBUG_LOOP_ARTIFACT_PERSIST_FAILED_EVENT_TYPE =
   "debug_loop_artifact_persist_failed" as const;
 export const DEBUG_LOOP_RETRY_SCHEDULED_EVENT_TYPE = "debug_loop_retry_scheduled" as const;
 export const DEBUG_LOOP_HANDOFF_PERSISTED_EVENT_TYPE = "debug_loop_handoff_persisted" as const;
+export const COGNITIVE_METRIC_FIRST_PRODUCTIVE_ACTION_EVENT_TYPE =
+  "cognitive_metric_first_productive_action" as const;
+export const COGNITIVE_METRIC_RESUMPTION_PROGRESS_EVENT_TYPE =
+  "cognitive_metric_resumption_progress" as const;
+export const COGNITIVE_METRIC_REHYDRATION_USEFULNESS_EVENT_TYPE =
+  "cognitive_metric_rehydration_usefulness" as const;
 
 export const PROJECTION_INGESTED_EVENT_TYPE = "projection_ingested" as const;
 export const PROJECTION_REFRESHED_EVENT_TYPE = "projection_refreshed" as const;

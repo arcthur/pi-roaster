@@ -8,7 +8,8 @@ Boundary contract sources:
 - Deliberation cognition bridge: `packages/brewva-deliberation/src/cognition.ts`
 - Deliberation helpers: `packages/brewva-deliberation/src/proposals.ts`
 - Deliberation runtime planning: `packages/brewva-deliberation/src/runtime-skills.ts`
-- Context projection bridge: `packages/brewva-extensions/src/context-transform.ts`
+- Context composition bridge: `packages/brewva-extensions/src/context-transform.ts`
+- Memory curator producer: `packages/brewva-extensions/src/memory-curator.ts`
 - Broker proposal producer: `packages/brewva-skill-broker/src/extension.ts`
 - Debug-loop proposal producer: `packages/brewva-extensions/src/debug-loop.ts`
 
@@ -173,7 +174,7 @@ Current reserved issuer policy:
     `operator_note` evidence
   - `context_packet` requires scoped `status_summary` packets with `packetKey`,
     `expiresAt`, and `event` / `workspace_artifact` / `operator_note` evidence
-- `brewva.extensions.cognition-sediment`
+- `brewva.extensions.memory-curator`
   - allowed kinds: `context_packet`
   - requires `workspace_artifact` evidence
   - requires `packetKey` and `expiresAt`

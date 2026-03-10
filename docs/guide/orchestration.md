@@ -9,7 +9,7 @@ Orchestration is driven by runtime state management plus extension lifecycle han
 
 1. CLI creates a session (`packages/brewva-cli/src/session.ts`)
 2. Extensions are registered (`packages/brewva-extensions/src/index.ts`)
-3. `before_agent_start` injects context contract + tape status + replay context (`context-transform`)
+3. `before_agent_start` runs lifecycle plumbing (`context-transform`) and model-facing composition (`context-composer`)
 4. `tool_call` passes quality/security/budget gates (`quality-gate`)
 5. `ledger-writer` records durable tool outcomes (normally from SDK `tool_result`; can fallback to `tool_execution_end` when `tool_result` is missing). Persisted governance event is `tool_result_recorded`.
 6. `agent_end` records summary events and runs completion guard / notification hooks
@@ -17,14 +17,15 @@ Orchestration is driven by runtime state management plus extension lifecycle han
 ## Direct-Tool Profile (`--no-extensions`)
 
 1. CLI registers tools directly (`buildBrewvaTools`)
-2. CLI installs `createRuntimeCoreBridgeExtension` (quality gate + ledger writer + compact lifecycle bridge + core context contract/status injection)
-3. Runtime core bridge enforces `runtime.tools.start` / `runtime.tools.finish` semantics:
-   tool policy + critical compaction gate + tool-call accounting + patch tracking + ledger write
-4. CLI installs `registerRuntimeCoreEventBridge` for lifecycle and assistant-usage telemetry
-5. Extension-only presentation hooks remain disabled (`context-transform` projection injection,
-   completion guard, notification, streaming message-health events)
-6. Runtime core bridge still runs `before_agent_start` to inject a minimal autonomy contract
-   and `[CoreTapeStatus]` pressure/action block for agent self-management
+2. CLI installs `createRuntimeCoreBridgeExtension` (tool surface + memory curator + cognitive metrics + quality gate + ledger writer + reduced lifecycle bridge)
+3. `tool_call` passes quality/security/budget gates (`quality-gate`)
+4. `ledger-writer` records durable tool outcomes and closes the runtime tool lifecycle (`tool_result_recorded` + `runtime.tools.finish(...)`)
+5. CLI installs `registerRuntimeCoreEventBridge` for lifecycle and assistant-usage telemetry
+6. Extension-only presentation hooks remain disabled (`context` hook auto-compaction lifecycle,
+   completion guard, notification, debug-loop, streaming message-health events)
+7. Runtime core bridge still runs `before_agent_start`, but now uses the same
+   narrative-first `ContextComposer` and standard Brewva context contract as
+   the full profile
 
 ## Runtime Subsystems
 

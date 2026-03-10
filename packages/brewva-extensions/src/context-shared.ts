@@ -1,6 +1,13 @@
-export function formatPercent(ratio: number | null): string {
-  if (ratio === null) return "unknown";
-  return `${(ratio * 100).toFixed(1)}%`;
+export function formatPercent(
+  ratio: number | null | undefined,
+  options: {
+    fallback?: string;
+  } = {},
+): string {
+  if (typeof ratio !== "number" || !Number.isFinite(ratio)) {
+    return options.fallback ?? "n/a";
+  }
+  return `${Math.round(ratio * 1000) / 10}%`;
 }
 
 export function extractCompactionSummary(input: unknown): string | undefined {

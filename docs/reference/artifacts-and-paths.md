@@ -37,11 +37,15 @@ Runtime artifact paths are resolved from the workspace root (`nearest .brewva/br
     rehydration
   - repeated packets can share a stable `packetKey` so the latest accepted
     cognition packet replaces earlier ones for injection without erasing tape history
-  - `registerCognitionSediment` may rehydrate selected `reference/` artifacts
-    into accepted `context_packet` proposals for future sessions
+  - `registerMemoryCurator` may rehydrate selected `reference/` artifacts,
+    prompt-matched `summaries/` artifacts, and continuation-oriented open-loop
+    summaries into accepted `context_packet` proposals for future sessions
 - Agent identity profile (per-agent): `.brewva/agents/<agent-id>/identity.md`
   - `<agent-id>` comes from runtime option `agentId` (or `BREWVA_AGENT_ID`, fallback `default`)
   - id normalization: lowercase slug (`[a-z0-9._-]`, invalid separators mapped to `-`)
+  - recommended section headings: `Who I Am`, `How I Work`, `What I Care About`
+  - runtime renders those headings into the structured `[PersonaProfile]`
+    context block; otherwise the full file is treated as `WhoIAm`
 
 ## Global Roots
 

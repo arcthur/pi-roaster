@@ -54,6 +54,47 @@ features can be judged against a stable standard instead of local convenience.
 The rings are about authority, not package names. Code may move across packages
 over time; authority boundaries should not.
 
+## Plane Model
+
+Planes describe cross-cutting concerns that may read across rings without
+gaining their authority:
+
+- `Working State Plane`
+  - projection
+  - context arena
+  - pending dispatch
+  - active tool surface
+- `Cognitive Product Plane`
+  - context composition
+  - memory curation
+  - persona/profile rendering
+- `Control Plane`
+  - broker, debug-loop, heartbeat, scheduling triggers, future planners
+
+Current module anchors:
+
+- `Working State Plane`
+  - `packages/brewva-runtime/src/context/*`
+  - `packages/brewva-runtime/src/services/context*.ts`
+  - `packages/brewva-runtime/src/projection/*`
+  - `packages/brewva-extensions/src/tool-surface.ts`
+- `Cognitive Product Plane`
+  - `packages/brewva-extensions/src/context-composer.ts`
+  - `packages/brewva-extensions/src/memory-curator.ts`
+  - `packages/brewva-runtime/src/context/identity.ts`
+- `Control Plane`
+  - `packages/brewva-skill-broker/src/*`
+  - `packages/brewva-extensions/src/debug-loop.ts`
+  - `packages/brewva-extensions/src/cognitive-metrics.ts`
+  - gateway heartbeat / scheduler policy code
+
+Rings answer "who may commit". Planes answer "what concern is this code
+serving".
+
+Product rule:
+
+`Model sees narrative. Operator sees telemetry. Kernel sees receipts.`
+
 ## Kernel Admission Rules
 
 The kernel may:

@@ -38,7 +38,7 @@ const RESERVED_PROPOSAL_ISSUER_POLICIES = {
       requireProfile: "status_summary",
     },
   },
-  "brewva.extensions.cognition-sediment": {
+  "brewva.extensions.memory-curator": {
     context_packet: {
       requiredEvidenceSourceTypes: ["workspace_artifact"],
       requirePacketKey: true,

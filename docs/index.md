@@ -35,6 +35,7 @@ This repository uses a layered documentation system:
 
 - System architecture: `docs/architecture/system-architecture.md`
 - Design axioms: `docs/architecture/design-axioms.md`
+- Cognitive product architecture: `docs/architecture/cognitive-product-architecture.md`
 - Control and data flow: `docs/architecture/control-and-data-flow.md`
 - Invariants and reliability: `docs/architecture/invariants-and-reliability.md`
 
@@ -44,6 +45,8 @@ This repository uses a layered documentation system:
 - Tools: `docs/reference/tools.md`
 - Skills: `docs/reference/skills.md`
 - Runtime API: `docs/reference/runtime.md`
+- Context composer: `docs/reference/context-composer.md`
+- Memory curator: `docs/reference/memory-curator.md`
 - Proposal boundary: `docs/reference/proposal-boundary.md`
 - Events: `docs/reference/events.md`
 - Extensions: `docs/reference/extensions.md`

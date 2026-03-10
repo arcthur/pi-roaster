@@ -1,76 +1,25 @@
 import { coerceContextBudgetUsage, type BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
-import { registerCognitionSediment } from "./cognition-sediment.js";
+import { registerCognitiveMetrics } from "./cognitive-metrics.js";
+import { prepareContextComposerSupport } from "./context-composer-support.js";
+import { buildContextComposedEventPayload, composeContextBlocks } from "./context-composer.js";
+import { applyContextContract } from "./context-contract.js";
 import {
   extractCompactionEntryId,
   extractCompactionSummary,
-  formatPercent,
   resolveInjectionScopeId,
 } from "./context-shared.js";
 import { registerLedgerWriter } from "./ledger-writer.js";
+import { registerMemoryCurator } from "./memory-curator.js";
 import { registerQualityGate } from "./quality-gate.js";
 import { registerToolSurface } from "./tool-surface.js";
 
-const CORE_CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-core-context-injection";
-const CORE_CONTEXT_CONTRACT_MARKER = "[Brewva Core Context Contract]";
-
-function buildCoreContextContract(runtime: BrewvaRuntime): string {
-  const tapeThresholds = runtime.events.getTapePressureThresholds();
-  const highThresholdPercent = formatPercent(runtime.context.getCompactionThresholdRatio());
-  const hardLimitPercent = formatPercent(runtime.context.getHardLimitRatio());
-
-  return [
-    CORE_CONTEXT_CONTRACT_MARKER,
-    "Autonomy controls available in this profile:",
-    "- use `tape_handoff` for semantic handoff boundaries.",
-    "- use `tape_info` to inspect tape/context pressure.",
-    "- use `tape_search` for historical recall from event tape.",
-    "- use `session_compact` to reduce message buffer pressure.",
-    "Hard rules:",
-    "- `tape_handoff` does not reduce message tokens.",
-    "- `session_compact` does not change tape semantics.",
-    "- never run `session_compact` through `exec` or shell; call the tool directly.",
-    `- tape_pressure thresholds: low=${tapeThresholds.low}, medium=${tapeThresholds.medium}, high=${tapeThresholds.high}.`,
-    `- compact soon when context_pressure >= high (${highThresholdPercent}).`,
-    `- compact immediately when context_pressure == critical (${hardLimitPercent}).`,
-  ].join("\n");
-}
-
-function applyCoreContextContract(systemPrompt: unknown, runtime: BrewvaRuntime): string {
-  const base = typeof systemPrompt === "string" ? systemPrompt : "";
-  if (base.includes(CORE_CONTEXT_CONTRACT_MARKER)) return base;
-  const contract = buildCoreContextContract(runtime);
-  if (!base.trim()) return contract;
-  return `${base}\n\n${contract}`;
-}
-
-function buildCoreStatusBlock(runtime: BrewvaRuntime, sessionId: string): string {
-  const tapeStatus = runtime.events.getTapeStatus(sessionId);
-  const gate = runtime.context.getCompactionGateStatus(sessionId);
-  const action = gate.required ? "session_compact_now" : "none";
-
-  return [
-    "[CoreTapeStatus]",
-    `tape_pressure: ${tapeStatus.tapePressure}`,
-    `tape_entries_total: ${tapeStatus.totalEntries}`,
-    `tape_entries_since_anchor: ${tapeStatus.entriesSinceAnchor}`,
-    `tape_entries_since_checkpoint: ${tapeStatus.entriesSinceCheckpoint}`,
-    `last_anchor_name: ${tapeStatus.lastAnchor?.name ?? "none"}`,
-    `last_anchor_id: ${tapeStatus.lastAnchor?.id ?? "none"}`,
-    `context_pressure: ${gate.pressure.level}`,
-    `context_usage: ${formatPercent(gate.pressure.usageRatio)}`,
-    `context_hard_limit: ${formatPercent(gate.pressure.hardLimitRatio)}`,
-    `compaction_gate_reason: ${gate.reason ?? "none"}`,
-    `recent_compact_performed: ${gate.recentCompaction ? "true" : "false"}`,
-    `turns_since_compaction: ${gate.turnsSinceCompaction ?? "none"}`,
-    `recent_compaction_window_turns: ${gate.windowTurns}`,
-    `required_action: ${action}`,
-  ].join("\n");
-}
+const CORE_CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
 
 export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
   registerToolSurface(pi, runtime);
-  registerCognitionSediment(pi, runtime);
+  registerMemoryCurator(pi, runtime);
+  registerCognitiveMetrics(pi, runtime);
   registerQualityGate(pi, runtime);
   registerLedgerWriter(pi, runtime);
 
@@ -78,33 +27,61 @@ export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRunti
     const sessionId = ctx.sessionManager.getSessionId();
     const usage = coerceContextBudgetUsage(ctx.getContextUsage());
     runtime.context.observeUsage(sessionId, usage);
+    const prompt = typeof (event as { prompt?: unknown }).prompt === "string" ? event.prompt : "";
     const injection = await runtime.context.buildInjection(
       sessionId,
-      typeof (event as { prompt?: unknown }).prompt === "string"
-        ? ((event as { prompt: string }).prompt ?? "")
-        : "",
+      prompt,
       usage,
       resolveInjectionScopeId(ctx.sessionManager),
     );
-    const blocks = [buildCoreStatusBlock(runtime, sessionId)];
-    if (injection.accepted && injection.text.trim().length > 0) {
-      blocks.push(injection.text);
-    }
+    const { gateStatus, pendingCompactionReason, capabilityView } = prepareContextComposerSupport({
+      runtime,
+      pi,
+      sessionId,
+      prompt,
+      usage,
+    });
+    const composed = composeContextBlocks({
+      runtime,
+      sessionId,
+      gateStatus,
+      pendingCompactionReason,
+      capabilityView,
+      admittedEntries: injection.entries,
+      injectionAccepted: injection.accepted,
+    });
+    runtime.events.record({
+      sessionId,
+      type: "context_composed",
+      payload: buildContextComposedEventPayload(composed, injection.accepted),
+    });
 
     return {
-      systemPrompt: applyCoreContextContract(
+      systemPrompt: applyContextContract(
         (event as { systemPrompt?: unknown }).systemPrompt,
         runtime,
       ),
       message: {
         customType: CORE_CONTEXT_INJECTION_MESSAGE_TYPE,
-        content: blocks.join("\n\n"),
+        content: composed.content,
         display: false,
         details: {
           profile: "runtime-core",
           originalTokens: injection.originalTokens,
           finalTokens: injection.finalTokens,
           truncated: injection.truncated,
+          gateRequired: gateStatus.required,
+          contextComposition: {
+            narrativeRatio: composed.metrics.narrativeRatio,
+            narrativeTokens: composed.metrics.narrativeTokens,
+            constraintTokens: composed.metrics.constraintTokens,
+            diagnosticTokens: composed.metrics.diagnosticTokens,
+          },
+          capabilityView: {
+            requested: capabilityView.requested,
+            expanded: capabilityView.expanded,
+            missing: capabilityView.missing,
+          },
         },
       },
     };

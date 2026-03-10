@@ -45,8 +45,16 @@ These are retained under `infrastructure.events.level=audit`.
 - `proposal_decided`
 - `decision_receipt_recorded`
 - `tool_surface_resolved`
-- `cognition_reference_rehydrated`
-- `cognition_reference_rehydration_failed`
+- `context_composed`
+- `memory_reference_rehydrated`
+- `memory_reference_rehydration_failed`
+- `memory_summary_rehydrated`
+- `memory_summary_rehydration_failed`
+- `memory_open_loop_rehydrated`
+- `memory_open_loop_rehydration_failed`
+- `cognitive_metric_first_productive_action`
+- `cognitive_metric_resumption_progress`
+- `cognitive_metric_rehydration_usefulness`
 - `skill_*` lifecycle and cascade events
 - `skill_routing_selection`
 - `skill_routing_decided`
@@ -94,6 +102,20 @@ snapshot that can replace source-event replay.
 
 These events are audit-visible because they describe controller decisions and
 cross-turn recovery artifacts, not presentation-only UI behavior.
+
+## Cognitive Product Families
+
+- `context_composed` records the model-facing composition summary:
+  narrative/constraint/diagnostic block counts plus token totals and the
+  resulting narrative ratio
+- `memory_*_rehydrated` / `memory_*_rehydration_failed` record whether
+  cross-session cognition artifacts crossed the proposal boundary successfully
+- `cognitive_metric_first_productive_action` records the first non-operator
+  semantic `pass` tool result in a session
+- `cognitive_metric_resumption_progress` records the first productive action
+  after accepted memory rehydration
+- `cognitive_metric_rehydration_usefulness` records whether accepted
+  rehydration led to progress within the next two turns
 
 ## Proposal Boundary Notes
 

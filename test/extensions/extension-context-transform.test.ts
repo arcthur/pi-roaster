@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createBrewvaExtension, registerContextTransform } from "@brewva/brewva-extensions";
+import { CONTEXT_SOURCES, type ContextInjectionEntry } from "@brewva/brewva-runtime";
 import {
   createMockExtensionAPI,
   invokeHandler,
@@ -7,6 +8,23 @@ import {
   invokeHandlersAsync,
 } from "../helpers/extension.js";
 import { createRuntimeConfig, createRuntimeFixture } from "./fixtures/runtime.js";
+
+function makeInjectedEntry(
+  source: string,
+  id: string,
+  content: string,
+  estimatedTokens = 8,
+): ContextInjectionEntry {
+  return {
+    source,
+    id,
+    content,
+    estimatedTokens,
+    timestamp: 1,
+    oncePerSession: false,
+    truncated: false,
+  };
+}
 
 describe("Extension gaps: context transform", () => {
   test("given context transform registration, when before_agent_start runs, then hidden context message is injected", async () => {
@@ -18,7 +36,14 @@ describe("Extension gaps: context transform", () => {
         checkAndRequestCompaction: () => false,
         markCompacted: () => undefined,
         buildInjection: async () => ({
-          text: "[Brewva Context]\nTop-K Skill Candidates:\n- debugging",
+          text: "[TaskState]\nstatus: active",
+          entries: [
+            makeInjectedEntry(
+              CONTEXT_SOURCES.taskState,
+              "task-state",
+              "[TaskState]\nstatus: active",
+            ),
+          ],
           accepted: true,
           originalTokens: 42,
           finalTokens: 42,
@@ -62,12 +87,12 @@ describe("Extension gaps: context transform", () => {
 
     expect(result.message.customType).toBe("brewva-context-injection");
     expect(result.message.display).toBe(false);
-    expect(result.message.content.includes("[Brewva Context]")).toBe(true);
-    expect(result.message.content.includes("debugging")).toBe(true);
+    expect(result.message.content.includes("[TaskState]")).toBe(true);
+    expect(result.message.content.includes("status: active")).toBe(true);
     expect(result.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
   });
 
-  test("given injection rejected by budget, when before_agent_start runs, then only tape status context is emitted", async () => {
+  test("given injection rejected by budget, when before_agent_start runs, then no narrative context is injected", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const runtime = createRuntimeFixture({
       context: {
@@ -77,6 +102,7 @@ describe("Extension gaps: context transform", () => {
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 4200,
           finalTokens: 0,
@@ -107,7 +133,7 @@ describe("Extension gaps: context transform", () => {
     );
 
     expect(result.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
-    expect(result.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(result.message?.content?.includes("[OperationalDiagnostics]")).toBe(false);
     expect(result.message?.content?.includes("[Brewva Context]")).toBe(false);
   });
 
@@ -121,6 +147,7 @@ describe("Extension gaps: context transform", () => {
         observeUsage: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -168,15 +195,17 @@ describe("Extension gaps: context transform", () => {
     );
 
     expect(result.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
-    expect(result.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(result.message?.content?.includes("[OperationalDiagnostics]")).toBe(true);
     expect(result.message?.content?.includes("pending_compaction_reason: usage_threshold")).toBe(
       true,
     );
     expect(result.message?.content?.includes("required_action: session_compact_recommended")).toBe(
       true,
     );
+    expect(result.message?.content?.includes("tape_pressure:")).toBe(false);
     expect(result.message?.content?.includes("[ContextCompactionAdvisory]")).toBe(true);
     expect(result.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
+    expect(eventTypes).toContain("context_composed");
     expect(eventTypes).toContain("context_compaction_advisory");
     expect(advisoryPayloads).toHaveLength(1);
     expect(advisoryPayloads[0]?.reason).toBe("usage_threshold");
@@ -204,6 +233,7 @@ describe("Extension gaps: context transform", () => {
           scopes.push(scopeId);
           return {
             text: "",
+            entries: [],
             accepted: false,
             originalTokens: 0,
             finalTokens: 0,
@@ -247,7 +277,14 @@ describe("Extension gaps: context transform", () => {
         buildInjection: async () => {
           calls.push("async");
           return {
-            text: "[async]",
+            text: "[TaskState]\nstatus: async",
+            entries: [
+              makeInjectedEntry(
+                CONTEXT_SOURCES.taskState,
+                "async-task-state",
+                "[TaskState]\nstatus: async",
+              ),
+            ],
             accepted: true,
             originalTokens: 2,
             finalTokens: 2,
@@ -278,13 +315,15 @@ describe("Extension gaps: context transform", () => {
         getContextUsage: () => undefined,
       },
     );
-    const result = results.find((candidate) => candidate?.message?.content?.includes("[async]"));
+    const result = results.find((candidate) =>
+      candidate?.message?.content?.includes("[TaskState]\nstatus: async"),
+    );
     if (!result) {
       throw new Error("Expected context-transform result from createBrewvaExtension.");
     }
 
     expect(calls).toEqual(["async"]);
-    expect(result.message.content.includes("[async]")).toBe(true);
+    expect(result.message.content.includes("[TaskState]\nstatus: async")).toBe(true);
   });
 
   test("given deterministic runtime routing, when before_agent_start runs, then extension emits real routing telemetry", async () => {
@@ -356,7 +395,14 @@ describe("Extension gaps: context transform", () => {
         buildInjection: async () => {
           calls.push("async");
           return {
-            text: "[async]",
+            text: "[TaskState]\nstatus: async",
+            entries: [
+              makeInjectedEntry(
+                CONTEXT_SOURCES.taskState,
+                "factory-async-task-state",
+                "[TaskState]\nstatus: async",
+              ),
+            ],
             accepted: true,
             originalTokens: 2,
             finalTokens: 2,
@@ -400,7 +446,7 @@ describe("Extension gaps: context transform", () => {
     );
 
     expect(calls).toEqual(["async"]);
-    expect(result?.message.content.includes("[async]")).toBe(true);
+    expect(result?.message.content.includes("[TaskState]\nstatus: async")).toBe(true);
   });
 
   test("given non-interactive mode and compaction requested, when context hook runs, then context_compaction_skipped is recorded", () => {
@@ -414,6 +460,7 @@ describe("Extension gaps: context transform", () => {
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -477,6 +524,7 @@ describe("Extension gaps: context transform", () => {
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -558,6 +606,7 @@ describe("Extension gaps: context transform", () => {
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -627,6 +676,7 @@ describe("Extension gaps: context transform", () => {
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -693,6 +743,7 @@ describe("Extension gaps: context transform", () => {
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -754,6 +805,7 @@ describe("Extension gaps: context transform", () => {
         markCompacted: () => undefined,
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -822,6 +874,7 @@ describe("Extension gaps: context transform", () => {
           injectionCalls += 1;
           return {
             text: "[should-not-run]",
+            entries: [],
             accepted: true,
             originalTokens: 1,
             finalTokens: 1,
@@ -891,6 +944,7 @@ describe("Extension gaps: context transform", () => {
         },
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -926,11 +980,12 @@ describe("Extension gaps: context transform", () => {
     );
 
     expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(true);
-    expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
-    expect(before.message?.content?.includes("tape_pressure:")).toBe(true);
+    expect(before.message?.content?.includes("[OperationalDiagnostics]")).toBe(true);
     expect(before.message?.content?.includes("required_action: session_compact_now")).toBe(true);
+    expect(before.message?.content?.includes("tape_pressure:")).toBe(false);
     expect(eventTypes).toContain("context_compaction_gate_armed");
     expect(eventTypes).toContain("critical_without_compact");
+    expect(eventTypes).toContain("context_composed");
     expect(eventTypes).not.toContain("context_compaction_advisory");
 
     invokeHandler(
@@ -976,6 +1031,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -1038,7 +1094,7 @@ describe("Extension gaps: context transform", () => {
     );
 
     expect(before.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
-    expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(before.message?.content?.includes("[OperationalDiagnostics]")).toBe(false);
     expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
   });
@@ -1054,6 +1110,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -1109,7 +1166,7 @@ describe("Extension gaps: context transform", () => {
       },
     );
     expect(withinWindow.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
-    expect(withinWindow.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(withinWindow.message?.content?.includes("[OperationalDiagnostics]")).toBe(false);
     expect(withinWindow.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
 
@@ -1128,8 +1185,7 @@ describe("Extension gaps: context transform", () => {
       },
     );
     expect(afterWindow.message?.content?.includes("[ContextCompactionGate]")).toBe(true);
-    expect(afterWindow.message?.content?.includes("[TapeStatus]")).toBe(true);
-    expect(afterWindow.message?.content?.includes("tape_pressure:")).toBe(true);
+    expect(afterWindow.message?.content?.includes("[OperationalDiagnostics]")).toBe(true);
     expect(eventTypes).toContain("context_compaction_gate_armed");
     expect(eventTypes).toContain("critical_without_compact");
   });
@@ -1145,6 +1201,7 @@ describe("Extension gaps: context transform", () => {
       context: {
         buildInjection: async () => ({
           text: "",
+          entries: [],
           accepted: false,
           originalTokens: 0,
           finalTokens: 0,
@@ -1200,7 +1257,7 @@ describe("Extension gaps: context transform", () => {
     );
 
     expect(before.systemPrompt?.includes("[Brewva Context Contract]")).toBe(true);
-    expect(before.message?.content?.includes("[TapeStatus]")).toBe(true);
+    expect(before.message?.content?.includes("[OperationalDiagnostics]")).toBe(false);
     expect(before.message?.content?.includes("[ContextCompactionGate]")).toBe(false);
     expect(eventTypes).not.toContain("context_compaction_gate_armed");
   });

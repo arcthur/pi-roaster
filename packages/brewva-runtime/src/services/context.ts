@@ -3,6 +3,7 @@ import {
   buildContextInjection as buildContextInjectionOrchestrated,
   type ContextInjectionOrchestratorDeps,
 } from "../context/injection-orchestrator.js";
+import type { ContextInjectionEntry } from "../context/injection.js";
 import {
   ContextInjectionCollector,
   type ContextInjectionRegisterResult,
@@ -306,6 +307,7 @@ export class ContextService {
     injectionScopeId?: string,
   ): Promise<{
     text: string;
+    entries: ContextInjectionEntry[];
     accepted: boolean;
     originalTokens: number;
     finalTokens: number;
@@ -402,6 +404,7 @@ export class ContextService {
     injectionScopeId?: string,
   ): {
     text: string;
+    entries: ContextInjectionEntry[];
     accepted: boolean;
     originalTokens: number;
     finalTokens: number;

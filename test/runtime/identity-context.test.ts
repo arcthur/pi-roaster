@@ -24,11 +24,14 @@ describe("Identity context injection", () => {
       workspace,
       "code-reviewer",
       [
-        "role: Senior code reviewer",
-        "capabilities:",
-        "- read_code",
-        "- security_audit",
-        "constraints:",
+        "## Who I Am",
+        "Senior code reviewer focused on correctness and safety.",
+        "",
+        "## How I Work",
+        "- Read code before judging.",
+        "- Prefer evidence over intuition.",
+        "",
+        "## What I Care About",
         "- no_direct_code_changes",
       ].join("\n"),
     );
@@ -39,9 +42,14 @@ describe("Identity context injection", () => {
 
     const injection = await runtime.context.buildInjection("identity-existing-1", "review");
     expect(injection.accepted).toBe(true);
-    expect(injection.text.includes("[Identity]")).toBe(true);
+    expect(injection.text.includes("[PersonaProfile]")).toBe(true);
+    expect(injection.text.includes("[WhoIAm]")).toBe(true);
+    expect(injection.text.includes("[HowIWork]")).toBe(true);
+    expect(injection.text.includes("[WhatICareAbout]")).toBe(true);
     expect(injection.text.includes("agent_id: code-reviewer")).toBe(true);
-    expect(injection.text.includes("role: Senior code reviewer")).toBe(true);
+    expect(injection.text.includes("Senior code reviewer focused on correctness and safety.")).toBe(
+      true,
+    );
     expect(injection.text.includes("no_direct_code_changes")).toBe(true);
   });
 
@@ -54,7 +62,7 @@ describe("Identity context injection", () => {
 
     const injection = await runtime.context.buildInjection("identity-missing-1", "continue");
     expect(injection.accepted).toBe(true);
-    expect(injection.text.includes("[Identity]")).toBe(false);
+    expect(injection.text.includes("[PersonaProfile]")).toBe(false);
 
     const path = join(workspace, ".brewva", "agents", "missing-agent", "identity.md");
     expect(existsSync(path)).toBe(false);
@@ -85,7 +93,7 @@ describe("Identity context injection", () => {
       "leaf-b",
     );
     expect(second.accepted).toBe(true);
-    expect(second.text.includes("[Identity]")).toBe(false);
+    expect(second.text.includes("[PersonaProfile]")).toBe(false);
 
     runtimeA.context.markCompacted("identity-agent-scope-1", { fromTokens: 1000, toTokens: 300 });
     const third = await runtimeA.context.buildInjection(
