@@ -11,7 +11,7 @@ rehydration.
 
 It does not introduce kernel memory, vector indexes, or hidden deliberation
 authority. It only observes replayable cognitive outcome telemetry and persists
-a small ranking policy that later influences `MemoryCurator`.
+a small policy that later influences `MemoryCurator` and `MemoryFormation`.
 
 ## Inputs
 
@@ -38,8 +38,8 @@ Schema:
 
 Current policy tracks:
 
-- strategy-level usefulness for `reference`, `procedure`, `summary`, and
-  `open_loop`
+- strategy-level usefulness for `reference`, `procedure`, `episode`,
+  `summary`, and `open_loop`
 - packet-level usefulness keyed by `packetKey`
 - timestamps for last observation and last useful outcome
 
@@ -60,6 +60,8 @@ Current output path:
   proposals are submitted
 - packet-level bias is intentionally weighted more strongly because a concrete
   packet history is a sharper signal than a strategy-wide average
+- `MemoryFormation` may derive write-side guidance from the same policy
+  to suppress low-signal summaries, episodes, or procedures
 - proposal admission, TTL, and scope rules still belong to the kernel
 
 ## Telemetry
@@ -76,6 +78,7 @@ These events remain replayable evidence of control-plane policy changes.
 - read replayable usefulness telemetry
 - persist control-plane ranking bias
 - influence future `MemoryCurator` ordering
+- influence future `MemoryFormation` quality gates
 
 `MemoryAdaptation` may not:
 

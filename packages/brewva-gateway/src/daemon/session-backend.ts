@@ -21,6 +21,10 @@ export interface SendPromptTrigger {
   ruleId: string;
   objective?: string;
   contextHints?: string[];
+  wakeMode?: "always" | "if_signal" | "if_open_loop";
+  planReason?: string;
+  selectionText?: string;
+  signalArtifactRefs?: string[];
 }
 
 export interface SessionWorkerInfo {

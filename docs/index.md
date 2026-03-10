@@ -50,6 +50,7 @@ This repository uses a layered documentation system:
 - Memory curator: `docs/reference/memory-curator.md`
 - Memory adaptation: `docs/reference/memory-adaptation.md`
 - Proactivity engine: `docs/reference/proactivity-engine.md`
+- Operator teaching: `docs/reference/operator-teaching.md`
 - Proposal boundary: `docs/reference/proposal-boundary.md`
 - Events: `docs/reference/events.md`
 - Extensions: `docs/reference/extensions.md`

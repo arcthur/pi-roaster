@@ -6,7 +6,9 @@ import {
   COGNITION_ARTIFACT_EXTENSIONS,
   ensureCognitionArtifactsDirs,
   listCognitionArtifacts,
+  parseEpisodeNoteContent,
   parseProcedureNoteContent,
+  parseReferenceNoteContent,
   parseStatusSummaryPacketContent,
   readCognitionArtifact,
   resolveCognitionArtifactsDir,
@@ -234,6 +236,14 @@ describe("deliberation cognition artifacts", () => {
     });
   });
 
+  test("parseStatusSummaryPacketContent requires the status_summary profile", () => {
+    expect(
+      parseStatusSummaryPacketContent(
+        ["[StatusSummary]", "summary_kind: debug_loop_handoff", "status: blocked"].join("\n"),
+      ),
+    ).toBeNull();
+  });
+
   test("buildProcedureNoteContent normalizes reusable procedural notes", () => {
     expect(
       buildProcedureNoteContent({
@@ -279,6 +289,35 @@ describe("deliberation cognition artifacts", () => {
     });
   });
 
+  test("parseProcedureNoteContent requires the procedure_note profile", () => {
+    expect(
+      parseProcedureNoteContent(
+        [
+          "[ProcedureNote]",
+          "profile: status_summary",
+          "note_kind: verification_outcome",
+          "recommendation: keep verification strict",
+        ].join("\n"),
+      ),
+    ).toBeNull();
+  });
+
+  test("parseEpisodeNoteContent requires the episode_note profile", () => {
+    expect(
+      parseEpisodeNoteContent(
+        ["[EpisodeNote]", "profile: status_summary", "episode_kind: blocked"].join("\n"),
+      ),
+    ).toBeNull();
+  });
+
+  test("parseReferenceNoteContent requires the reference_note profile", () => {
+    expect(
+      parseReferenceNoteContent(
+        ["[ReferenceNote]", "profile: procedure_note", "title: verification"].join("\n"),
+      ),
+    ).toBeNull();
+  });
+
   test("selectCognitionArtifactsForPrompt uses BM25-style local ranking instead of raw overlap count", async () => {
     const workspace = createTestWorkspace("deliberation-cognition-ranking");
 
@@ -310,5 +349,48 @@ describe("deliberation cognition artifacts", () => {
     expect(selected[0]?.artifact.fileName).toContain("release-readiness-primary");
     expect(selected[0]?.matchedTerms).toContain("release");
     expect(selected[0]?.matchedTerms).toContain("readiness");
+  });
+
+  test("selectCognitionArtifactsForPrompt keeps only the latest operator teaching artifact per semantic key", async () => {
+    const workspace = createTestWorkspace("deliberation-cognition-operator-supersede");
+
+    await writeCognitionArtifact({
+      workspaceRoot: workspace,
+      lane: "reference",
+      name: "verification-standard-implementation",
+      content: buildProcedureNoteContent({
+        noteKind: "operator_teaching",
+        lessonKey: "verification:standard:implementation",
+        pattern: "reuse standard verification",
+        recommendation: "old recommendation",
+        fields: [{ key: "name", value: "verification-standard-implementation" }],
+      }),
+      createdAt: 1_731_000_000_700,
+    });
+    await writeCognitionArtifact({
+      workspaceRoot: workspace,
+      lane: "reference",
+      name: "verification-standard-implementation",
+      content: buildProcedureNoteContent({
+        noteKind: "operator_teaching",
+        lessonKey: "verification:standard:implementation",
+        pattern: "reuse standard verification",
+        recommendation: "latest recommendation",
+        fields: [{ key: "name", value: "verification-standard-implementation" }],
+      }),
+      createdAt: 1_731_000_000_800,
+    });
+
+    const selected = await selectCognitionArtifactsForPrompt({
+      workspaceRoot: workspace,
+      lane: "reference",
+      prompt: "Reuse the standard verification path for implementation work.",
+      maxArtifacts: 3,
+      scanLimit: 6,
+    });
+
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.content).toContain("latest recommendation");
+    expect(selected[0]?.content).not.toContain("old recommendation");
   });
 });

@@ -260,9 +260,7 @@ Identity source behavior:
 - When `identity.md` uses the headings `Who I Am`, `How I Work`, and
   `What I Care About`, runtime renders a structured `[PersonaProfile]` block
   with those sections.
-- When those headings are absent, runtime falls back deterministically by
-  treating the full file as `WhoIAm` content instead of inventing a richer
-  persona structure.
+- When those headings are absent, runtime does not inject a persona profile.
 
 Skill cascade source extension behavior:
 

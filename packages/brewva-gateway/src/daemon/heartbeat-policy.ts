@@ -9,6 +9,8 @@ export interface HeartbeatRule {
   sessionId?: string;
   objective?: string;
   contextHints?: string[];
+  wakeMode?: "always" | "if_signal" | "if_open_loop";
+  staleAfterMinutes?: number;
 }
 
 export interface HeartbeatPolicy {
@@ -18,7 +20,6 @@ export interface HeartbeatPolicy {
 }
 
 const POLICY_BLOCK_REGEX = /```(?:json\s+)?heartbeat\s*\n([\s\S]*?)```/iu;
-const BULLET_RULE_REGEX = /^-\s*every\s+(\d+)m\s*:\s*(.+)$/iu;
 
 function normalizeRule(
   input: Partial<HeartbeatRule>,
@@ -48,6 +49,16 @@ function normalizeRule(
         ),
       ]
     : undefined;
+  const wakeMode =
+    input.wakeMode === "always" ||
+    input.wakeMode === "if_signal" ||
+    input.wakeMode === "if_open_loop"
+      ? input.wakeMode
+      : undefined;
+  const staleAfterMinutes =
+    typeof input.staleAfterMinutes === "number" && Number.isFinite(input.staleAfterMinutes)
+      ? Math.max(1, Math.floor(input.staleAfterMinutes))
+      : undefined;
   return {
     id,
     prompt,
@@ -55,6 +66,8 @@ function normalizeRule(
     sessionId,
     objective,
     contextHints: contextHints && contextHints.length > 0 ? contextHints : undefined,
+    wakeMode,
+    staleAfterMinutes,
   };
 }
 
@@ -91,30 +104,6 @@ function parseJsonPolicy(markdown: string): HeartbeatRule[] {
   }
 }
 
-function parseBulletPolicy(markdown: string): HeartbeatRule[] {
-  const out: HeartbeatRule[] = [];
-  const lines = markdown.split("\n");
-  let index = 0;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const match = BULLET_RULE_REGEX.exec(trimmed);
-    if (!match) continue;
-    index += 1;
-    const intervalMinutes = Number(match[1]);
-    const prompt = match[2]?.trim() ?? "";
-    const normalized = normalizeRule(
-      {
-        id: `rule-${index}`,
-        intervalMinutes,
-        prompt,
-      },
-      `rule-${index}`,
-    );
-    if (normalized) out.push(normalized);
-  }
-  return out;
-}
-
 export function loadHeartbeatPolicy(sourcePath: string): HeartbeatPolicy {
   const resolved = resolve(sourcePath);
   const loadedAt = Date.now();
@@ -128,8 +117,7 @@ export function loadHeartbeatPolicy(sourcePath: string): HeartbeatPolicy {
   }
 
   const markdown = readFileSync(resolved, "utf8");
-  const jsonRules = parseJsonPolicy(markdown);
-  const rules = jsonRules.length > 0 ? jsonRules : parseBulletPolicy(markdown);
+  const rules = parseJsonPolicy(markdown);
 
   return {
     sourcePath: resolved,

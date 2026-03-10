@@ -10,7 +10,12 @@ import {
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { normalizeOptionalString } from "./context-shared.js";
 
-export type MemoryHydrationStrategy = "reference" | "procedure" | "summary" | "open_loop";
+export type MemoryHydrationStrategy =
+  | "reference"
+  | "procedure"
+  | "episode"
+  | "summary"
+  | "open_loop";
 
 export interface MemoryAdaptationStats {
   attempts: number;
@@ -36,6 +41,20 @@ export interface MemoryAdaptationCandidate {
   strategy: MemoryHydrationStrategy;
   packetKey: string;
   baseScore: number;
+}
+
+export interface MemoryFormationGuidance {
+  summary: {
+    minSignalCount: number;
+    requireResumeSignal: boolean;
+  };
+  episode: {
+    minRecentEvents: number;
+    requireAnchor: boolean;
+  };
+  procedure: {
+    requireStableAnchor: boolean;
+  };
 }
 
 interface RehydrationPacketObservation {
@@ -83,6 +102,7 @@ export function createEmptyMemoryAdaptationPolicy(now = Date.now()): MemoryAdapt
     strategies: {
       reference: createEmptyStats(),
       procedure: createEmptyStats(),
+      episode: createEmptyStats(),
       summary: createEmptyStats(),
       open_loop: createEmptyStats(),
     },
@@ -114,7 +134,11 @@ export function resolveMemoryAdaptationPolicyPath(workspaceRoot: string): string
 
 function isMemoryHydrationStrategy(value: unknown): value is MemoryHydrationStrategy {
   return (
-    value === "reference" || value === "procedure" || value === "summary" || value === "open_loop"
+    value === "reference" ||
+    value === "procedure" ||
+    value === "episode" ||
+    value === "summary" ||
+    value === "open_loop"
   );
 }
 
@@ -166,6 +190,7 @@ function parseMemoryAdaptationPolicy(raw: string): MemoryAdaptationPolicy {
     strategies: {
       reference: coerceStats(parsed.strategies?.reference),
       procedure: coerceStats(parsed.strategies?.procedure),
+      episode: coerceStats(parsed.strategies?.episode),
       summary: coerceStats(parsed.strategies?.summary),
       open_loop: coerceStats(parsed.strategies?.open_loop),
     },
@@ -371,6 +396,28 @@ export function rankMemoryHydrationCandidates<T extends MemoryAdaptationCandidat
     }
     return left.packetKey.localeCompare(right.packetKey);
   });
+}
+
+export function deriveMemoryFormationGuidance(
+  policy: MemoryAdaptationPolicy,
+): MemoryFormationGuidance {
+  const summaryBias = computeAdaptationBias(policy.strategies.summary);
+  const episodeBias = computeAdaptationBias(policy.strategies.episode);
+  const procedureBias = computeAdaptationBias(policy.strategies.procedure);
+
+  return {
+    summary: {
+      minSignalCount: summaryBias < -0.08 ? 2 : 1,
+      requireResumeSignal: summaryBias < -0.12,
+    },
+    episode: {
+      minRecentEvents: episodeBias < -0.08 ? 2 : 1,
+      requireAnchor: episodeBias < -0.12,
+    },
+    procedure: {
+      requireStableAnchor: procedureBias < -0.08,
+    },
+  };
 }
 
 async function applyAdaptationObservation(

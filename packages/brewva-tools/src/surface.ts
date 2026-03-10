@@ -34,6 +34,7 @@ export const BREWVA_TOOL_SURFACE_BY_NAME = {
   task_set_spec: "skill",
   task_update_item: "skill",
   cost_view: "operator",
+  cognition_note: "operator",
   obs_query: "operator",
   obs_slo_assert: "operator",
   obs_snapshot: "operator",

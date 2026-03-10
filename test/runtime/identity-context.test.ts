@@ -70,8 +70,8 @@ describe("Identity context injection", () => {
 
   test("resolves per-agent file and applies oncePerSession semantics", async () => {
     const workspace = createWorkspace("identity-agent-scope");
-    writeIdentity(workspace, "reviewer-a", "role: Reviewer A");
-    writeIdentity(workspace, "reviewer-b", "role: Reviewer B");
+    writeIdentity(workspace, "reviewer-a", ["## Who I Am", "Reviewer A"].join("\n"));
+    writeIdentity(workspace, "reviewer-b", ["## Who I Am", "Reviewer B"].join("\n"));
 
     const runtimeA = new BrewvaRuntime({
       cwd: workspace,
@@ -83,8 +83,8 @@ describe("Identity context injection", () => {
       undefined,
       "leaf-a",
     );
-    expect(first.text.includes("role: Reviewer A")).toBe(true);
-    expect(first.text.includes("role: Reviewer B")).toBe(false);
+    expect(first.text.includes("Reviewer A")).toBe(true);
+    expect(first.text.includes("Reviewer B")).toBe(false);
 
     const second = await runtimeA.context.buildInjection(
       "identity-agent-scope-1",
@@ -103,7 +103,7 @@ describe("Identity context injection", () => {
       "leaf-c",
     );
     expect(third.accepted).toBe(true);
-    expect(third.text.includes("role: Reviewer A")).toBe(true);
+    expect(third.text.includes("Reviewer A")).toBe(true);
 
     const runtimeB = new BrewvaRuntime({
       cwd: workspace,
@@ -111,7 +111,21 @@ describe("Identity context injection", () => {
     });
     const b = await runtimeB.context.buildInjection("identity-agent-scope-2", "continue");
     expect(b.accepted).toBe(true);
-    expect(b.text.includes("role: Reviewer B")).toBe(true);
-    expect(b.text.includes("role: Reviewer A")).toBe(false);
+    expect(b.text.includes("Reviewer B")).toBe(true);
+    expect(b.text.includes("Reviewer A")).toBe(false);
+  });
+
+  test("does not inject identity without persona headings", async () => {
+    const workspace = createWorkspace("identity-no-headings");
+    writeIdentity(workspace, "reviewer-a", "role: Reviewer A");
+
+    const runtime = new BrewvaRuntime({
+      cwd: workspace,
+      agentId: "reviewer-a",
+    });
+
+    const injection = await runtime.context.buildInjection("identity-no-headings-1", "continue");
+    expect(injection.accepted).toBe(true);
+    expect(injection.text.includes("[PersonaProfile]")).toBe(false);
   });
 });

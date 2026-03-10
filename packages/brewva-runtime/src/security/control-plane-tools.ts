@@ -13,6 +13,7 @@ export const CONTROL_PLANE_TOOLS = [
   "session_compact",
   "rollback_last_patch",
   "schedule_intent",
+  "cognition_note",
 ];
 
 // Tools that remain usable even when context pressure is critical and the compaction gate is armed.

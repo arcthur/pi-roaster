@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { listCognitionArtifacts, readCognitionArtifact } from "@brewva/brewva-deliberation";
-import { registerMemoryFormation } from "@brewva/brewva-extensions";
+import {
+  createEmptyMemoryAdaptationPolicy,
+  registerMemoryFormation,
+  resolveMemoryAdaptationPolicyPath,
+} from "@brewva/brewva-extensions";
 import { createMockExtensionAPI, invokeHandlers } from "../helpers/extension.js";
 import { createRuntimeFixture } from "./fixtures/runtime.js";
 
@@ -83,16 +89,19 @@ describe("memory formation extension", () => {
       type: "agent_end",
     });
 
-    await waitForSummaryArtifacts(runtime, 1);
+    await waitForSummaryArtifacts(runtime, 2);
     const artifacts = await listCognitionArtifacts(runtime.workspaceRoot, "summaries");
-    expect(artifacts).toHaveLength(1);
+    expect(artifacts).toHaveLength(2);
+    const summaryArtifact = artifacts.find((artifact) => artifact.fileName.includes("summary"));
+    expect(summaryArtifact).toBeDefined();
     const content = await readCognitionArtifact({
       workspaceRoot: runtime.workspaceRoot,
       lane: "summaries",
-      fileName: artifacts[0]!.fileName,
+      fileName: summaryArtifact!.fileName,
     });
     expect(content).toContain("summary_kind: session_summary");
     expect(content).toContain("status: blocked");
+    expect(content).toContain(`session_scope: ${sessionId}`);
     expect(content).toContain("goal: Finish the proposal boundary rollout");
     expect(content).toContain("recent_skill: implementation");
     expect(content).toContain("recent_outputs: patch_set; verification_report");
@@ -121,12 +130,12 @@ describe("memory formation extension", () => {
       sessionId,
       type: "agent_end",
     });
-    await waitForSummaryArtifacts(runtime, 1);
+    await waitForSummaryArtifacts(runtime, 2);
 
     invokeHandlers(handlers, "session_shutdown", {}, createSessionContext(sessionId));
-    await waitForSummaryArtifacts(runtime, 1);
+    await waitForSummaryArtifacts(runtime, 2);
 
-    expect(await listCognitionArtifacts(runtime.workspaceRoot, "summaries")).toHaveLength(1);
+    expect(await listCognitionArtifacts(runtime.workspaceRoot, "summaries")).toHaveLength(2);
   });
 
   test("writes verified procedure notes from verification outcomes", async () => {
@@ -169,5 +178,83 @@ describe("memory formation extension", () => {
     expect(runtime.events.query(sessionId).map((event) => event.type)).toContain(
       "memory_procedure_note_written",
     );
+  });
+
+  test("writes episodic process memory at session boundaries", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture();
+    const sessionId = "memory-formation-episode";
+
+    runtime.task.setSpec(sessionId, {
+      schema: "brewva.task.v1",
+      goal: "Finish the release readiness pass.",
+    });
+    runtime.task.addItem(sessionId, {
+      text: "Validate release blockers and verification evidence.",
+      status: "doing",
+    });
+    runtime.events.record({
+      sessionId,
+      type: "skill_completed",
+      payload: {
+        skillName: "verification",
+        outputKeys: ["verification_report"],
+        completedAt: Date.now(),
+      },
+    });
+
+    registerMemoryFormation(api, runtime);
+    invokeHandlers(handlers, "session_shutdown", {}, createSessionContext(sessionId));
+
+    await waitForSummaryArtifacts(runtime, 2);
+    const artifacts = await listCognitionArtifacts(runtime.workspaceRoot, "summaries");
+    const episodeArtifact = artifacts.find((artifact) => artifact.fileName.includes("episode"));
+    expect(episodeArtifact).toBeDefined();
+    const content = await readCognitionArtifact({
+      workspaceRoot: runtime.workspaceRoot,
+      lane: "summaries",
+      fileName: episodeArtifact!.fileName,
+    });
+    expect(content).toContain("[EpisodeNote]");
+    expect(content).toContain("episode_kind: session_episode");
+    expect(content).toContain(`session_scope: ${sessionId}`);
+    expect(content).toContain("recent_events: skill_completed:verification");
+    expect(runtime.events.query(sessionId).map((event) => event.type)).toContain(
+      "memory_episode_written",
+    );
+  });
+
+  test("formation guidance can suppress low-signal procedure notes without stable anchors", async () => {
+    const { api } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture();
+    const sessionId = "memory-formation-guidance";
+
+    const policy = createEmptyMemoryAdaptationPolicy(1731000000500);
+    policy.strategies.procedure = {
+      attempts: 6,
+      useful: 0,
+      useless: 6,
+      lastObservedAt: 1731000000500,
+      lastUsefulAt: null,
+    };
+    const adaptationPath = resolveMemoryAdaptationPolicyPath(runtime.workspaceRoot);
+    await mkdir(dirname(adaptationPath), { recursive: true });
+    await writeFile(adaptationPath, `${JSON.stringify(policy, null, 2)}\n`, "utf8");
+
+    registerMemoryFormation(api, runtime);
+    runtime.events.record({
+      sessionId,
+      type: "verification_outcome_recorded",
+      payload: {
+        schema: "brewva.verification.outcome.v1",
+        level: "standard",
+        outcome: "pass",
+        recommendation: "repeat the same verification command",
+        activeSkill: "implementation",
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await listCognitionArtifacts(runtime.workspaceRoot, "reference")).toHaveLength(0);
   });
 });

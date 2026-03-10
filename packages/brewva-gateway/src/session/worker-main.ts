@@ -292,6 +292,10 @@ async function runTurn(input: {
         prompt: input.prompt,
         objective: input.trigger.objective,
         contextHints: input.trigger.contextHints,
+        wakeMode: input.trigger.wakeMode,
+        planReason: input.trigger.planReason,
+        selectionText: input.trigger.selectionText,
+        signalArtifactRefs: input.trigger.signalArtifactRefs,
       });
     }
     const output = await collectSessionPromptOutput(sessionResult.session, input.prompt, {

@@ -15,6 +15,8 @@ interface PolicyRule {
   sessionId?: string;
   objective?: string;
   contextHints?: string[];
+  wakeMode?: "always" | "if_signal" | "if_open_loop";
+  staleAfterMinutes?: number;
 }
 
 interface ReloadPayload {
@@ -256,6 +258,10 @@ describe("gateway daemon control-plane methods", () => {
               ruleId: string;
               objective?: string;
               contextHints?: string[];
+              wakeMode?: "always" | "if_signal" | "if_open_loop";
+              planReason?: string;
+              selectionText?: string;
+              signalArtifactRefs?: string[];
             };
           },
         ) => Promise<{ output?: unknown }>;
@@ -272,6 +278,10 @@ describe("gateway daemon control-plane methods", () => {
                 ruleId: string;
                 objective?: string;
                 contextHints?: string[];
+                wakeMode?: "always" | "if_signal" | "if_open_loop";
+                planReason?: string;
+                selectionText?: string;
+                signalArtifactRefs?: string[];
               };
             };
           }
@@ -304,7 +314,77 @@ describe("gateway daemon control-plane methods", () => {
         ruleId: "nightly-release",
         objective: "Review release readiness.",
         contextHints: ["release readiness", "backlog risk"],
+        wakeMode: "always",
+        planReason: "always",
+        selectionText: [
+          "Check project status.",
+          "Review release readiness.",
+          "release readiness",
+          "backlog risk",
+        ].join("\n"),
+        signalArtifactRefs: [],
       });
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  test("heartbeat fire can skip wake-up when wake policy requires a signal and none exists", async () => {
+    const harness = createDaemonHarness([
+      {
+        id: "nightly-release",
+        intervalMinutes: 15,
+        prompt: "Check project status.",
+        objective: "Review release readiness.",
+        contextHints: ["release readiness", "backlog risk"],
+        wakeMode: "if_signal",
+      },
+    ]);
+    try {
+      const supervisor = Reflect.get(harness.daemon, "supervisor") as {
+        openSession: (input: { sessionId: string }) => Promise<unknown>;
+        sendPrompt: (
+          sessionId: string,
+          prompt: string,
+          options?: Record<string, unknown>,
+        ) => Promise<{ output?: unknown }>;
+      };
+      let opened = false;
+      let sent = false;
+      supervisor.openSession = async () => {
+        opened = true;
+        return {};
+      };
+      supervisor.sendPrompt = async () => {
+        sent = true;
+        return { output: {} };
+      };
+
+      const emitted: Array<{ event: string; payload?: unknown }> = [];
+      const broadcastEvent = Reflect.get(harness.daemon, "broadcastEvent") as (
+        event: string,
+        payload?: unknown,
+      ) => void;
+      Reflect.set(harness.daemon, "broadcastEvent", (event: string, payload?: unknown) => {
+        emitted.push({ event, payload });
+        return broadcastEvent.call(harness.daemon, event, payload);
+      });
+
+      const fireHeartbeat = Reflect.get(harness.daemon, "fireHeartbeat") as (
+        rule: PolicyRule,
+      ) => Promise<void>;
+      await fireHeartbeat.call(harness.daemon, {
+        id: "nightly-release",
+        intervalMinutes: 15,
+        prompt: "Check project status.",
+        objective: "Review release readiness.",
+        contextHints: ["release readiness", "backlog risk"],
+        wakeMode: "if_signal",
+      });
+
+      expect(opened).toBe(false);
+      expect(sent).toBe(false);
+      expect(emitted.some((entry) => entry.event === "heartbeat.skipped")).toBe(true);
     } finally {
       harness.dispose();
     }

@@ -2,6 +2,7 @@ import {
   COGNITIVE_METRIC_FIRST_PRODUCTIVE_ACTION_EVENT_TYPE,
   COGNITIVE_METRIC_REHYDRATION_USEFULNESS_EVENT_TYPE,
   COGNITIVE_METRIC_RESUMPTION_PROGRESS_EVENT_TYPE,
+  MEMORY_EPISODE_REHYDRATED_EVENT_TYPE,
   MEMORY_OPEN_LOOP_REHYDRATED_EVENT_TYPE,
   MEMORY_PROCEDURE_REHYDRATED_EVENT_TYPE,
   MEMORY_REFERENCE_REHYDRATED_EVENT_TYPE,
@@ -27,6 +28,7 @@ const REHYDRATION_EVENT_TYPES = new Set<string>([
   MEMORY_PROCEDURE_REHYDRATED_EVENT_TYPE,
   MEMORY_REFERENCE_REHYDRATED_EVENT_TYPE,
   MEMORY_SUMMARY_REHYDRATED_EVENT_TYPE,
+  MEMORY_EPISODE_REHYDRATED_EVENT_TYPE,
   MEMORY_OPEN_LOOP_REHYDRATED_EVENT_TYPE,
 ]);
 const NON_PRODUCTIVE_TOOL_NAMES = new Set([
@@ -39,11 +41,15 @@ const NON_PRODUCTIVE_TOOL_NAMES = new Set([
   "tape_info",
   "tape_search",
 ]);
+const MAX_TRACKED_TOOL_CALL_IDS = 256;
+const MAX_TRACKED_REHYDRATION_EVENT_IDS = 128;
 
 interface MetricState {
   firstProductiveRecorded: boolean;
   processedToolCallIds: Set<string>;
+  processedToolCallOrder: string[];
   seenRehydrationEventIds: Set<string>;
+  seenRehydrationEventOrder: string[];
   pendingResumeAnchorTurn: number | null;
   pendingRehydrations: RehydrationSignal[];
 }
@@ -71,12 +77,33 @@ function getOrCreateState(store: Map<string, MetricState>, sessionId: string): M
   const created: MetricState = {
     firstProductiveRecorded: false,
     processedToolCallIds: new Set<string>(),
+    processedToolCallOrder: [],
     seenRehydrationEventIds: new Set<string>(),
+    seenRehydrationEventOrder: [],
     pendingResumeAnchorTurn: null,
     pendingRehydrations: [],
   };
   store.set(sessionId, created);
   return created;
+}
+
+function rememberBoundedId(
+  set: Set<string>,
+  order: string[],
+  value: string,
+  maxSize: number,
+): void {
+  if (set.has(value)) {
+    return;
+  }
+  set.add(value);
+  order.push(value);
+  while (order.length > maxSize) {
+    const removed = order.shift();
+    if (removed) {
+      set.delete(removed);
+    }
+  }
 }
 
 function isProductiveTool(toolName: string | undefined): boolean {
@@ -94,6 +121,7 @@ function normalizeRehydrationKind(type: string): string {
   if (type === MEMORY_PROCEDURE_REHYDRATED_EVENT_TYPE) return "procedure";
   if (type === MEMORY_REFERENCE_REHYDRATED_EVENT_TYPE) return "reference";
   if (type === MEMORY_SUMMARY_REHYDRATED_EVENT_TYPE) return "summary";
+  if (type === MEMORY_EPISODE_REHYDRATED_EVENT_TYPE) return "episode";
   if (type === MEMORY_OPEN_LOOP_REHYDRATED_EVENT_TYPE) return "open_loop";
   return "unknown";
 }
@@ -192,7 +220,12 @@ function refreshResumeAnchor(runtime: BrewvaRuntime, sessionId: string, state: M
   for (const event of events) {
     if (!REHYDRATION_EVENT_TYPES.has(event.type)) continue;
     if (state.seenRehydrationEventIds.has(event.id)) continue;
-    state.seenRehydrationEventIds.add(event.id);
+    rememberBoundedId(
+      state.seenRehydrationEventIds,
+      state.seenRehydrationEventOrder,
+      event.id,
+      MAX_TRACKED_REHYDRATION_EVENT_IDS,
+    );
     freshRehydrations.push(
       extractRehydrationSignal(event.type, event.payload as RehydrationEventPayload | undefined),
     );
@@ -285,7 +318,12 @@ function processRecordedToolResult(
   if (!payload) {
     return;
   }
-  state.processedToolCallIds.add(toolCallId);
+  rememberBoundedId(
+    state.processedToolCallIds,
+    state.processedToolCallOrder,
+    toolCallId,
+    MAX_TRACKED_TOOL_CALL_IDS,
+  );
   recordProductiveToolMetrics(runtime, sessionId, state, payload);
 }
 

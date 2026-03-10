@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { createAstGrepTools } from "./ast-grep.js";
+import { createCognitionNoteTool } from "./cognition-note.js";
 import { createCostViewTool } from "./cost-view.js";
 import { createExecTool } from "./exec.js";
 import { createGrepTool } from "./grep.js";
@@ -39,6 +40,7 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
     createExecTool({ runtime: options.runtime }),
     createProcessTool(),
     createCostViewTool({ runtime: options.runtime }),
+    createCognitionNoteTool({ runtime: options.runtime }),
     createObsQueryTool({ runtime: options.runtime }),
     createObsSloAssertTool({ runtime: options.runtime }),
     createObsSnapshotTool({ runtime: options.runtime }),
@@ -58,6 +60,7 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
 
 export { createLspTools } from "./lsp.js";
 export { createAstGrepTools } from "./ast-grep.js";
+export { createCognitionNoteTool } from "./cognition-note.js";
 // A2A tools require an orchestration adapter and are typically registered by channel extensions
 // (for example `createChannelA2AExtension` in `@brewva/brewva-cli`), not by the default bundle.
 export { createA2ATools } from "./a2a.js";

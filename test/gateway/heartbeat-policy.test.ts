@@ -15,7 +15,7 @@ describe("heartbeat policy loader", () => {
           "# HEARTBEAT",
           "",
           "```heartbeat",
-          '{"rules":[{"id":"nightly","intervalMinutes":15,"prompt":"Check backlog","sessionId":"ops","objective":"Review release readiness","contextHints":["release readiness","backlog risk"]}]}',
+          '{"rules":[{"id":"nightly","intervalMinutes":15,"prompt":"Check backlog","sessionId":"ops","objective":"Review release readiness","contextHints":["release readiness","backlog risk"],"wakeMode":"if_signal","staleAfterMinutes":90}]}',
           "```",
           "",
         ].join("\n"),
@@ -30,12 +30,14 @@ describe("heartbeat policy loader", () => {
       expect(policy.rules[0]?.sessionId).toBe("ops");
       expect(policy.rules[0]?.objective).toBe("Review release readiness");
       expect(policy.rules[0]?.contextHints).toEqual(["release readiness", "backlog risk"]);
+      expect(policy.rules[0]?.wakeMode).toBe("if_signal");
+      expect(policy.rules[0]?.staleAfterMinutes).toBe(90);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("given no heartbeat json block, when policy is loaded, then bullet rules are parsed", () => {
+  test("given no heartbeat json block, when policy is loaded, then no rules are returned", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-gateway-policy-"));
     const policyPath = join(root, "HEARTBEAT.md");
     try {
@@ -46,11 +48,7 @@ describe("heartbeat policy loader", () => {
       );
 
       const policy = loadHeartbeatPolicy(policyPath);
-      expect(policy.rules.length).toBe(2);
-      expect(policy.rules[0]?.intervalMinutes).toBe(5);
-      expect(policy.rules[0]?.prompt).toBe("summarize error budget");
-      expect(policy.rules[1]?.intervalMinutes).toBe(30);
-      expect(policy.rules[1]?.prompt).toBe("scan pending merges");
+      expect(policy.rules).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -68,7 +66,7 @@ describe("heartbeat policy loader", () => {
     }
   });
 
-  test("given malformed heartbeat json block, when policy is loaded, then loader falls back to bullet parsing", () => {
+  test("given malformed heartbeat json block, when policy is loaded, then no rules are returned", () => {
     const root = mkdtempSync(join(tmpdir(), "brewva-gateway-policy-malformed-"));
     const policyPath = join(root, "HEARTBEAT.md");
     try {
@@ -83,9 +81,7 @@ describe("heartbeat policy loader", () => {
         "utf8",
       );
       const policy = loadHeartbeatPolicy(policyPath);
-      expect(policy.rules).toHaveLength(1);
-      expect(policy.rules[0]?.intervalMinutes).toBe(20);
-      expect(policy.rules[0]?.prompt).toBe("fallback runs");
+      expect(policy.rules).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

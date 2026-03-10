@@ -158,11 +158,44 @@ function extractTriggerFromEnvelope(envelope: TurnEnvelope): SendPromptTrigger |
         ),
       ]
     : undefined;
+  const wakeMode =
+    (raw as { wakeMode?: unknown }).wakeMode === "always" ||
+    (raw as { wakeMode?: unknown }).wakeMode === "if_signal" ||
+    (raw as { wakeMode?: unknown }).wakeMode === "if_open_loop"
+      ? ((raw as { wakeMode: "always" | "if_signal" | "if_open_loop" }).wakeMode ?? undefined)
+      : undefined;
+  const planReason =
+    typeof (raw as { planReason?: unknown }).planReason === "string" &&
+    (raw as { planReason: string }).planReason.trim().length > 0
+      ? (raw as { planReason: string }).planReason.trim()
+      : undefined;
+  const selectionText =
+    typeof (raw as { selectionText?: unknown }).selectionText === "string" &&
+    (raw as { selectionText: string }).selectionText.trim().length > 0
+      ? (raw as { selectionText: string }).selectionText.trim()
+      : undefined;
+  const signalArtifactRefs = Array.isArray(
+    (raw as { signalArtifactRefs?: unknown }).signalArtifactRefs,
+  )
+    ? [
+        ...new Set(
+          ((raw as { signalArtifactRefs: unknown[] }).signalArtifactRefs ?? [])
+            .filter((value): value is string => typeof value === "string")
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0),
+        ),
+      ]
+    : undefined;
   return {
     kind: "heartbeat",
     ruleId,
     objective,
     contextHints: contextHints && contextHints.length > 0 ? contextHints : undefined,
+    wakeMode,
+    planReason,
+    selectionText,
+    signalArtifactRefs:
+      signalArtifactRefs && signalArtifactRefs.length > 0 ? signalArtifactRefs : undefined,
   };
 }
 

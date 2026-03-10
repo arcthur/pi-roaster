@@ -53,6 +53,7 @@ const EXPLICIT_PROGRESS_TOOL_NAMES = new Set([
   "session_compact",
   "rollback_last_patch",
   "schedule_intent",
+  "cognition_note",
   "ast_grep_replace",
   "lsp_rename",
 ]);

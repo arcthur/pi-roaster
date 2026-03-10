@@ -162,6 +162,7 @@ describe("memory curator extension", () => {
         "profile: status_summary",
         "summary_kind: session_summary",
         "status: done",
+        `session_scope: ${sessionId}`,
         "focus: proposal boundary rollout",
       ].join("\n"),
       createdAt: 1731000000300,
@@ -196,6 +197,56 @@ describe("memory curator extension", () => {
     expect(eventTypes).toContain("memory_summary_rehydrated");
   });
 
+  test("rehydrates prompt-matched episodic artifacts through the same curator boundary", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture();
+    const sessionId = "memory-curator-episode";
+
+    await writeCognitionArtifact({
+      workspaceRoot: runtime.workspaceRoot,
+      lane: "summaries",
+      name: "release-episode",
+      content: [
+        "[EpisodeNote]",
+        "profile: episode_note",
+        "episode_kind: session_episode",
+        `session_scope: ${sessionId}`,
+        "focus: release readiness pass",
+        "next_action: inspect blocker regression and verification evidence",
+        "recent_events: skill_completed:verification; proposal:context_packet:accept",
+      ].join("\n"),
+      createdAt: 1731000000310,
+    });
+
+    registerMemoryCurator(api, runtime);
+
+    await invokeHandlerAsync(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "Resume the release readiness pass and inspect the blocker regression.",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => sessionId,
+        },
+      },
+    );
+
+    const records = runtime.proposals.list(sessionId, {
+      kind: "context_packet",
+    }) as ProposalRecord<"context_packet">[];
+    const episodeRecord = records.find((record) =>
+      (record.proposal.payload.packetKey ?? "").startsWith("episode:"),
+    );
+    expect(episodeRecord?.receipt.decision).toBe("accept");
+    expect(episodeRecord?.proposal.payload.content).toContain("[EpisodeNote]");
+    expect(runtime.events.query(sessionId).map((event) => event.type)).toContain(
+      "memory_episode_rehydrated",
+    );
+  });
+
   test("rehydrates the latest unresolved open-loop summary on continuation prompts", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const runtime = createRuntimeFixture();
@@ -210,6 +261,7 @@ describe("memory curator extension", () => {
         "profile: status_summary",
         "summary_kind: debug_loop_retry",
         "status: blocked",
+        `session_scope: ${sessionId}`,
         "next_action: inspect earlier runtime trace",
         "blocked_on: missing evidence",
       ].join("\n"),
@@ -224,6 +276,7 @@ describe("memory curator extension", () => {
         "profile: status_summary",
         "summary_kind: debug_loop_handoff",
         "status: blocked",
+        `session_scope: ${sessionId}`,
         "next_action: resume proposal admission fix",
         "blocked_on: verification evidence",
       ].join("\n"),
@@ -275,6 +328,7 @@ describe("memory curator extension", () => {
         "profile: status_summary",
         "summary_kind: session_summary",
         "status: in_progress",
+        `session_scope: ${sessionId}`,
         "goal: release readiness review",
         "next_action: inspect release readiness blockers and backlog risk",
       ].join("\n"),
@@ -332,6 +386,7 @@ describe("memory curator extension", () => {
         "profile: status_summary",
         "summary_kind: session_summary",
         "status: in_progress",
+        `session_scope: ${sessionId}`,
         "goal: release readiness review",
         "next_action: inspect release readiness blockers and backlog risk",
       ].join("\n"),
@@ -354,6 +409,64 @@ describe("memory curator extension", () => {
       {
         type: "before_agent_start",
         prompt: "Check project status.",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => sessionId,
+        },
+      },
+    );
+
+    expect(
+      runtime.proposals.list(sessionId, {
+        kind: "context_packet",
+      }),
+    ).toHaveLength(0);
+  });
+
+  test("does not rehydrate summary or episode memory from a different session scope", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture();
+    const sessionId = "memory-curator-scope-target";
+
+    await writeCognitionArtifact({
+      workspaceRoot: runtime.workspaceRoot,
+      lane: "summaries",
+      name: "foreign-summary",
+      content: [
+        "[StatusSummary]",
+        "profile: status_summary",
+        "summary_kind: session_summary",
+        "status: blocked",
+        "session_scope: foreign-session",
+        "goal: foreign rollout",
+        "next_action: inspect foreign blocker",
+      ].join("\n"),
+      createdAt: 1731000000700,
+    });
+    await writeCognitionArtifact({
+      workspaceRoot: runtime.workspaceRoot,
+      lane: "summaries",
+      name: "foreign-episode",
+      content: [
+        "[EpisodeNote]",
+        "profile: episode_note",
+        "episode_kind: session_episode",
+        "session_scope: foreign-session",
+        "focus: foreign release pass",
+        "next_action: inspect foreign verification gap",
+      ].join("\n"),
+      createdAt: 1731000000710,
+    });
+
+    registerMemoryCurator(api, runtime);
+
+    await invokeHandlerAsync(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "Continue the release pass and inspect the blocker.",
       },
       {
         sessionManager: {

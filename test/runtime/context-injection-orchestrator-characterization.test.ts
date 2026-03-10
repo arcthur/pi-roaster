@@ -33,7 +33,11 @@ function writeAgentsRules(workspace: string): void {
 describe("Context injection orchestrator characterization", () => {
   test("registers semantic sources and emits context_injected event", async () => {
     const workspace = createWorkspace("ctx-orchestrator-sources");
-    writeIdentity(workspace, "default", "role: orchestrator characterization");
+    writeIdentity(
+      workspace,
+      "default",
+      ["## Who I Am", "orchestrator characterization"].join("\n"),
+    );
     writeAgentsRules(workspace);
     const config = structuredClone(DEFAULT_BREWVA_CONFIG);
 

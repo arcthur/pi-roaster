@@ -1,6 +1,9 @@
 import {
   DELIBERATION_ISSUERS,
+  extractEpisodeSessionScope,
+  extractStatusSummarySessionScope,
   listCognitionArtifacts,
+  parseEpisodeNoteContent,
   parseProcedureNoteContent,
   parseStatusSummaryPacketContent,
   readCognitionArtifact,
@@ -10,6 +13,8 @@ import {
   submitExistingCognitionArtifactContextPacket,
 } from "@brewva/brewva-deliberation";
 import {
+  MEMORY_EPISODE_REHYDRATED_EVENT_TYPE,
+  MEMORY_EPISODE_REHYDRATION_FAILED_EVENT_TYPE,
   MEMORY_OPEN_LOOP_REHYDRATED_EVENT_TYPE,
   MEMORY_OPEN_LOOP_REHYDRATION_FAILED_EVENT_TYPE,
   MEMORY_PROCEDURE_REHYDRATED_EVENT_TYPE,
@@ -33,6 +38,7 @@ import {
 
 const MEMORY_REFERENCE_PACKET_TTL_MS = 6 * 60 * 60 * 1000;
 const MEMORY_PROCEDURE_PACKET_TTL_MS = 8 * 60 * 60 * 1000;
+const MEMORY_EPISODE_PACKET_TTL_MS = 5 * 60 * 60 * 1000;
 const MEMORY_SUMMARY_PACKET_TTL_MS = 3 * 60 * 60 * 1000;
 const MEMORY_OPEN_LOOP_PACKET_TTL_MS = 4 * 60 * 60 * 1000;
 const CONTINUATION_PROMPT_REGEX =
@@ -96,6 +102,14 @@ function buildOpenLoopLabel(fileName: string): string {
   return `OpenLoop:${stripArtifactExtension(fileName)}`;
 }
 
+function buildEpisodePacketKey(fileName: string): string {
+  return `episode:${stripArtifactExtension(fileName)}`;
+}
+
+function buildEpisodeLabel(fileName: string): string {
+  return `Episode:${stripArtifactExtension(fileName)}`;
+}
+
 function buildProcedurePacketKey(fileName: string): string {
   return `procedure:${stripArtifactExtension(fileName)}`;
 }
@@ -104,7 +118,7 @@ function buildProcedureLabel(fileName: string): string {
   return `Procedure:${stripArtifactExtension(fileName)}`;
 }
 
-function normalizeStatusSummaryValue(value: string | null | undefined): string | null {
+function normalizeSummaryFieldValue(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   if (EMPTY_STATUS_SUMMARY_VALUES.has(normalized)) {
@@ -117,6 +131,18 @@ function isContinuationPrompt(prompt: string): boolean {
   return CONTINUATION_PROMPT_REGEX.test(prompt);
 }
 
+function matchesSessionScope(
+  content: string,
+  sessionId: string,
+  kind: "summary" | "episode",
+): boolean {
+  const sessionScope =
+    kind === "summary"
+      ? extractStatusSummarySessionScope(content)
+      : extractEpisodeSessionScope(content);
+  return sessionScope === sessionId;
+}
+
 function isOpenLoopSummary(content: string): {
   summaryKind: string | null;
   status: string | null;
@@ -125,10 +151,10 @@ function isOpenLoopSummary(content: string): {
 } | null {
   const parsed = parseStatusSummaryPacketContent(content);
   if (!parsed) return null;
-  const summaryKind = normalizeStatusSummaryValue(parsed.summaryKind);
-  const status = normalizeStatusSummaryValue(parsed.status);
-  const nextAction = normalizeStatusSummaryValue(parsed.fields.next_action);
-  const blockedOn = normalizeStatusSummaryValue(parsed.fields.blocked_on);
+  const summaryKind = normalizeSummaryFieldValue(parsed.summaryKind);
+  const status = normalizeSummaryFieldValue(parsed.status);
+  const nextAction = normalizeSummaryFieldValue(parsed.fields.next_action);
+  const blockedOn = normalizeSummaryFieldValue(parsed.fields.blocked_on);
   const unresolved =
     nextAction !== null ||
     blockedOn !== null ||
@@ -146,6 +172,7 @@ function isOpenLoopSummary(content: string): {
 async function selectSummaryCandidates(
   runtime: BrewvaRuntime,
   selectionText: string,
+  sessionId: string,
 ): Promise<HydrationCandidate[]> {
   const selected = await selectCognitionArtifactsForPrompt({
     workspaceRoot: runtime.workspaceRoot,
@@ -153,29 +180,76 @@ async function selectSummaryCandidates(
     prompt: selectionText,
     maxArtifacts: 1,
     scanLimit: 12,
+    filterArtifact: ({ content }) => matchesSessionScope(content, sessionId, "summary"),
   });
-  return selected.map((match) => ({
-    strategy: "summary",
-    artifact: match.artifact,
-    artifactRef: match.artifact.artifactRef,
-    content: match.content,
-    packetKey: buildSummaryPacketKey(match.artifact.fileName),
-    label: buildSummaryLabel(match.artifact.fileName),
-    subject: `memory_summary:${match.artifact.fileName}`,
-    expiresAt: Date.now() + MEMORY_SUMMARY_PACKET_TTL_MS,
-    metadata: {
-      score: match.score,
-      matchedTerms: match.matchedTerms,
-    },
-    baseScore: match.score,
-  }));
+  return selected
+    .filter((match) => parseStatusSummaryPacketContent(match.content) !== null)
+    .map((match) => ({
+      strategy: "summary",
+      artifact: match.artifact,
+      artifactRef: match.artifact.artifactRef,
+      content: match.content,
+      packetKey: buildSummaryPacketKey(match.artifact.fileName),
+      label: buildSummaryLabel(match.artifact.fileName),
+      subject: `memory_summary:${match.artifact.fileName}`,
+      expiresAt: Date.now() + MEMORY_SUMMARY_PACKET_TTL_MS,
+      metadata: {
+        score: match.score,
+        matchedTerms: match.matchedTerms,
+      },
+      baseScore: match.score,
+    }));
+}
+
+async function selectEpisodeCandidates(
+  runtime: BrewvaRuntime,
+  selectionText: string,
+  sessionId: string,
+): Promise<HydrationCandidate[]> {
+  const selected = await selectCognitionArtifactsForPrompt({
+    workspaceRoot: runtime.workspaceRoot,
+    lane: "summaries",
+    prompt: selectionText,
+    maxArtifacts: 2,
+    scanLimit: 16,
+    filterArtifact: ({ content }) => matchesSessionScope(content, sessionId, "episode"),
+  });
+  const candidates: HydrationCandidate[] = [];
+  for (const match of selected) {
+    const episode = parseEpisodeNoteContent(match.content);
+    if (!episode) {
+      continue;
+    }
+    candidates.push({
+      strategy: "episode",
+      artifact: match.artifact,
+      artifactRef: match.artifact.artifactRef,
+      content: match.content,
+      packetKey: buildEpisodePacketKey(match.artifact.fileName),
+      label: buildEpisodeLabel(match.artifact.fileName),
+      subject: `memory_episode:${match.artifact.fileName}`,
+      expiresAt: Date.now() + MEMORY_EPISODE_PACKET_TTL_MS,
+      metadata: {
+        score: match.score,
+        matchedTerms: match.matchedTerms,
+        episodeKind: episode.episodeKind,
+        focus: episode.focus,
+      },
+      baseScore: match.score,
+    });
+  }
+  return candidates;
 }
 
 async function selectOpenLoopCandidates(
   runtime: BrewvaRuntime,
+  sessionId: string,
   prompt: string,
+  trigger?: {
+    planReason?: string;
+  } | null,
 ): Promise<HydrationCandidate[]> {
-  if (!isContinuationPrompt(prompt)) {
+  if (!isContinuationPrompt(prompt) && trigger?.planReason !== "open_loop_signal") {
     return [];
   }
   // Open loops are a semantic filter over the summaries lane, not a separate
@@ -191,6 +265,7 @@ async function selectOpenLoopCandidates(
       lane: "summaries",
       fileName: artifact.fileName,
     });
+    if (!matchesSessionScope(content, sessionId, "summary")) continue;
     const openLoop = isOpenLoopSummary(content);
     if (!openLoop) continue;
     candidates.push({
@@ -220,6 +295,11 @@ function eventTypesForStrategy(strategy: MemoryHydrationStrategy): {
   failure: string;
 } {
   switch (strategy) {
+    case "episode":
+      return {
+        success: MEMORY_EPISODE_REHYDRATED_EVENT_TYPE,
+        failure: MEMORY_EPISODE_REHYDRATION_FAILED_EVENT_TYPE,
+      };
     case "summary":
       return {
         success: MEMORY_SUMMARY_REHYDRATED_EVENT_TYPE,
@@ -322,8 +402,14 @@ export function registerMemoryCurator(pi: ExtensionAPI, runtime: BrewvaRuntime):
       prompt: selectionText,
       maxArtifacts: 3,
     });
-    const summaryCandidates = await selectSummaryCandidates(runtime, selectionText);
-    const openLoopCandidates = await selectOpenLoopCandidates(runtime, prompt);
+    const episodeCandidates = await selectEpisodeCandidates(runtime, selectionText, sessionId);
+    const summaryCandidates = await selectSummaryCandidates(runtime, selectionText, sessionId);
+    const openLoopCandidates = await selectOpenLoopCandidates(
+      runtime,
+      sessionId,
+      prompt,
+      proactivityTrigger,
+    );
     const candidates: HydrationCandidate[] = [];
 
     for (const match of selectedReferences) {
@@ -356,8 +442,22 @@ export function registerMemoryCurator(pi: ExtensionAPI, runtime: BrewvaRuntime):
           pattern: procedure?.pattern ?? null,
           triggerSource: proactivityTrigger?.source ?? null,
           triggerRuleId: proactivityTrigger?.ruleId ?? null,
+          wakeMode: proactivityTrigger?.wakeMode ?? null,
+          planReason: proactivityTrigger?.planReason ?? null,
         },
         baseScore: match.score,
+      });
+    }
+    for (const candidate of episodeCandidates) {
+      candidates.push({
+        ...candidate,
+        metadata: {
+          ...candidate.metadata,
+          triggerSource: proactivityTrigger?.source ?? null,
+          triggerRuleId: proactivityTrigger?.ruleId ?? null,
+          wakeMode: proactivityTrigger?.wakeMode ?? null,
+          planReason: proactivityTrigger?.planReason ?? null,
+        },
       });
     }
     for (const candidate of summaryCandidates) {
@@ -374,11 +474,32 @@ export function registerMemoryCurator(pi: ExtensionAPI, runtime: BrewvaRuntime):
           ...candidate.metadata,
           triggerSource: proactivityTrigger?.source ?? null,
           triggerRuleId: proactivityTrigger?.ruleId ?? null,
+          wakeMode: proactivityTrigger?.wakeMode ?? null,
+          planReason: proactivityTrigger?.planReason ?? null,
         },
         baseScore: candidate.baseScore,
       });
     }
-    candidates.push(...openLoopCandidates);
+    for (const candidate of openLoopCandidates) {
+      candidates.push({
+        strategy: candidate.strategy,
+        artifact: candidate.artifact,
+        artifactRef: candidate.artifactRef,
+        content: candidate.content,
+        packetKey: candidate.packetKey,
+        label: candidate.label,
+        subject: candidate.subject,
+        expiresAt: candidate.expiresAt,
+        metadata: {
+          ...candidate.metadata,
+          triggerSource: proactivityTrigger?.source ?? null,
+          triggerRuleId: proactivityTrigger?.ruleId ?? null,
+          wakeMode: proactivityTrigger?.wakeMode ?? null,
+          planReason: proactivityTrigger?.planReason ?? null,
+        },
+        baseScore: candidate.baseScore,
+      });
+    }
     if (candidates.length === 0) {
       return undefined;
     }

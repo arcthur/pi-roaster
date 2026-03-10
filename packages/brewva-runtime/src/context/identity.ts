@@ -54,14 +54,12 @@ function normalizePersonaHeading(raw: string): PersonaSectionKey | null {
 function parsePersonaSections(text: string): Partial<Record<PersonaSectionKey, string>> {
   const sections: Partial<Record<PersonaSectionKey, string[]>> = {};
   let currentSection: PersonaSectionKey | null = null;
-  let matchedHeading = false;
 
   for (const line of text.split("\n")) {
     const headingMatch = /^(#{1,6})\s+(.+?)\s*$/u.exec(line);
     if (headingMatch) {
       const heading = normalizePersonaHeading(headingMatch[2] ?? "");
       if (heading) {
-        matchedHeading = true;
         currentSection = heading;
         if (!sections[currentSection]) {
           sections[currentSection] = [];
@@ -76,14 +74,6 @@ function parsePersonaSections(text: string): Partial<Record<PersonaSectionKey, s
   }
 
   const normalizedSections: Partial<Record<PersonaSectionKey, string>> = {};
-  if (!matchedHeading) {
-    const fallback = text.trim();
-    if (fallback) {
-      normalizedSections["who i am"] = fallback;
-    }
-    return normalizedSections;
-  }
-
   for (const key of Object.keys(PERSONA_SECTION_TITLES) as PersonaSectionKey[]) {
     const value = sections[key]?.join("\n").trim();
     if (value) {
@@ -98,11 +88,15 @@ function renderPersonaProfileContent(input: {
   agentId: string;
   relativePath: string;
   text: string;
-}): string {
+}): string | null {
   const sections = parsePersonaSections(input.text);
+  const sectionKeys = Object.keys(PERSONA_SECTION_TITLES) as PersonaSectionKey[];
+  if (!sectionKeys.some((key) => Boolean(sections[key]))) {
+    return null;
+  }
   const lines = ["[PersonaProfile]", `agent_id: ${input.agentId}`, `source: ${input.relativePath}`];
 
-  for (const key of Object.keys(PERSONA_SECTION_TITLES) as PersonaSectionKey[]) {
+  for (const key of sectionKeys) {
     const value = sections[key];
     if (!value) continue;
     lines.push("", `[${PERSONA_SECTION_TITLES[key]}]`, value);
@@ -126,6 +120,7 @@ export function readIdentityProfile(input: ReadIdentityProfileInput): IdentityPr
     relativePath,
     text,
   });
+  if (!content) return null;
   return {
     schema: IDENTITY_SCHEMA,
     agentId,

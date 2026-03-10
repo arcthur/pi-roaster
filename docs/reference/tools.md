@@ -105,6 +105,7 @@ Default tool bundle (registered by `buildBrewvaTools()`):
 - `tape_search`
 - `session_compact`
 - `rollback_last_patch`
+- `cognition_note`
 - `skill_load`
 - `skill_route_override`
 - `skill_complete`
@@ -162,6 +163,64 @@ Notes:
 - `skill_route_override` and `skill_chain_control` are control-plane tools for steering dispatch gating and cascade progression.
 - Repeated `read`, `grep`, `read_spans`, `look_at`, `toc_*`, navigation-only `lsp_*`, `ast_grep_search`, or low-signal `exec` turns can trigger the scan convergence guard. Preferred recovery tools are `output_search`, `ledger_query`, `tape_search`, `task_view_state`, and `task_*` ledger actions before resuming more retrieval.
 - `obs_query`, `obs_slo_assert`, and `obs_snapshot` are evidence-reuse tools. They inspect current-session runtime events and do not count as low-signal retrieval for scan-convergence reset.
+- `cognition_note` is an operator teaching tool. It writes append-only
+  external cognition artifacts (`reference`, `procedure`, `episode`) under
+  `.brewva/cognition/*` and never mutates kernel truth/task state directly.
+
+### `cognition_note`
+
+Writes or supersedes high-signal operator cognition artifacts.
+
+Parameters:
+
+- `action` (`record` | `supersede` | `list`, required)
+- `kind` (`reference` | `procedure` | `episode`, required for `record` and
+  `supersede`)
+- `name` (string, required for `record` and `supersede`)
+- `title` (string, optional)
+- `body` (string, optional)
+- `sessionScope` (string, optional, `episode` only)
+- `lessonKey` (string, optional, `procedure` only)
+- `pattern` (string, optional, `procedure` only)
+- `recommendation` (string, optional, `procedure` only)
+- `focus` (string, optional, `episode` only)
+- `nextAction` (string, optional, `episode` only)
+- `blockedOn` (string or string[], optional, `episode` only)
+- `limit` (number, optional, `list` only)
+
+Behavior:
+
+- `record`
+  - appends a new operator-authored cognition artifact in the correct storage
+    lane
+  - rejects duplicate semantic names for the same `kind`
+- `supersede`
+  - appends a newer artifact with the same semantic name instead of editing the
+    older file in place
+  - retrieval and operator listing collapse older operator-authored versions by
+    semantic key, so the newest artifact stays visible without rewriting
+    history
+- `list`
+  - lists recent operator-authored cognition artifacts only
+  - excludes system-generated memory artifacts
+  - collapses superseded operator-authored versions to the latest semantic key
+
+Storage mapping:
+
+- `reference` -> `.brewva/cognition/reference/`
+- `procedure` -> `.brewva/cognition/reference/`
+- `episode` -> `.brewva/cognition/summaries/`
+
+Scope model:
+
+- operator-authored `reference` and `procedure` notes are workspace-scoped
+- resumable `summary`, `episode`, and `open_loop` process memory remains
+  session-scoped through `session_scope`
+- `cognition_note` may attach `sessionScope` to operator-authored `episode`
+  notes when the note should participate in same-session rehydration
+
+This tool is intentionally operator-scoped. It improves external cognition
+input quality without bypassing the proposal boundary.
 
 ### `grep`
 

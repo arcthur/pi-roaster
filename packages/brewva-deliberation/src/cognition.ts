@@ -43,6 +43,22 @@ export interface ParsedProcedureNotePacket {
   fields: Record<string, string>;
 }
 
+export interface ParsedEpisodeNotePacket {
+  profile: string | null;
+  episodeKind: string | null;
+  focus: string | null;
+  nextAction: string | null;
+  blockedOn: string | null;
+  fields: Record<string, string>;
+}
+
+export interface ParsedReferenceNotePacket {
+  profile: string | null;
+  title: string | null;
+  summary: string | null;
+  fields: Record<string, string>;
+}
+
 export interface CognitionArtifactSelection {
   artifact: CognitionArtifactRecord;
   content: string;
@@ -89,6 +105,33 @@ function normalizeDisplayLabel(value: string, fallback: string): string {
     .split(" ")
     .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1))
     .join(" ");
+}
+
+function normalizeCognitionFieldValue(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  if (
+    normalized.length === 0 ||
+    normalized === "none" ||
+    normalized === "null" ||
+    normalized === "n/a"
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeSemanticKeySegment(value: string | null | undefined): string | null {
+  const normalized = normalizeCognitionFieldValue(value);
+  if (!normalized) {
+    return null;
+  }
+  return normalized
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function isSupportedCognitionArtifactExtension(value: string): value is CognitionArtifactExtension {
@@ -143,6 +186,17 @@ function compareCognitionArtifactFileNames(left: string, right: string): number 
 
 export function stripArtifactExtension(fileName: string): string {
   return fileName.replace(/\.(?:md|txt|json)$/u, "");
+}
+
+export function buildOperatorTeachingSemanticKey(
+  kind: "reference" | "procedure" | "episode",
+  name: string,
+): string {
+  const normalizedName = normalizeSemanticKeySegment(name);
+  if (!normalizedName) {
+    throw new Error("operator_teaching_name_required");
+  }
+  return `${kind}:${normalizedName}`;
 }
 
 const COGNITION_SELECTION_STOP_WORDS = new Set<string>([
@@ -259,6 +313,58 @@ export function buildProcedureNoteContent(input: {
   return lines.join("\n");
 }
 
+export function buildEpisodeNoteContent(input: {
+  episodeKind: string;
+  focus?: string | null;
+  nextAction?: string | null;
+  blockedOn?: string | string[] | null;
+  fields?: StatusSummaryField[];
+}): string {
+  const lines = [
+    "[EpisodeNote]",
+    "profile: episode_note",
+    `episode_kind: ${normalizeSummaryValue(input.episodeKind)}`,
+    `focus: ${normalizeSummaryValue(input.focus ?? null)}`,
+    `next_action: ${normalizeSummaryValue(input.nextAction ?? null)}`,
+    `blocked_on: ${normalizeSummaryValue(input.blockedOn ?? null)}`,
+  ];
+
+  for (const field of input.fields ?? []) {
+    const key = field.key.trim();
+    if (key.length === 0) continue;
+    lines.push(`${key}: ${normalizeSummaryValue(field.value)}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function buildReferenceNoteContent(input: {
+  title: string;
+  summary?: string | null;
+  body?: string | null;
+  fields?: StatusSummaryField[];
+}): string {
+  const lines = [
+    "[ReferenceNote]",
+    "profile: reference_note",
+    `title: ${normalizeSummaryValue(input.title)}`,
+    `summary: ${normalizeSummaryValue(input.summary ?? null)}`,
+  ];
+
+  for (const field of input.fields ?? []) {
+    const key = field.key.trim();
+    if (key.length === 0) continue;
+    lines.push(`${key}: ${normalizeSummaryValue(field.value)}`);
+  }
+
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (body.length > 0) {
+    lines.push("", body);
+  }
+
+  return lines.join("\n");
+}
+
 export function parseStatusSummaryPacketContent(content: string): ParsedStatusSummaryPacket | null {
   const text = content.trim();
   if (!text.startsWith("[StatusSummary]")) {
@@ -280,6 +386,10 @@ export function parseStatusSummaryPacketContent(content: string): ParsedStatusSu
     if (key === "profile") profile = value || null;
     if (key === "summary_kind") summaryKind = value || null;
     if (key === "status") status = value || null;
+  }
+
+  if (profile !== "status_summary") {
+    return null;
   }
 
   return {
@@ -317,6 +427,10 @@ export function parseProcedureNoteContent(content: string): ParsedProcedureNoteP
     if (key === "recommendation") recommendation = value || null;
   }
 
+  if (profile !== "procedure_note") {
+    return null;
+  }
+
   return {
     profile,
     noteKind,
@@ -325,6 +439,117 @@ export function parseProcedureNoteContent(content: string): ParsedProcedureNoteP
     recommendation,
     fields,
   };
+}
+
+export function parseEpisodeNoteContent(content: string): ParsedEpisodeNotePacket | null {
+  const text = content.trim();
+  if (!text.startsWith("[EpisodeNote]")) {
+    return null;
+  }
+
+  const fields: Record<string, string> = {};
+  let profile: string | null = null;
+  let episodeKind: string | null = null;
+  let focus: string | null = null;
+  let nextAction: string | null = null;
+  let blockedOn: string | null = null;
+
+  for (const line of text.split("\n").slice(1)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!key) continue;
+    fields[key] = value;
+    if (key === "profile") profile = value || null;
+    if (key === "episode_kind") episodeKind = value || null;
+    if (key === "focus") focus = value || null;
+    if (key === "next_action") nextAction = value || null;
+    if (key === "blocked_on") blockedOn = value || null;
+  }
+
+  if (profile !== "episode_note") {
+    return null;
+  }
+
+  return {
+    profile,
+    episodeKind,
+    focus,
+    nextAction,
+    blockedOn,
+    fields,
+  };
+}
+
+export function parseReferenceNoteContent(content: string): ParsedReferenceNotePacket | null {
+  const text = content.trim();
+  if (!text.startsWith("[ReferenceNote]")) {
+    return null;
+  }
+
+  const fields: Record<string, string> = {};
+  let profile: string | null = null;
+  let title: string | null = null;
+  let summary: string | null = null;
+
+  for (const line of text.split("\n").slice(1)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) break;
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!key) continue;
+    fields[key] = value;
+    if (key === "profile") profile = value || null;
+    if (key === "title") title = value || null;
+    if (key === "summary") summary = value || null;
+  }
+
+  if (profile !== "reference_note") {
+    return null;
+  }
+
+  return {
+    profile,
+    title,
+    summary,
+    fields,
+  };
+}
+
+export function extractStatusSummarySessionScope(content: string): string | null {
+  return normalizeCognitionFieldValue(
+    parseStatusSummaryPacketContent(content)?.fields.session_scope,
+  );
+}
+
+export function extractEpisodeSessionScope(content: string): string | null {
+  return normalizeCognitionFieldValue(parseEpisodeNoteContent(content)?.fields.session_scope);
+}
+
+export function extractOperatorTeachingSemanticKey(content: string): string | null {
+  const procedure = parseProcedureNoteContent(content);
+  if (procedure?.noteKind === "operator_teaching") {
+    const name = normalizeSemanticKeySegment(procedure.fields.name);
+    return name ? `procedure:${name}` : null;
+  }
+
+  const episode = parseEpisodeNoteContent(content);
+  if (episode?.episodeKind === "operator_teaching") {
+    const name = normalizeSemanticKeySegment(episode.fields.name);
+    return name ? `episode:${name}` : null;
+  }
+
+  const reference = parseReferenceNoteContent(content);
+  if (reference) {
+    if (normalizeCognitionFieldValue(reference.fields.reference_kind) !== "operator_teaching") {
+      return null;
+    }
+    const name = normalizeSemanticKeySegment(reference.fields.name);
+    return name ? `reference:${name}` : null;
+  }
+
+  return null;
 }
 
 export function resolveCognitionArtifactsDir(
@@ -486,6 +711,10 @@ export async function selectCognitionArtifactsForPrompt(input: {
   prompt: string;
   maxArtifacts?: number;
   scanLimit?: number;
+  filterArtifact?: (input: {
+    artifact: CognitionArtifactRecord;
+    content: string;
+  }) => boolean | Promise<boolean>;
 }): Promise<CognitionArtifactSelection[]> {
   const terms = extractSelectionTerms(input.prompt);
   if (terms.length === 0) {
@@ -508,18 +737,36 @@ export async function selectCognitionArtifactsForPrompt(input: {
         artifact,
         content,
         index,
+        semanticKey: extractOperatorTeachingSemanticKey(content),
         tokenCount: Math.max(1, tokens.length),
         termCounts,
       };
     }),
   );
+  const filteredDocuments: typeof documents = [];
+  const seenSemanticKeys = new Set<string>();
+  for (const document of documents) {
+    if (
+      input.filterArtifact &&
+      !(await input.filterArtifact({ artifact: document.artifact, content: document.content }))
+    ) {
+      continue;
+    }
+    if (document.semanticKey) {
+      if (seenSemanticKeys.has(document.semanticKey)) {
+        continue;
+      }
+      seenSemanticKeys.add(document.semanticKey);
+    }
+    filteredDocuments.push(document);
+  }
   const averageDocumentLength =
-    documents.reduce((sum, document) => sum + document.tokenCount, 0) /
-    Math.max(1, documents.length);
+    filteredDocuments.reduce((sum, document) => sum + document.tokenCount, 0) /
+    Math.max(1, filteredDocuments.length);
   const documentFrequency = new Map<string, number>();
   for (const term of terms) {
     let frequency = 0;
-    for (const document of documents) {
+    for (const document of filteredDocuments) {
       if (document.termCounts.has(term)) {
         frequency += 1;
       }
@@ -529,7 +776,7 @@ export async function selectCognitionArtifactsForPrompt(input: {
 
   const k1 = 1.2;
   const b = 0.75;
-  for (const document of documents) {
+  for (const document of filteredDocuments) {
     const matchedTerms = terms.filter((term) => document.termCounts.has(term));
     if (matchedTerms.length === 0) continue;
 

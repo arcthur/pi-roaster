@@ -364,4 +364,58 @@ describe("cognitive metrics extension", () => {
       rehydrationKinds: ["procedure"],
     });
   });
+
+  test("bounds tracked rehydration and tool-call ids for long-lived sessions", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture();
+    const sessionId = "metrics-bounded-dedupe";
+
+    registerCognitiveMetrics(api, runtime);
+
+    invokeHandler(
+      handlers,
+      "turn_start",
+      { turnIndex: 0, timestamp: 60 },
+      createSessionContext(sessionId),
+    );
+
+    for (let index = 0; index < 300; index += 1) {
+      runtime.events.record({
+        sessionId,
+        type: "memory_summary_rehydrated",
+        payload: {
+          artifactRef: `.brewva/cognition/summaries/summary-${index}.md`,
+          packetKey: `summary:${index}`,
+        },
+      });
+      invokeHandler(
+        handlers,
+        "before_agent_start",
+        { type: "before_agent_start", prompt: `Continue ${index}` },
+        createSessionContext(sessionId),
+      );
+
+      recordToolResult(runtime, {
+        sessionId,
+        toolCallId: `tc-bounded-${index}`,
+        toolName: "exec",
+        verdict: "pass",
+      });
+      invokeHandler(
+        handlers,
+        "tool_result",
+        { toolCallId: `tc-bounded-${index}`, toolName: "exec" },
+        createSessionContext(sessionId),
+      );
+    }
+
+    const usefulnessEvents = runtime.events.query(sessionId, {
+      type: "cognitive_metric_rehydration_usefulness",
+    });
+    expect(usefulnessEvents.length).toBeGreaterThan(0);
+    expect(usefulnessEvents.at(-1)?.payload).toMatchObject({
+      useful: true,
+      reason: "productive_action",
+    });
+  });
 });

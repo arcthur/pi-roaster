@@ -65,6 +65,7 @@ export { registerMemoryCurator } from "./memory-curator.js";
 export { registerMemoryFormation } from "./memory-formation.js";
 export { registerCognitiveMetrics } from "./cognitive-metrics.js";
 export {
+  deriveMemoryFormationGuidance,
   createEmptyMemoryAdaptationPolicy,
   flushMemoryAdaptationPolicy,
   rankMemoryHydrationCandidates,
@@ -75,6 +76,7 @@ export {
   type MemoryAdaptationPacketStats,
   type MemoryAdaptationPolicy,
   type MemoryAdaptationStats,
+  type MemoryFormationGuidance,
   type MemoryHydrationStrategy,
 } from "./memory-adaptation.js";
 export { registerContextTransform } from "./context-transform.js";
@@ -85,6 +87,13 @@ export {
   type ProactivityTriggerContext,
   type ProactivityTriggerSource,
 } from "./proactivity-context.js";
+export {
+  planHeartbeatWake,
+  type ProactivityRuleInput,
+  type ProactivityWakeMode,
+  type ProactivityWakePlan,
+  type ProactivityWakeSignal,
+} from "./proactivity-engine.js";
 export {
   composeContextBlocks,
   type ComposedContextBlock,

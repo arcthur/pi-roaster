@@ -27,6 +27,8 @@ Every runtime event follows the same envelope shape:
 - `debug_loop_*`
 - `memory_summary_written`
 - `memory_summary_write_failed`
+- `memory_episode_written`
+- `memory_episode_write_failed`
 - `memory_procedure_note_written`
 - `memory_procedure_note_write_failed`
 - `memory_reference_rehydrated`
@@ -35,11 +37,15 @@ Every runtime event follows the same envelope shape:
 - `memory_procedure_rehydration_failed`
 - `memory_summary_rehydrated`
 - `memory_summary_rehydration_failed`
+- `memory_episode_rehydrated`
+- `memory_episode_rehydration_failed`
 - `memory_open_loop_rehydrated`
 - `memory_open_loop_rehydration_failed`
 - `memory_adaptation_updated`
 - `memory_adaptation_update_failed`
 - `proactivity_wakeup_prepared`
+- `cognition_note_written`
+- `cognition_note_write_failed`
 - `cognitive_metric_first_productive_action`
 - `cognitive_metric_resumption_progress`
 - `cognitive_metric_rehydration_usefulness`
@@ -119,6 +125,8 @@ cross-turn recovery artifacts, not presentation-only UI behavior.
   resulting narrative ratio
 - `memory_summary_written` / `memory_summary_write_failed` record the write-side
   cognition sediment loop at session boundaries
+- `memory_episode_written` / `memory_episode_write_failed` record bounded
+  process-memory sediment written for future resumability
 - `memory_procedure_note_written` / `memory_procedure_note_write_failed`
   record the write-side formation of reusable verification-backed work patterns
 - `memory_*_rehydrated` / `memory_*_rehydration_failed` record whether
@@ -128,6 +136,8 @@ cross-turn recovery artifacts, not presentation-only UI behavior.
   policy under `.brewva/cognition/adaptation.json`
 - `proactivity_wakeup_prepared` records control-plane wake-up metadata that may
   later influence memory selection before the model starts
+- `cognition_note_written` / `cognition_note_write_failed` record explicit
+  operator teaching writes into external cognition storage
 - `cognitive_metric_first_productive_action` records the first non-operator
   semantic `pass` tool result in a session
 - `cognitive_metric_resumption_progress` records the first productive action

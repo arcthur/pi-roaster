@@ -40,6 +40,7 @@ export const GatewayEvents = [
   "session.turn.error",
   "session.turn.end",
   "heartbeat.fired",
+  "heartbeat.skipped",
   "shutdown",
 ] as const;
 

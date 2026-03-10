@@ -13,6 +13,10 @@ export interface ProactivityTriggerContext {
   prompt: string;
   objective?: string;
   contextHints?: string[];
+  wakeMode?: string;
+  planReason?: string;
+  selectionText?: string;
+  signalArtifactRefs?: string[];
   preparedAt?: number;
 }
 
@@ -47,6 +51,10 @@ export function recordProactivityWakeup(
       prompt: trigger.prompt,
       objective: trigger.objective ?? null,
       contextHints: trigger.contextHints ?? [],
+      wakeMode: trigger.wakeMode ?? null,
+      planReason: trigger.planReason ?? null,
+      selectionText: trigger.selectionText ?? null,
+      signalArtifactRefs: trigger.signalArtifactRefs ?? [],
       preparedAt,
     },
   });
@@ -104,6 +112,18 @@ function parseProactivityWakeupEvent(
       emptyValue: undefined,
     }),
     contextHints: normalizeStringArray((payload as Record<string, unknown>).contextHints),
+    wakeMode: normalizeOptionalString((payload as Record<string, unknown>).wakeMode, {
+      emptyValue: undefined,
+    }),
+    planReason: normalizeOptionalString((payload as Record<string, unknown>).planReason, {
+      emptyValue: undefined,
+    }),
+    selectionText: normalizeOptionalString((payload as Record<string, unknown>).selectionText, {
+      emptyValue: undefined,
+    }),
+    signalArtifactRefs: normalizeStringArray(
+      (payload as Record<string, unknown>).signalArtifactRefs,
+    ),
     preparedAt:
       typeof (payload as Record<string, unknown>).preparedAt === "number"
         ? Math.max(0, Math.floor((payload as Record<string, unknown>).preparedAt as number))
@@ -121,6 +141,12 @@ export function buildProactivitySelectionText(input: {
   });
   if (objective) {
     parts.push(objective);
+  }
+  const explicitSelectionText = normalizeOptionalString(input.trigger?.selectionText, {
+    emptyValue: undefined,
+  });
+  if (explicitSelectionText) {
+    parts.push(explicitSelectionText);
   }
   for (const hint of input.trigger?.contextHints ?? []) {
     const normalized = normalizeOptionalString(hint, { emptyValue: undefined });

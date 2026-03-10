@@ -3,6 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import process from "node:process";
+import { planHeartbeatWake } from "@brewva/brewva-extensions";
 import { loadBrewvaConfig, resolveWorkspaceRootDir } from "@brewva/brewva-runtime";
 import { TurnWALStore } from "@brewva/brewva-runtime/channels";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
@@ -1111,15 +1112,40 @@ export class GatewayDaemon {
     const sessionId =
       this.heartbeatSessionByRule.get(rule.id) ?? this.resolveHeartbeatSessionId(rule);
     this.heartbeatSessionByRule.set(rule.id, sessionId);
+    const wakePlan = await planHeartbeatWake({
+      workspaceRoot: this.options.cwd,
+      sessionId,
+      rule,
+    });
+    if (wakePlan.decision === "skip") {
+      this.logger.info("heartbeat skipped", {
+        ruleId: rule.id,
+        sessionId,
+        wakeMode: wakePlan.wakeMode,
+        reason: wakePlan.reason,
+      });
+      this.broadcastEvent("heartbeat.skipped", {
+        ruleId: rule.id,
+        sessionId,
+        ts: Date.now(),
+        wakeMode: wakePlan.wakeMode,
+        reason: wakePlan.reason,
+      });
+      return;
+    }
     await this.supervisor.openSession({ sessionId });
-    const result = await this.supervisor.sendPrompt(sessionId, rule.prompt, {
+    const result = await this.supervisor.sendPrompt(sessionId, wakePlan.prompt, {
       waitForCompletion: true,
       source: "heartbeat",
       trigger: {
         kind: "heartbeat",
         ruleId: rule.id,
-        objective: rule.objective,
-        contextHints: rule.contextHints,
+        objective: wakePlan.objective,
+        contextHints: wakePlan.contextHints,
+        wakeMode: wakePlan.wakeMode,
+        planReason: wakePlan.reason,
+        selectionText: wakePlan.selectionText,
+        signalArtifactRefs: wakePlan.signalArtifactRefs,
       },
     });
 
@@ -1128,6 +1154,8 @@ export class GatewayDaemon {
       sessionId,
       ts: Date.now(),
       hasResult: result.output !== undefined,
+      wakeMode: wakePlan.wakeMode,
+      reason: wakePlan.reason,
     });
   }
 
