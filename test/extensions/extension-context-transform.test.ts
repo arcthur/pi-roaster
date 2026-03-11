@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createBrewvaExtension, registerContextTransform } from "@brewva/brewva-extensions";
+import {
+  createBrewvaExtension,
+  registerContextTransform,
+} from "@brewva/brewva-gateway/runtime-plugins";
 import { CONTEXT_SOURCES, type ContextInjectionEntry } from "@brewva/brewva-runtime";
 import {
   createMockExtensionAPI,

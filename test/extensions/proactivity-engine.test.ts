@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { writeCognitionArtifact } from "@brewva/brewva-deliberation";
-import { planHeartbeatWake } from "@brewva/brewva-extensions";
+import { planHeartbeatWake } from "@brewva/brewva-gateway/runtime-plugins";
 import { createTestWorkspace } from "../helpers/workspace.js";
 
 describe("proactivity engine", () => {

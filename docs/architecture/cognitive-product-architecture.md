@@ -88,9 +88,9 @@ All commitment changes still cross the proposal boundary.
 
 Current module anchors:
 
-- `packages/brewva-extensions/src/context-composer.ts`
-- `packages/brewva-extensions/src/memory-curator.ts`
-- `packages/brewva-extensions/src/memory-formation.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-composer.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-curator.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-formation.ts`
 - `packages/brewva-runtime/src/context/identity.ts`
 
 ## ContextComposer Boundary
@@ -242,11 +242,11 @@ Current module anchors:
   - `packages/brewva-gateway/src/daemon/gateway-daemon.ts`
   - `packages/brewva-gateway/src/daemon/session-supervisor.ts`
 - proactivity trigger bridge:
-  - `packages/brewva-extensions/src/proactivity-context.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/proactivity-context.ts`
 - wake policy and wake planning:
-  - `packages/brewva-extensions/src/proactivity-engine.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/proactivity-engine.ts`
 - control-plane observability of cognitive outcomes:
-  - `packages/brewva-extensions/src/cognitive-metrics.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/cognitive-metrics.ts`
 
 `ProactivityEngine` owns four decisions:
 
@@ -273,8 +273,8 @@ Memory quality governance also belongs to the `Control Plane`.
 
 Current module anchors:
 
-- `packages/brewva-extensions/src/memory-adaptation.ts`
-- `packages/brewva-extensions/src/memory-formation.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-adaptation.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-formation.ts`
 
 This loop now has two effects:
 

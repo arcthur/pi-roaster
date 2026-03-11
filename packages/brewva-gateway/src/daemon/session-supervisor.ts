@@ -3,40 +3,46 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TruthFact, TurnWALRecord } from "@brewva/brewva-runtime";
-import { TurnWALRecovery, TurnWALStore, type TurnEnvelope } from "@brewva/brewva-runtime/channels";
-import type {
-  ParentToWorkerMessage,
-  WorkerResultErrorCode,
-  WorkerToParentMessage,
-} from "../session/worker-protocol.js";
+import type { TurnWALRecord } from "@brewva/brewva-runtime";
+import { TurnWALRecovery, TurnWALStore } from "@brewva/brewva-runtime/channels";
+import type { WorkerToParentMessage } from "../session/worker-protocol.js";
 import {
   FileGatewayStateStore,
   type ChildRegistryEntry,
   type GatewayStateStore,
 } from "../state-store.js";
 import { sleep } from "../utils/async.js";
-import { createDeferred, type Deferred } from "../utils/deferred.js";
 import { toErrorMessage } from "../utils/errors.js";
 import type { StructuredLogger } from "./logger.js";
 import { isProcessAlive } from "./pid.js";
 import {
-  type HeartbeatPromptTrigger,
   type OpenSessionInput,
   type OpenSessionResult,
-  type SchedulePromptAnchor,
-  type SchedulePromptTrigger,
-  type SessionBackend,
-  SessionBackendCapacityError,
-  SessionBackendStateError,
   type SendPromptOptions,
-  type SendPromptOutput,
   type SendPromptResult,
-  type SendPromptTrigger,
+  type SessionBackend,
+  SessionBackendStateError,
   type SessionWorkerInfo,
 } from "./session-backend.js";
+import { SessionOpenAdmissionController } from "./session-supervisor/admission.js";
+import {
+  buildSessionTurnEnvelope,
+  extractPromptFromEnvelope,
+  extractTriggerFromEnvelope,
+  normalizeOptionalString,
+} from "./session-supervisor/turn-envelope.js";
+import { SessionTurnQueueCoordinator } from "./session-supervisor/turn-queue.js";
+import { SessionWorkerRpcController } from "./session-supervisor/worker-rpc.js";
+import {
+  type PendingRequest,
+  type PendingTurn,
+  type WorkerHandle,
+  type WorkerReadyPayload,
+  isWorkerIdle,
+  toRegistryEntries,
+  toSessionWorkerInfo,
+} from "./session-supervisor/worker-state.js";
 
-const WORKER_RPC_TIMEOUT_MS = 5 * 60_000;
 const WORKER_READY_TIMEOUT_MS = 30_000;
 const BRIDGE_PING_INTERVAL_MS = 4_000;
 const BRIDGE_HEARTBEAT_TIMEOUT_MS = 20_000;
@@ -48,263 +54,6 @@ const DEFAULT_MAX_PENDING_TURNS_PER_SESSION = 32;
 const DEFAULT_TURN_WAL_COMPACT_INTERVAL_MS = 120_000;
 
 type LoggerLike = Pick<StructuredLogger, "debug" | "info" | "warn" | "error" | "log">;
-
-interface PendingRequest {
-  resolve: (payload: Record<string, unknown> | undefined) => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-interface PendingTurn {
-  resolve: (payload: SendPromptOutput) => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  walId?: string;
-}
-
-interface QueuedTurn {
-  requestedTurnId: string;
-  prompt: string;
-  source: "gateway" | "heartbeat" | "schedule";
-  trigger?: SendPromptTrigger;
-  waitForCompletion: boolean;
-  walId?: string;
-  resolve: (result: SendPromptResult) => void;
-  reject: (error: Error) => void;
-}
-
-interface WorkerHandle {
-  sessionId: string;
-  child: ChildProcess;
-  startedAt: number;
-  lastActivityAt: number;
-  cwd?: string;
-  configPath?: string;
-  model?: string;
-  agentId?: string;
-  enableExtensions?: boolean;
-  requestedAgentSessionId?: string;
-  pending: Map<string, PendingRequest>;
-  pendingTurns: Map<string, PendingTurn>;
-  turnQueue: QueuedTurn[];
-  activeTurnId: string | null;
-  activeTurnWalIds: Map<string, string>;
-  readyRequestId?: string;
-  readyResolve?: (payload: WorkerReadyPayload) => void;
-  readyReject?: (error: Error) => void;
-  readyTimer?: ReturnType<typeof setTimeout>;
-  lastHeartbeatAt: number;
-}
-
-interface WorkerReadyPayload {
-  requestedSessionId: string;
-  agentSessionId: string;
-}
-
-function normalizeOptionalString(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function mapPromptSourceToChannel(source: "gateway" | "heartbeat" | "schedule"): string {
-  if (source === "heartbeat") {
-    return "heartbeat";
-  }
-  if (source === "schedule") {
-    return "schedule";
-  }
-  return "gateway";
-}
-
-function buildSessionTurnEnvelope(input: {
-  sessionId: string;
-  turnId: string;
-  prompt: string;
-  source: "gateway" | "heartbeat" | "schedule";
-  trigger?: SendPromptTrigger;
-}): TurnEnvelope {
-  return {
-    schema: "brewva.turn.v1",
-    kind: "user",
-    sessionId: input.sessionId,
-    turnId: input.turnId,
-    channel: mapPromptSourceToChannel(input.source),
-    conversationId: input.sessionId,
-    timestamp: Date.now(),
-    parts: [{ type: "text", text: input.prompt }],
-    meta: {
-      source: input.source,
-      trigger: input.trigger ?? null,
-    },
-  };
-}
-
-function extractPromptFromEnvelope(envelope: TurnEnvelope): string {
-  const parts = envelope.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text.trim())
-    .filter((part) => part.length > 0);
-  return parts.join("\n");
-}
-
-function extractTriggerFromEnvelope(envelope: TurnEnvelope): SendPromptTrigger | undefined {
-  const meta = envelope.meta;
-  if (!meta || typeof meta !== "object") {
-    return undefined;
-  }
-  const raw = "trigger" in meta ? meta.trigger : undefined;
-  if (!raw || typeof raw !== "object") {
-    return undefined;
-  }
-  const kind =
-    typeof (raw as { kind?: unknown }).kind === "string" ? (raw as { kind: string }).kind : "";
-  if (kind === "heartbeat") {
-    const ruleId =
-      typeof (raw as { ruleId?: unknown }).ruleId === "string" &&
-      (raw as { ruleId: string }).ruleId.trim().length > 0
-        ? (raw as { ruleId: string }).ruleId.trim()
-        : "";
-    if (!ruleId) {
-      return undefined;
-    }
-    const objective =
-      typeof (raw as { objective?: unknown }).objective === "string" &&
-      (raw as { objective: string }).objective.trim().length > 0
-        ? (raw as { objective: string }).objective.trim()
-        : undefined;
-    const contextHints = Array.isArray((raw as { contextHints?: unknown }).contextHints)
-      ? [
-          ...new Set(
-            ((raw as { contextHints: unknown[] }).contextHints ?? [])
-              .filter((value): value is string => typeof value === "string")
-              .map((value) => value.trim())
-              .filter((value) => value.length > 0),
-          ),
-        ]
-      : undefined;
-    const wakeMode =
-      (raw as { wakeMode?: unknown }).wakeMode === "always" ||
-      (raw as { wakeMode?: unknown }).wakeMode === "if_signal" ||
-      (raw as { wakeMode?: unknown }).wakeMode === "if_open_loop"
-        ? ((raw as { wakeMode: "always" | "if_signal" | "if_open_loop" }).wakeMode ?? undefined)
-        : undefined;
-    const planReason =
-      typeof (raw as { planReason?: unknown }).planReason === "string" &&
-      (raw as { planReason: string }).planReason.trim().length > 0
-        ? (raw as { planReason: string }).planReason.trim()
-        : undefined;
-    const selectionText =
-      typeof (raw as { selectionText?: unknown }).selectionText === "string" &&
-      (raw as { selectionText: string }).selectionText.trim().length > 0
-        ? (raw as { selectionText: string }).selectionText.trim()
-        : undefined;
-    const signalArtifactRefs = Array.isArray(
-      (raw as { signalArtifactRefs?: unknown }).signalArtifactRefs,
-    )
-      ? [
-          ...new Set(
-            ((raw as { signalArtifactRefs: unknown[] }).signalArtifactRefs ?? [])
-              .filter((value): value is string => typeof value === "string")
-              .map((value) => value.trim())
-              .filter((value) => value.length > 0),
-          ),
-        ]
-      : undefined;
-    const trigger: HeartbeatPromptTrigger = {
-      kind: "heartbeat",
-      ruleId,
-      objective,
-      contextHints: contextHints && contextHints.length > 0 ? contextHints : undefined,
-      wakeMode,
-      planReason,
-      selectionText,
-      signalArtifactRefs:
-        signalArtifactRefs && signalArtifactRefs.length > 0 ? signalArtifactRefs : undefined,
-    };
-    return trigger;
-  }
-  if (kind !== "schedule") {
-    return undefined;
-  }
-
-  const intentId = normalizeOptionalString((raw as { intentId?: string }).intentId);
-  const parentSessionId = normalizeOptionalString(
-    (raw as { parentSessionId?: string }).parentSessionId,
-  );
-  const runIndexRaw = (raw as { runIndex?: unknown }).runIndex;
-  const runIndex =
-    typeof runIndexRaw === "number" && Number.isFinite(runIndexRaw) && runIndexRaw > 0
-      ? Math.floor(runIndexRaw)
-      : undefined;
-  const reason = normalizeOptionalString((raw as { reason?: string }).reason);
-  const continuityMode =
-    (raw as { continuityMode?: unknown }).continuityMode === "inherit" ||
-    (raw as { continuityMode?: unknown }).continuityMode === "fresh"
-      ? ((raw as { continuityMode: "inherit" | "fresh" }).continuityMode ?? undefined)
-      : undefined;
-  if (!intentId || !parentSessionId || !runIndex || !reason || !continuityMode) {
-    return undefined;
-  }
-
-  const timeZone = normalizeOptionalString((raw as { timeZone?: string }).timeZone);
-  const goalRef = normalizeOptionalString((raw as { goalRef?: string }).goalRef);
-  const taskSpec =
-    "taskSpec" in (raw as Record<string, unknown>)
-      ? (((raw as { taskSpec?: unknown }).taskSpec ?? null) as SchedulePromptTrigger["taskSpec"])
-      : undefined;
-  const truthFacts = Array.isArray((raw as { truthFacts?: unknown }).truthFacts)
-    ? ((raw as { truthFacts: unknown[] }).truthFacts.filter(
-        (value): value is TruthFact => Boolean(value) && typeof value === "object",
-      ) as SchedulePromptTrigger["truthFacts"])
-    : undefined;
-  const parentAnchorRaw = (raw as { parentAnchor?: unknown }).parentAnchor;
-  const parentAnchor: SchedulePromptAnchor | null | undefined =
-    parentAnchorRaw && typeof parentAnchorRaw === "object"
-      ? {
-          id: normalizeOptionalString((parentAnchorRaw as { id?: string }).id) ?? "",
-          name: normalizeOptionalString((parentAnchorRaw as { name?: string }).name),
-          summary: normalizeOptionalString((parentAnchorRaw as { summary?: string }).summary),
-          nextSteps: normalizeOptionalString((parentAnchorRaw as { nextSteps?: string }).nextSteps),
-        }
-      : parentAnchorRaw === null
-        ? null
-        : undefined;
-  if (parentAnchor && !parentAnchor.id) {
-    return undefined;
-  }
-
-  const trigger: SchedulePromptTrigger = {
-    kind: "schedule",
-    intentId,
-    parentSessionId,
-    runIndex,
-    reason,
-    continuityMode,
-    timeZone,
-    goalRef,
-    taskSpec,
-    truthFacts,
-    parentAnchor,
-  };
-  return trigger;
-}
-
-function toWorkerResultError(input: { error: string; errorCode?: WorkerResultErrorCode }): Error {
-  if (input.errorCode === "session_busy") {
-    return new SessionBackendStateError("session_busy", input.error);
-  }
-  return new Error(input.error);
-}
-
-function extractBusyTurnId(error: unknown): string | undefined {
-  if (!(error instanceof SessionBackendStateError) || error.code !== "session_busy") {
-    return undefined;
-  }
-  const match = error.message.match(/active turn:\s*(.+)$/i);
-  const value = match?.[1]?.trim();
-  return value && value.length > 0 ? value : undefined;
-}
 
 async function terminatePid(pid: number): Promise<void> {
   if (!isProcessAlive(pid)) {
@@ -384,12 +133,14 @@ export class SessionSupervisor implements SessionBackend {
   private readonly stateStore: GatewayStateStore;
   private readonly turnWalStore?: TurnWALStore;
   private readonly turnWalCompactIntervalMs: number;
-  private readonly pendingOpenWaiters: Deferred<void>[] = [];
-  private pendingOpenReservations = 0;
+  private readonly openAdmission: SessionOpenAdmissionController;
+  private readonly workerRpc: SessionWorkerRpcController;
+  private readonly turnQueue: SessionTurnQueueCoordinator;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private idleSweepTimer: ReturnType<typeof setInterval> | null = null;
   private turnWalCompactTimer: ReturnType<typeof setInterval> | null = null;
   private idleSweepInFlight = false;
+
   readonly testHooks: SessionSupervisorTestHooks = {
     seedWorker: (input) => {
       this.seedWorkerForTest(input);
@@ -425,52 +176,48 @@ export class SessionSupervisor implements SessionBackend {
       0,
       options.maxPendingSessionOpens ?? DEFAULT_MAX_PENDING_SESSION_OPENS,
     );
-    mkdirSync(this.stateDir, { recursive: true });
-  }
 
-  private seedWorkerForTest(input: SessionSupervisorTestWorkerInput): void {
-    const now = Date.now();
-    const pending = new Map<string, PendingRequest>();
-    for (const request of input.pendingRequests ?? []) {
-      pending.set(request.requestId, {
-        resolve: request.resolve ?? (() => undefined),
-        reject: request.reject ?? (() => undefined),
-        timer: request.timer ?? setTimeout(() => undefined, WORKER_RPC_TIMEOUT_MS),
-      });
-    }
-
-    for (const request of pending.values()) {
-      request.timer.unref?.();
-    }
-
-    const child = {
-      pid: input.pid,
-      send: () => true,
-      on: () => undefined,
-    } as unknown as ChildProcess;
-
-    this.workers.set(input.sessionId, {
-      sessionId: input.sessionId,
-      child,
-      startedAt: input.startedAt ?? now,
-      lastActivityAt: input.lastActivityAt ?? now,
-      cwd: input.cwd,
-      requestedAgentSessionId: input.agentSessionId,
-      pending,
-      pendingTurns: new Map<string, PendingTurn>(),
-      turnQueue: [],
-      activeTurnId: null,
-      activeTurnWalIds: new Map<string, string>(),
-      lastHeartbeatAt: input.lastHeartbeatAt ?? now,
+    this.openAdmission = new SessionOpenAdmissionController({
+      logger: this.options.logger,
+      maxWorkers: this.maxWorkers,
+      maxPendingSessionOpens: this.maxPendingSessionOpens,
+      getCurrentWorkers: () => this.workers.size,
     });
-  }
+    this.workerRpc = new SessionWorkerRpcController({
+      logger: this.options.logger,
+      turnWalStore: this.turnWalStore,
+      onWorkerEvent: this.options.onWorkerEvent,
+      touchActivity: (handle) => {
+        this.touchActivity(handle);
+      },
+      onTurnQueueReady: (handle) => {
+        void this.turnQueue.pump(handle);
+      },
+      onWorkerExited: (handle) => {
+        this.onWorkerExited(handle);
+      },
+    });
+    this.turnQueue = new SessionTurnQueueCoordinator({
+      request: (handle, message, timeoutMs) => this.workerRpc.request(handle, message, timeoutMs),
+      registerPendingTurn: (handle, turnId, timeoutMs) =>
+        this.workerRpc.registerPendingTurn(handle, turnId, timeoutMs),
+      rejectPendingTurn: (handle, turnId, error) =>
+        this.workerRpc.rejectPendingTurn(handle, turnId, error),
+      rekeyPendingTurn: (handle, fromTurnId, toTurnId) =>
+        this.workerRpc.rekeyPendingTurn(handle, fromTurnId, toTurnId),
+      trackTurnWalId: (handle, turnId, walId) =>
+        this.workerRpc.trackTurnWalId(handle, turnId, walId),
+      untrackTurnWalId: (handle, turnId) => this.workerRpc.untrackTurnWalId(handle, turnId),
+      rekeyTurnWalId: (handle, fromTurnId, toTurnId) =>
+        this.workerRpc.rekeyTurnWalId(handle, fromTurnId, toTurnId),
+      markQueuedTurnInflight: (walId) => {
+        this.turnWalStore?.markInflight(walId);
+      },
+      markTurnWalFailed: (handle, turnId, error) =>
+        this.workerRpc.markTurnWalFailed(handle, turnId, error),
+    });
 
-  private dispatchWorkerMessageForTest(sessionId: string, message: WorkerToParentMessage): void {
-    const handle = this.workers.get(sessionId);
-    if (!handle) {
-      throw new SessionBackendStateError("session_not_found", `session not found: ${sessionId}`);
-    }
-    this.onWorkerMessage(handle, message);
+    mkdirSync(this.stateDir, { recursive: true });
   }
 
   async start(): Promise<void> {
@@ -540,7 +287,7 @@ export class SessionSupervisor implements SessionBackend {
       };
     }
 
-    await this.acquireOpenAdmission(input.sessionId);
+    await this.openAdmission.acquire(input.sessionId);
 
     try {
       const existingAfterWait = this.workers.get(input.sessionId);
@@ -573,7 +320,7 @@ export class SessionSupervisor implements SessionBackend {
         lastHeartbeatAt: Date.now(),
       };
       this.workers.set(input.sessionId, handle);
-      this.attachWorkerListeners(handle);
+      this.workerRpc.attachWorkerListeners(handle);
 
       const requestId = randomUUID();
       const ready = new Promise<WorkerReadyPayload>((resolveReady, rejectReady) => {
@@ -592,7 +339,7 @@ export class SessionSupervisor implements SessionBackend {
         handle.readyTimer = timer;
       });
 
-      this.sendToWorker(handle, {
+      handle.child.send({
         kind: "init",
         requestId,
         payload: {
@@ -626,11 +373,10 @@ export class SessionSupervisor implements SessionBackend {
         this.workers.delete(input.sessionId);
         await terminatePid(child.pid ?? 0);
         this.persistRegistry();
-        this.notifyOpenQueue();
         throw error;
       }
     } finally {
-      this.releaseOpenAdmission();
+      this.openAdmission.release();
     }
   }
 
@@ -646,7 +392,7 @@ export class SessionSupervisor implements SessionBackend {
     this.touchActivity(handle);
 
     const requestedTurnId = options.turnId?.trim() || randomUUID();
-    if (this.hasOutstandingTurn(handle, requestedTurnId)) {
+    if (this.turnQueue.hasOutstandingTurn(handle, requestedTurnId)) {
       throw new SessionBackendStateError(
         "duplicate_active_turn_id",
         `duplicate active turn id: ${requestedTurnId}`,
@@ -658,6 +404,7 @@ export class SessionSupervisor implements SessionBackend {
         `session queue full for ${sessionId}: ${DEFAULT_MAX_PENDING_TURNS_PER_SESSION}`,
       );
     }
+
     const source = options.source ?? "gateway";
     const replayWalId = normalizeOptionalString(options.walReplayId);
     const waitForCompletion = options.waitForCompletion === true;
@@ -691,7 +438,7 @@ export class SessionSupervisor implements SessionBackend {
         reject: rejectQueued,
       });
     });
-    void this.pumpTurnQueue(handle);
+    void this.turnQueue.pump(handle);
     return queued;
   }
 
@@ -702,7 +449,7 @@ export class SessionSupervisor implements SessionBackend {
     }
     this.touchActivity(handle);
 
-    await this.request(handle, {
+    await this.workerRpc.request(handle, {
       kind: "abort",
       requestId: randomUUID(),
     });
@@ -715,13 +462,12 @@ export class SessionSupervisor implements SessionBackend {
       return false;
     }
 
-    const requestId = randomUUID();
     try {
-      await this.request(
+      await this.workerRpc.request(
         handle,
         {
           kind: "shutdown",
-          requestId,
+          requestId: randomUUID(),
           payload: { reason },
         },
         timeoutMs,
@@ -733,295 +479,57 @@ export class SessionSupervisor implements SessionBackend {
     await terminatePid(handle.child.pid ?? 0);
     this.workers.delete(sessionId);
     this.persistRegistry();
-    this.notifyOpenQueue();
+    this.openAdmission.notifyIfAvailable();
     return true;
   }
 
   listWorkers(): SessionWorkerInfo[] {
-    return [...this.workers.values()].map((handle) => ({
-      sessionId: handle.sessionId,
-      pid: handle.child.pid ?? 0,
-      startedAt: handle.startedAt,
-      lastHeartbeatAt: handle.lastHeartbeatAt,
-      lastActivityAt: handle.lastActivityAt,
-      pendingRequests: handle.pending.size + handle.pendingTurns.size + handle.turnQueue.length,
-      agentSessionId: handle.requestedAgentSessionId,
-      cwd: handle.cwd,
-    }));
+    return [...this.workers.values()].map((handle) => toSessionWorkerInfo(handle));
   }
 
-  private hasOutstandingTurn(handle: WorkerHandle, turnId: string): boolean {
-    if (handle.activeTurnId === turnId) {
-      return true;
-    }
-    if (handle.activeTurnWalIds.has(turnId) || handle.pendingTurns.has(turnId)) {
-      return true;
-    }
-    return handle.turnQueue.some((queued) => queued.requestedTurnId === turnId);
-  }
-
-  private async pumpTurnQueue(handle: WorkerHandle): Promise<void> {
-    if (handle.activeTurnId || handle.turnQueue.length === 0) {
-      return;
-    }
-
-    const queued = handle.turnQueue.shift();
-    if (!queued) {
-      return;
-    }
-
-    handle.activeTurnId = queued.requestedTurnId;
-    let completionPromise: Promise<SendPromptOutput> | undefined;
-    try {
-      completionPromise = queued.waitForCompletion
-        ? this.registerPendingTurn(handle, queued.requestedTurnId, WORKER_RPC_TIMEOUT_MS)
-        : undefined;
-    } catch (error) {
-      handle.activeTurnId = null;
-      queued.reject(error instanceof Error ? error : new Error(String(error)));
-      void this.pumpTurnQueue(handle);
-      return;
-    }
-    if (completionPromise) {
-      void completionPromise.catch(() => undefined);
-    }
-
-    try {
-      if (queued.walId) {
-        this.turnWalStore?.markInflight(queued.walId);
-        this.trackTurnWalId(handle, queued.requestedTurnId, queued.walId);
-      }
-    } catch (error) {
-      this.rejectPendingTurn(handle, queued.requestedTurnId, error);
-      queued.reject(error instanceof Error ? error : new Error(String(error)));
-      handle.activeTurnId = null;
-      void this.pumpTurnQueue(handle);
-      return;
-    }
-
-    let acknowledgedTurnId = queued.requestedTurnId;
-    let agentSessionId = handle.requestedAgentSessionId;
-
-    try {
-      const ackPayload = await this.request(handle, {
-        kind: "send",
-        requestId: randomUUID(),
-        payload: {
-          prompt: queued.prompt,
-          turnId: queued.requestedTurnId,
-          trigger: queued.trigger,
-        },
+  private seedWorkerForTest(input: SessionSupervisorTestWorkerInput): void {
+    const now = Date.now();
+    const pending = new Map<string, PendingRequest>();
+    for (const request of input.pendingRequests ?? []) {
+      pending.set(request.requestId, {
+        resolve: request.resolve ?? (() => undefined),
+        reject: request.reject ?? (() => undefined),
+        timer: request.timer ?? setTimeout(() => undefined, 5 * 60_000),
       });
-
-      if (
-        ackPayload &&
-        typeof ackPayload === "object" &&
-        typeof ackPayload.turnId === "string" &&
-        ackPayload.turnId.trim()
-      ) {
-        acknowledgedTurnId = ackPayload.turnId.trim();
-      }
-      if (
-        ackPayload &&
-        typeof ackPayload === "object" &&
-        typeof ackPayload.agentSessionId === "string" &&
-        ackPayload.agentSessionId.trim()
-      ) {
-        agentSessionId = ackPayload.agentSessionId.trim();
-        handle.requestedAgentSessionId = agentSessionId;
-      }
-    } catch (error) {
-      const busyTurnId = extractBusyTurnId(error);
-      if (busyTurnId && busyTurnId !== queued.requestedTurnId) {
-        this.untrackTurnWalId(handle, queued.requestedTurnId);
-        this.rejectPendingTurn(handle, queued.requestedTurnId, new Error("turn requeued"));
-        handle.activeTurnId = busyTurnId;
-        handle.turnQueue.unshift(queued);
-        return;
-      }
-
-      if (queued.walId) {
-        this.turnWalStore?.markFailed(queued.walId, toErrorMessage(error));
-      }
-      this.untrackTurnWalId(handle, queued.requestedTurnId);
-      this.rejectPendingTurn(handle, queued.requestedTurnId, error);
-      queued.reject(error instanceof Error ? error : new Error(String(error)));
-      handle.activeTurnId = null;
-      void this.pumpTurnQueue(handle);
-      return;
     }
 
-    if (acknowledgedTurnId !== queued.requestedTurnId) {
-      this.rekeyTurnWalId(handle, queued.requestedTurnId, acknowledgedTurnId);
-      if (completionPromise) {
-        this.rekeyPendingTurn(handle, queued.requestedTurnId, acknowledgedTurnId);
-      }
-    }
-    handle.activeTurnId = acknowledgedTurnId;
-
-    if (!queued.waitForCompletion) {
-      queued.resolve({
-        sessionId: handle.sessionId,
-        agentSessionId,
-        turnId: acknowledgedTurnId,
-        accepted: true,
-      });
-      return;
+    for (const request of pending.values()) {
+      request.timer.unref?.();
     }
 
-    if (!completionPromise) {
-      queued.reject(new Error(`missing completion promise for ${acknowledgedTurnId}`));
-      return;
-    }
+    const child = {
+      pid: input.pid,
+      send: () => true,
+      on: () => undefined,
+    } as unknown as ChildProcess;
 
-    void completionPromise
-      .then((output) => {
-        queued.resolve({
-          sessionId: handle.sessionId,
-          agentSessionId,
-          turnId: acknowledgedTurnId,
-          accepted: true,
-          output,
-        });
-      })
-      .catch((error: unknown) => {
-        queued.reject(error instanceof Error ? error : new Error(String(error)));
-      });
-  }
-
-  private request(
-    handle: WorkerHandle,
-    message: Exclude<ParentToWorkerMessage, { kind: "bridge.ping" | "init" }>,
-    timeoutMs = WORKER_RPC_TIMEOUT_MS,
-  ): Promise<Record<string, unknown> | undefined> {
-    return new Promise((resolveRequest, rejectRequest) => {
-      const timer = setTimeout(
-        () => {
-          handle.pending.delete(message.requestId);
-          rejectRequest(new Error(`worker request timeout: ${message.kind}`));
-        },
-        Math.max(1000, timeoutMs),
-      );
-      timer.unref?.();
-
-      handle.pending.set(message.requestId, {
-        resolve: resolveRequest,
-        reject: rejectRequest,
-        timer,
-      });
-
-      this.sendToWorker(handle, message);
+    this.workers.set(input.sessionId, {
+      sessionId: input.sessionId,
+      child,
+      startedAt: input.startedAt ?? now,
+      lastActivityAt: input.lastActivityAt ?? now,
+      cwd: input.cwd,
+      requestedAgentSessionId: input.agentSessionId,
+      pending,
+      pendingTurns: new Map<string, PendingTurn>(),
+      turnQueue: [],
+      activeTurnId: null,
+      activeTurnWalIds: new Map<string, string>(),
+      lastHeartbeatAt: input.lastHeartbeatAt ?? now,
     });
   }
 
-  private registerPendingTurn(
-    handle: WorkerHandle,
-    turnId: string,
-    timeoutMs: number,
-  ): Promise<SendPromptOutput> {
-    const normalizedTurnId = turnId.trim();
-    if (!normalizedTurnId) {
-      throw new Error("turnId is required");
+  private dispatchWorkerMessageForTest(sessionId: string, message: WorkerToParentMessage): void {
+    const handle = this.workers.get(sessionId);
+    if (!handle) {
+      throw new SessionBackendStateError("session_not_found", `session not found: ${sessionId}`);
     }
-    if (handle.pendingTurns.has(normalizedTurnId)) {
-      throw new SessionBackendStateError(
-        "duplicate_active_turn_id",
-        `duplicate active turn id: ${normalizedTurnId}`,
-      );
-    }
-
-    return new Promise<SendPromptOutput>((resolveTurn, rejectTurn) => {
-      const timer = setTimeout(
-        () => {
-          handle.pendingTurns.delete(normalizedTurnId);
-          rejectTurn(new Error(`worker turn timeout: ${normalizedTurnId}`));
-        },
-        Math.max(1_000, timeoutMs),
-      );
-      timer.unref?.();
-
-      handle.pendingTurns.set(normalizedTurnId, {
-        resolve: resolveTurn,
-        reject: rejectTurn,
-        timer,
-      });
-    });
-  }
-
-  private trackTurnWalId(handle: WorkerHandle, turnId: string, walId: string): void {
-    handle.activeTurnWalIds.set(turnId, walId);
-    const pending = handle.pendingTurns.get(turnId);
-    if (pending) {
-      pending.walId = walId;
-    }
-  }
-
-  private untrackTurnWalId(handle: WorkerHandle, turnId: string): string | undefined {
-    const walId = handle.activeTurnWalIds.get(turnId);
-    handle.activeTurnWalIds.delete(turnId);
-    return walId;
-  }
-
-  private rekeyTurnWalId(handle: WorkerHandle, fromTurnId: string, toTurnId: string): void {
-    if (fromTurnId === toTurnId) {
-      return;
-    }
-    const walId = handle.activeTurnWalIds.get(fromTurnId);
-    if (!walId) {
-      return;
-    }
-    handle.activeTurnWalIds.delete(fromTurnId);
-    handle.activeTurnWalIds.set(toTurnId, walId);
-  }
-
-  private markTurnWalDone(handle: WorkerHandle, turnId: string): void {
-    const walId = this.untrackTurnWalId(handle, turnId);
-    if (!walId) return;
-    this.turnWalStore?.markDone(walId);
-  }
-
-  private markTurnWalFailed(handle: WorkerHandle, turnId: string, error?: string): void {
-    const walId = this.untrackTurnWalId(handle, turnId);
-    if (!walId) return;
-    this.turnWalStore?.markFailed(walId, error);
-  }
-
-  private rekeyPendingTurn(handle: WorkerHandle, fromTurnId: string, toTurnId: string): void {
-    if (fromTurnId === toTurnId) {
-      return;
-    }
-    const pending = handle.pendingTurns.get(fromTurnId);
-    if (!pending) {
-      return;
-    }
-    handle.pendingTurns.delete(fromTurnId);
-    handle.pendingTurns.set(toTurnId, pending);
-  }
-
-  private resolvePendingTurn(
-    handle: WorkerHandle,
-    turnId: string,
-    payload: SendPromptOutput,
-  ): void {
-    const pending = handle.pendingTurns.get(turnId);
-    if (!pending) {
-      return;
-    }
-    clearTimeout(pending.timer);
-    handle.pendingTurns.delete(turnId);
-    pending.resolve(payload);
-    this.touchActivity(handle);
-  }
-
-  private rejectPendingTurn(handle: WorkerHandle, turnId: string, error: unknown): void {
-    const pending = handle.pendingTurns.get(turnId);
-    if (!pending) {
-      return;
-    }
-    clearTimeout(pending.timer);
-    handle.pendingTurns.delete(turnId);
-    pending.reject(error instanceof Error ? error : new Error(String(error)));
-    this.touchActivity(handle);
+    this.workerRpc.handleWorkerMessage(handle, message);
   }
 
   private spawnWorker(): ChildProcess {
@@ -1038,228 +546,10 @@ export class SessionSupervisor implements SessionBackend {
     });
   }
 
-  private attachWorkerListeners(handle: WorkerHandle): void {
-    handle.child.on("message", (message) => {
-      this.onWorkerMessage(handle, message);
-    });
-
-    handle.child.on("exit", (code, signal) => {
-      this.options.logger.info("worker exited", {
-        sessionId: handle.sessionId,
-        pid: handle.child.pid,
-        code,
-        signal,
-      });
-      this.failAllPending(handle, new Error("worker exited"));
-      this.workers.delete(handle.sessionId);
-      this.persistRegistry();
-      this.notifyOpenQueue();
-    });
-
-    handle.child.on("error", (error) => {
-      this.options.logger.error("worker error", {
-        sessionId: handle.sessionId,
-        pid: handle.child.pid,
-        error: error.message,
-      });
-    });
-  }
-
-  private onWorkerMessage(handle: WorkerHandle, raw: unknown): void {
-    if (!raw || typeof raw !== "object") {
-      return;
-    }
-    const message = raw as WorkerToParentMessage;
-
-    if (message.kind === "bridge.heartbeat") {
-      handle.lastHeartbeatAt = message.ts;
-      return;
-    }
-
-    if (message.kind === "log") {
-      const baseFields = {
-        sessionId: handle.sessionId,
-        workerPid: handle.child.pid ?? null,
-      };
-      this.options.logger.log(
-        message.level,
-        message.message,
-        message.fields ? { ...baseFields, ...message.fields } : baseFields,
-      );
-      return;
-    }
-
-    if (message.kind === "ready") {
-      if (handle.readyRequestId === message.requestId) {
-        if (handle.readyTimer) {
-          clearTimeout(handle.readyTimer);
-          handle.readyTimer = undefined;
-        }
-        const resolveReady = handle.readyResolve;
-        handle.readyRequestId = undefined;
-        handle.readyResolve = undefined;
-        handle.readyReject = undefined;
-        this.touchActivity(handle);
-        resolveReady?.(message.payload);
-      }
-      return;
-    }
-
-    if (message.kind === "event") {
-      if (message.event === "session.turn.start") {
-        handle.activeTurnId = message.payload.turnId;
-        this.touchActivity(handle);
-      } else if (message.event === "session.turn.end") {
-        this.markTurnWalDone(handle, message.payload.turnId);
-        this.resolvePendingTurn(handle, message.payload.turnId, {
-          assistantText: message.payload.assistantText,
-          toolOutputs: message.payload.toolOutputs,
-        });
-        if (handle.activeTurnId === message.payload.turnId) {
-          handle.activeTurnId = null;
-        }
-        void this.pumpTurnQueue(handle);
-      } else if (message.event === "session.turn.error") {
-        this.markTurnWalFailed(handle, message.payload.turnId, message.payload.message);
-        this.rejectPendingTurn(handle, message.payload.turnId, message.payload.message);
-        if (handle.activeTurnId === message.payload.turnId) {
-          handle.activeTurnId = null;
-        }
-        void this.pumpTurnQueue(handle);
-      }
-      this.options.onWorkerEvent?.(message);
-      return;
-    }
-
-    if (message.kind === "result") {
-      if (handle.readyRequestId === message.requestId && !message.ok) {
-        if (handle.readyTimer) {
-          clearTimeout(handle.readyTimer);
-          handle.readyTimer = undefined;
-        }
-        const rejectReady = handle.readyReject;
-        handle.readyRequestId = undefined;
-        handle.readyResolve = undefined;
-        handle.readyReject = undefined;
-        rejectReady?.(new Error(message.error));
-        return;
-      }
-
-      const pending = handle.pending.get(message.requestId);
-      if (!pending) {
-        return;
-      }
-
-      clearTimeout(pending.timer);
-      handle.pending.delete(message.requestId);
-      this.touchActivity(handle);
-      if (message.ok) {
-        pending.resolve(message.payload);
-      } else {
-        pending.reject(toWorkerResultError(message));
-      }
-    }
-  }
-
-  private failAllPending(handle: WorkerHandle, error: Error): void {
-    if (handle.readyTimer) {
-      clearTimeout(handle.readyTimer);
-      handle.readyTimer = undefined;
-    }
-    if (handle.readyReject) {
-      handle.readyReject(error);
-      handle.readyReject = undefined;
-      handle.readyResolve = undefined;
-      handle.readyRequestId = undefined;
-    }
-
-    for (const pending of handle.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-    }
-    handle.pending.clear();
-
-    for (const pendingTurn of handle.pendingTurns.values()) {
-      clearTimeout(pendingTurn.timer);
-      pendingTurn.reject(error);
-    }
-    handle.pendingTurns.clear();
-
-    for (const queued of handle.turnQueue) {
-      queued.reject(error);
-      if (queued.walId) {
-        this.turnWalStore?.markFailed(queued.walId, `worker_crash:${error.message}`);
-      }
-    }
-    handle.turnQueue = [];
-
-    for (const [, walId] of handle.activeTurnWalIds) {
-      this.turnWalStore?.markFailed(walId, `worker_crash:${error.message}`);
-    }
-    handle.activeTurnWalIds.clear();
-    handle.activeTurnId = null;
-  }
-
-  private sendToWorker(handle: WorkerHandle, message: ParentToWorkerMessage): void {
-    handle.child.send(message);
-  }
-
-  private async acquireOpenAdmission(sessionId: string): Promise<void> {
-    while (this.workers.size + this.pendingOpenReservations >= this.maxWorkers) {
-      if (this.maxPendingSessionOpens <= 0) {
-        throw new SessionBackendCapacityError(
-          "worker_limit",
-          `session worker limit reached: ${this.maxWorkers}`,
-          {
-            maxWorkers: this.maxWorkers,
-            currentWorkers: this.workers.size,
-            queueDepth: this.pendingOpenWaiters.length,
-            maxQueueDepth: this.maxPendingSessionOpens,
-          },
-        );
-      }
-      if (this.pendingOpenWaiters.length >= this.maxPendingSessionOpens) {
-        throw new SessionBackendCapacityError(
-          "open_queue_full",
-          `session open queue full: ${this.maxPendingSessionOpens}`,
-          {
-            maxWorkers: this.maxWorkers,
-            currentWorkers: this.workers.size,
-            queueDepth: this.pendingOpenWaiters.length,
-            maxQueueDepth: this.maxPendingSessionOpens,
-          },
-        );
-      }
-
-      this.options.logger.warn("session open waiting for worker capacity", {
-        sessionId,
-        maxWorkers: this.maxWorkers,
-        currentWorkers: this.workers.size,
-        queueDepth: this.pendingOpenWaiters.length + 1,
-      });
-      const waiter = createDeferred<void>();
-      this.pendingOpenWaiters.push(waiter);
-      await waiter.promise;
-    }
-    this.pendingOpenReservations += 1;
-  }
-
-  private releaseOpenAdmission(): void {
-    if (this.pendingOpenReservations > 0) {
-      this.pendingOpenReservations -= 1;
-    }
-    this.notifyOpenQueue();
-  }
-
-  private notifyOpenQueue(): void {
-    if (this.pendingOpenWaiters.length === 0) {
-      return;
-    }
-    if (this.workers.size + this.pendingOpenReservations >= this.maxWorkers) {
-      return;
-    }
-    const next = this.pendingOpenWaiters.shift();
-    next?.resolve(undefined);
+  private onWorkerExited(handle: WorkerHandle): void {
+    this.workers.delete(handle.sessionId);
+    this.persistRegistry();
+    this.openAdmission.notifyIfAvailable();
   }
 
   private touchActivity(handle: WorkerHandle): void {
@@ -1267,10 +557,12 @@ export class SessionSupervisor implements SessionBackend {
   }
 
   private startBridgePing(): void {
-    if (this.pingTimer) return;
+    if (this.pingTimer) {
+      return;
+    }
+
     this.pingTimer = setInterval(() => {
       const now = Date.now();
-
       for (const handle of this.workers.values()) {
         if (now - handle.lastHeartbeatAt > BRIDGE_HEARTBEAT_TIMEOUT_MS) {
           this.options.logger.warn("worker heartbeat timeout", {
@@ -1281,7 +573,7 @@ export class SessionSupervisor implements SessionBackend {
           continue;
         }
 
-        this.sendToWorker(handle, {
+        handle.child.send({
           kind: "bridge.ping",
           ts: now,
         });
@@ -1320,13 +612,7 @@ export class SessionSupervisor implements SessionBackend {
   private async sweepIdleSessions(): Promise<void> {
     const now = Date.now();
     for (const handle of this.workers.values()) {
-      if (
-        handle.pending.size > 0 ||
-        handle.pendingTurns.size > 0 ||
-        handle.turnQueue.length > 0 ||
-        handle.activeTurnId ||
-        handle.readyRequestId
-      ) {
+      if (!isWorkerIdle(handle)) {
         continue;
       }
       const idleMs = now - handle.lastActivityAt;
@@ -1440,14 +726,7 @@ export class SessionSupervisor implements SessionBackend {
   }
 
   private persistRegistry(): void {
-    const rows: ChildRegistryEntry[] = [...this.workers.values()]
-      .map((handle) => ({
-        sessionId: handle.sessionId,
-        pid: handle.child.pid ?? 0,
-        startedAt: handle.startedAt,
-      }))
-      .filter((row) => row.pid > 0);
-
+    const rows = toRegistryEntries(this.workers.values());
     if (rows.length === 0) {
       this.stateStore.removeChildrenRegistry(this.childrenRegistryPath);
       return;

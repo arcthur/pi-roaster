@@ -288,7 +288,7 @@ Execution profile note:
 - Extension-enabled profile (`createBrewvaExtension`) uses full governance lifecycle hooks and projects proposal-derived selection telemetry.
 - The full extension profile also owns extension-side closed loops such as automatic
   debug retry and deterministic handoff packet synthesis.
-- Runtime-core profile (`--no-extensions`) still composes model-facing context
+- Runtime-core profile (`--no-addons`) still composes model-facing context
   through `ContextComposer`, applies the standard Brewva context contract,
   persists tool outcomes through `registerLedgerWriter`, distills large
   same-turn pure-text tool results through `registerToolResultDistiller`, and

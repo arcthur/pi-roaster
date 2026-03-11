@@ -75,7 +75,7 @@ const START_PARSE_OPTIONS = {
   "log-file": { type: "string" },
   "token-file": { type: "string" },
   heartbeat: { type: "string" },
-  "no-extensions": { type: "boolean" },
+  "no-addons": { type: "boolean" },
   json: { type: "boolean" },
   "tick-interval-ms": { type: "string" },
   "session-idle-ms": { type: "string" },
@@ -158,7 +158,7 @@ const INSTALL_PARSE_OPTIONS = {
   "log-file": { type: "string" },
   "token-file": { type: "string" },
   heartbeat: { type: "string" },
-  "no-extensions": { type: "boolean" },
+  "no-addons": { type: "boolean" },
   "tick-interval-ms": { type: "string" },
   "session-idle-ms": { type: "string" },
   "max-workers": { type: "string" },
@@ -283,8 +283,8 @@ function buildDetachedStartArgs(values: Readonly<Record<string, unknown>>): stri
   pushStringFlag(args, "max-payload-bytes", values["max-payload-bytes"]);
   pushStringFlag(args, "health-http-port", values["health-http-port"]);
   pushStringFlag(args, "health-http-path", values["health-http-path"]);
-  if (values["no-extensions"] === true) {
-    args.push("--no-extensions");
+  if (values["no-addons"] === true) {
+    args.push("--no-addons");
   }
   return args;
 }
@@ -732,7 +732,7 @@ async function handleStart(argv: string[]): Promise<number> {
       cwd: typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd(),
       configPath: typeof parsed.values.config === "string" ? parsed.values.config : undefined,
       model: typeof parsed.values.model === "string" ? parsed.values.model : undefined,
-      enableExtensions: parsed.values["no-extensions"] !== true,
+      enableExtensions: parsed.values["no-addons"] !== true,
       jsonStdout: jsonMode,
       tickIntervalMs: tickParsed.value,
       sessionIdleTtlMs: sessionIdleParsed.value,

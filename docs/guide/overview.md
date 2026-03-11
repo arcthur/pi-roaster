@@ -7,7 +7,7 @@
 - Runtime core: `packages/brewva-runtime/src/runtime.ts`
 - Gateway control plane: `packages/brewva-gateway/src/index.ts`
 - Tool registry: `packages/brewva-tools/src/index.ts`
-- Extension wiring: `packages/brewva-extensions/src/index.ts`
+- Extension wiring: `packages/brewva-gateway/src/runtime-plugins/index.ts`
 - CLI entrypoint: `packages/brewva-cli/src/index.ts`
 
 ## Runtime Responsibilities

@@ -24,7 +24,7 @@
 
 ### Workspace Boundaries
 
-- Use workspace package imports across package boundaries. Allowed public imports are `@brewva/brewva-runtime`, `@brewva/brewva-runtime/channels`, `@brewva/brewva-deliberation`, `@brewva/brewva-skill-broker`, `@brewva/brewva-channels-telegram`, `@brewva/brewva-ingress`, `@brewva/brewva-tools`, `@brewva/brewva-extensions`, `@brewva/brewva-cli`, and `@brewva/brewva-gateway`.
+- Use workspace package imports across package boundaries. Allowed public imports are `@brewva/brewva-runtime`, `@brewva/brewva-runtime/channels`, `@brewva/brewva-deliberation`, `@brewva/brewva-skill-broker`, `@brewva/brewva-channels-telegram`, `@brewva/brewva-ingress`, `@brewva/brewva-tools`, `@brewva/brewva-addons`, `@brewva/brewva-cli`, and `@brewva/brewva-gateway`.
 - Do not reintroduce local alias schemes such as `@/...`.
 - Do not mix `src` and `dist` class types at public boundaries.
 - Do not import from `distribution/**` packages inside workspace package code; treat them as release artifacts.
@@ -77,7 +77,7 @@
 - Runtime API and contracts: `packages/brewva-runtime/src/runtime.ts`, `packages/brewva-runtime/src/types.ts`
 - Runtime config and semantics: `packages/brewva-runtime/src/config/defaults.ts`, `packages/brewva-runtime/src/config/normalize.ts`, `packages/brewva-runtime/src/security/mode.ts`, `packages/brewva-runtime/src/services/event-pipeline.ts`
 - Runtime context and durability: `packages/brewva-runtime/src/context/arena.ts`, `packages/brewva-runtime/src/context/injection-orchestrator.ts`, `packages/brewva-runtime/src/services/context*.ts`, `packages/brewva-runtime/src/channels/turn-wal*.ts`, `packages/brewva-runtime/src/governance/port.ts`
-- Package entrypoints: `packages/brewva-deliberation/src/index.ts`, `packages/brewva-skill-broker/src/index.ts`, `packages/brewva-tools/src/index.ts`, `packages/brewva-extensions/src/index.ts`, `packages/brewva-extensions/src/debug-loop.ts`, `packages/brewva-ingress/src/index.ts`, `packages/brewva-cli/src/index.ts`, `packages/brewva-cli/src/session.ts`, `packages/brewva-gateway/src`
+- Package entrypoints: `packages/brewva-deliberation/src/index.ts`, `packages/brewva-skill-broker/src/index.ts`, `packages/brewva-tools/src/index.ts`, `packages/brewva-gateway/src/runtime-plugins/index.ts`, `packages/brewva-gateway/src/runtime-plugins/debug-loop.ts`, `packages/brewva-gateway/src/channels/host.ts`, `packages/brewva-gateway/src/host/create-hosted-session.ts`, `packages/brewva-ingress/src/index.ts`, `packages/brewva-cli/src/index.ts`, `packages/brewva-gateway/src`
 - Verification and release tooling: `script/verify-dist.ts`, `script/build-binaries.ts`, `distribution/worker`, `.github/workflows/ci.yml`
 - Reference docs: `docs/index.md`, `docs/architecture/system-architecture.md`, `docs/reference/*.md`, `docs/research/README.md`
 

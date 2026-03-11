@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveTelegramWebhookIngressConfig } from "@brewva/brewva-cli";
+import { resolveTelegramWebhookIngressConfig } from "@brewva/brewva-gateway";
 
 describe("channel mode webhook ingress config", () => {
   test("returns null when webhook mode is not configured", () => {

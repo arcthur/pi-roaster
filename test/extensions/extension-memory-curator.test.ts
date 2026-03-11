@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { writeCognitionArtifact } from "@brewva/brewva-deliberation";
-import { recordProactivityWakeup, registerMemoryCurator } from "@brewva/brewva-extensions";
+import {
+  recordProactivityWakeup,
+  registerMemoryCurator,
+} from "@brewva/brewva-gateway/runtime-plugins";
 import type { ProposalRecord } from "@brewva/brewva-runtime";
 import {
   createMockExtensionAPI,

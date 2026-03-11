@@ -2,9 +2,9 @@
 
 Implementation entrypoints:
 
-- `packages/brewva-extensions/src/context-composer.ts`
-- `packages/brewva-extensions/src/context-transform.ts`
-- `packages/brewva-extensions/src/context-contract.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-composer.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-transform.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-contract.ts`
 
 ## Role
 
@@ -14,7 +14,7 @@ that expose Brewva context to the model.
 Current callers:
 
 - `registerContextTransform` (full extension profile)
-- `registerRuntimeCoreBridge` (`--no-extensions` reduced profile)
+- `registerRuntimeCoreBridge` (`--no-addons` reduced profile)
 
 It does not decide which sources exist or which sources fit the budget. It only
 decides how already-admitted context should be shown to the model.

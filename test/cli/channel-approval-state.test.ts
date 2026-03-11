@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApprovalStateStore } from "@brewva/brewva-cli";
+import { ApprovalStateStore } from "@brewva/brewva-gateway";
 
 function createWorkspace(name: string): string {
   const workspace = mkdtempSync(join(tmpdir(), `brewva-channel-approval-state-${name}-`));

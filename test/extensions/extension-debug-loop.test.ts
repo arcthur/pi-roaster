@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { listCognitionArtifacts } from "@brewva/brewva-deliberation";
-import { registerDebugLoop } from "@brewva/brewva-extensions";
+import { registerDebugLoop } from "@brewva/brewva-gateway/runtime-plugins";
 import {
   BrewvaRuntime,
   DEBUG_LOOP_ARTIFACT_PERSIST_FAILED_EVENT_TYPE,

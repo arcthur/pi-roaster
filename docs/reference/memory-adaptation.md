@@ -2,7 +2,7 @@
 
 Implementation entrypoint:
 
-- `packages/brewva-extensions/src/memory-adaptation.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-adaptation.ts`
 
 ## Role
 

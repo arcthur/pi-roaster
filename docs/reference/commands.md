@@ -52,7 +52,7 @@ Loopback-only host policy applies to gateway start/probe/control (`--host` must 
 - `--log-file`
 - `--token-file`
 - `--heartbeat`
-- `--no-extensions`
+- `--no-addons`
 - `--json`
 - `--tick-interval-ms`
 - `--session-idle-ms`
@@ -79,7 +79,7 @@ Loopback-only host policy applies to gateway start/probe/control (`--host` must 
 - `--log-file`
 - `--token-file`
 - `--heartbeat`
-- `--no-extensions`
+- `--no-addons`
 - `--tick-interval-ms`
 - `--session-idle-ms`
 - `--max-workers`
@@ -269,7 +269,7 @@ With `--verbose`, daemon prints a rolling 60-second scheduler window summary
 - `--agent`
 - `--task`
 - `--task-file`
-- `--no-extensions`
+- `--no-addons`
 - `--print`
 - `--interactive`
 - `--mode`
@@ -317,7 +317,7 @@ Short aliases:
 - `-v` for `--version`
 - `-h` for `--help`
 
-`--no-extensions` disables presentation-oriented extension handlers. Runtime
+`--no-addons` disables presentation-oriented extension handlers. Runtime
 core bridge hooks remain active for tool policy, compaction gate, and
 ledger/patch tracking. A minimal autonomy context contract plus tape/context
 pressure status injection remains active in this profile.

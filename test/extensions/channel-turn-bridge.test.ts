@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createRuntimeChannelTurnBridge } from "@brewva/brewva-extensions";
+import { createRuntimeChannelTurnBridge } from "@brewva/brewva-gateway/runtime-plugins";
 import type { BrewvaRuntime } from "@brewva/brewva-runtime";
 import {
   DEFAULT_CHANNEL_CAPABILITIES,

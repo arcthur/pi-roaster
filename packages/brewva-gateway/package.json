@@ -10,10 +10,24 @@
       "bun": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./runtime-plugins": {
+      "types": "./dist/runtime-plugins.d.ts",
+      "bun": "./src/runtime-plugins.ts",
+      "import": "./dist/runtime-plugins.js",
+      "default": "./dist/runtime-plugins.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "bun": "./src/host.ts",
+      "import": "./dist/host.js",
+      "default": "./dist/host.js"
     }
   },
   "dependencies": {
-    "@brewva/brewva-extensions": "workspace:*",
+    "@brewva/brewva-addons": "workspace:*",
+    "@brewva/brewva-channels-telegram": "workspace:*",
+    "@brewva/brewva-ingress": "workspace:*",
     "@brewva/brewva-runtime": "workspace:*",
     "@brewva/brewva-skill-broker": "workspace:*",
     "@brewva/brewva-tools": "workspace:*",

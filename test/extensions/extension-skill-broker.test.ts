@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { registerContextTransform } from "@brewva/brewva-extensions";
+import { registerContextTransform } from "@brewva/brewva-gateway/runtime-plugins";
 import { BrewvaRuntime, type ProposalRecord } from "@brewva/brewva-runtime";
 import { createSkillBrokerExtension, type SkillBroker } from "@brewva/brewva-skill-broker";
 import { createMockExtensionAPI } from "../helpers/extension.js";

@@ -389,59 +389,46 @@ function normalizeOutputContracts(
   return Object.keys(parsed).length > 0 ? parsed : undefined;
 }
 
-function outputContractsEqual(left: SkillOutputContract, right: SkillOutputContract): boolean {
-  if (left.kind !== right.kind) return false;
-  const leftEntries = Object.entries(left as unknown as Record<string, unknown>);
-  const rightEntries = Object.entries(right as unknown as Record<string, unknown>);
-  if (leftEntries.length !== rightEntries.length) return false;
-  for (const [key, leftValue] of leftEntries) {
-    const rightValue = (right as unknown as Record<string, unknown>)[key];
-    if (Array.isArray(leftValue) && Array.isArray(rightValue)) {
-      if (leftValue.length !== rightValue.length) return false;
-      for (let index = 0; index < leftValue.length; index += 1) {
-        const leftItem = leftValue[index];
-        const rightItem = rightValue[index];
-        if (
-          typeof leftItem === "object" &&
-          leftItem !== null &&
-          !Array.isArray(leftItem) &&
-          typeof rightItem === "object" &&
-          rightItem !== null &&
-          !Array.isArray(rightItem)
-        ) {
-          if (
-            !outputContractsEqual(leftItem as SkillOutputContract, rightItem as SkillOutputContract)
-          ) {
-            return false;
-          }
-          continue;
-        }
-        if (JSON.stringify(leftItem) !== JSON.stringify(rightItem)) return false;
-      }
-      continue;
-    }
-    if (
-      typeof leftValue === "object" &&
-      leftValue !== null &&
-      !Array.isArray(leftValue) &&
-      typeof rightValue === "object" &&
-      rightValue !== null &&
-      !Array.isArray(rightValue)
-    ) {
-      const leftRecord = leftValue as Record<string, SkillOutputContract>;
-      const rightRecord = rightValue as Record<string, SkillOutputContract>;
-      const leftKeys = Object.keys(leftRecord).toSorted();
-      const rightKeys = Object.keys(rightRecord).toSorted();
-      if (leftKeys.length !== rightKeys.length) return false;
-      for (const nestedKey of leftKeys) {
-        if (!rightKeys.includes(nestedKey)) return false;
-        if (!outputContractsEqual(leftRecord[nestedKey]!, rightRecord[nestedKey]!)) return false;
-      }
-      continue;
-    }
-    if (leftValue !== rightValue) return false;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function structuredValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true;
   }
-  return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((entry, index) => structuredValuesEqual(entry, right[index]));
+  }
+  if (isRecord(left) || isRecord(right)) {
+    if (!isRecord(left) || !isRecord(right)) {
+      return false;
+    }
+    const leftKeys = Object.keys(left).toSorted();
+    const rightKeys = Object.keys(right).toSorted();
+    if (leftKeys.length !== rightKeys.length) {
+      return false;
+    }
+    for (let index = 0; index < leftKeys.length; index += 1) {
+      const key = leftKeys[index];
+      const rightKey = rightKeys[index];
+      if (!key || !rightKey || key !== rightKey) {
+        return false;
+      }
+      if (!structuredValuesEqual(left[key], right[key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+function outputContractsEqual(left: SkillOutputContract, right: SkillOutputContract): boolean {
+  return structuredValuesEqual(left, right);
 }
 
 function mergeOutputContracts(
@@ -657,6 +644,80 @@ const EFFECT_LEVEL_RANK: Record<SkillEffectLevel, number> = {
   mutation: 2,
 };
 
+const DEFAULT_DISPATCH_POLICY: NonNullable<SkillContract["dispatch"]> = {
+  gateThreshold: 10,
+  autoThreshold: 16,
+  defaultMode: "suggest",
+};
+
+function mergeBudgetCaps(
+  base: SkillContract["budget"],
+  patch: SkillContractOverride["budget"] | undefined,
+): SkillContract["budget"] {
+  return {
+    maxToolCalls:
+      typeof patch?.maxToolCalls === "number"
+        ? Math.min(base.maxToolCalls, patch.maxToolCalls)
+        : base.maxToolCalls,
+    maxTokens:
+      typeof patch?.maxTokens === "number"
+        ? Math.min(base.maxTokens, patch.maxTokens)
+        : base.maxTokens,
+  };
+}
+
+function mergeMaxParallel(base: number | undefined, patch: number | undefined): number | undefined {
+  return typeof patch === "number" ? Math.min(base ?? patch, patch) : base;
+}
+
+function mergeEffectLevel(
+  base: SkillEffectLevel | undefined,
+  patch: SkillEffectLevel | undefined,
+): SkillEffectLevel {
+  const normalizedBase = base ?? "read_only";
+  return patch && EFFECT_LEVEL_RANK[patch] > EFFECT_LEVEL_RANK[normalizedBase]
+    ? patch
+    : normalizedBase;
+}
+
+function mergeDispatchPolicy(
+  base: SkillContract["dispatch"],
+  patch: SkillContractOverride["dispatch"] | undefined,
+): SkillContract["dispatch"] | undefined {
+  if (!patch) return base;
+  const baseDispatch = base ?? DEFAULT_DISPATCH_POLICY;
+  const gateThreshold =
+    typeof patch.gateThreshold === "number"
+      ? Math.max(baseDispatch.gateThreshold, Math.floor(patch.gateThreshold))
+      : baseDispatch.gateThreshold;
+  const autoThreshold =
+    typeof patch.autoThreshold === "number"
+      ? Math.max(baseDispatch.autoThreshold, Math.floor(patch.autoThreshold))
+      : baseDispatch.autoThreshold;
+  const defaultMode =
+    patch.defaultMode === "auto" || patch.defaultMode === "gate" || patch.defaultMode === "suggest"
+      ? patch.defaultMode
+      : baseDispatch.defaultMode;
+  return {
+    gateThreshold,
+    autoThreshold: Math.max(gateThreshold, autoThreshold),
+    defaultMode,
+  };
+}
+
+function mergeRoutingPolicy(
+  base: SkillRoutingPolicy | undefined,
+  patch: SkillContractOverride["routing"] | undefined,
+): SkillRoutingPolicy | undefined {
+  if (!base || !patch) {
+    return base;
+  }
+  return {
+    scope: base.scope,
+    continuityRequired: base.continuityRequired === true || patch.continuityRequired === true,
+  };
+}
+
 function resolveDefaultEffectLevel(input: {
   required: string[];
   optional: string[];
@@ -846,64 +907,11 @@ export function tightenContract(
     optional.add(normalized);
   }
 
-  const maxToolCalls =
-    typeof override.budget?.maxToolCalls === "number"
-      ? Math.min(base.budget.maxToolCalls, override.budget.maxToolCalls)
-      : base.budget.maxToolCalls;
-  const maxTokens =
-    typeof override.budget?.maxTokens === "number"
-      ? Math.min(base.budget.maxTokens, override.budget.maxTokens)
-      : base.budget.maxTokens;
-  const maxParallel =
-    typeof override.maxParallel === "number"
-      ? Math.min(base.maxParallel ?? override.maxParallel, override.maxParallel)
-      : base.maxParallel;
-  const effectLevel =
-    override.effectLevel &&
-    EFFECT_LEVEL_RANK[override.effectLevel] > EFFECT_LEVEL_RANK[base.effectLevel ?? "read_only"]
-      ? override.effectLevel
-      : (base.effectLevel ?? "read_only");
-
-  const dispatch = (() => {
-    const baseDispatch = base.dispatch ?? {
-      gateThreshold: 10,
-      autoThreshold: 16,
-      defaultMode: "suggest" as const,
-    };
-    const overrideDispatch = override.dispatch;
-    if (!overrideDispatch) return base.dispatch;
-    const gateThreshold =
-      typeof overrideDispatch.gateThreshold === "number"
-        ? Math.max(baseDispatch.gateThreshold, Math.floor(overrideDispatch.gateThreshold))
-        : baseDispatch.gateThreshold;
-    const autoThreshold =
-      typeof overrideDispatch.autoThreshold === "number"
-        ? Math.max(baseDispatch.autoThreshold, Math.floor(overrideDispatch.autoThreshold))
-        : baseDispatch.autoThreshold;
-    const defaultMode =
-      overrideDispatch.defaultMode === "auto" ||
-      overrideDispatch.defaultMode === "gate" ||
-      overrideDispatch.defaultMode === "suggest"
-        ? overrideDispatch.defaultMode
-        : baseDispatch.defaultMode;
-    return {
-      gateThreshold,
-      autoThreshold: Math.max(gateThreshold, autoThreshold),
-      defaultMode,
-    };
-  })();
-  const routing = (() => {
-    const baseRouting = base.routing;
-    const overrideRouting = override.routing;
-    if (!baseRouting || !overrideRouting) {
-      return baseRouting;
-    }
-    return {
-      scope: baseRouting.scope,
-      continuityRequired:
-        baseRouting.continuityRequired === true || overrideRouting.continuityRequired === true,
-    };
-  })();
+  const budget = mergeBudgetCaps(base.budget, override.budget);
+  const maxParallel = mergeMaxParallel(base.maxParallel, override.maxParallel);
+  const effectLevel = mergeEffectLevel(base.effectLevel, override.effectLevel);
+  const dispatch = mergeDispatchPolicy(base.dispatch, override.dispatch);
+  const routing = mergeRoutingPolicy(base.routing, override.routing);
 
   return {
     ...base,
@@ -921,10 +929,7 @@ export function tightenContract(
       optional: [...optional],
       denied: [...denied],
     },
-    budget: {
-      maxToolCalls,
-      maxTokens,
-    },
+    budget,
   };
 }
 
@@ -951,18 +956,8 @@ export function mergeOverlayContract(
       .filter((tool) => !required.has(tool)),
   );
 
-  const maxToolCalls =
-    typeof overlay.budget?.maxToolCalls === "number"
-      ? Math.min(base.budget.maxToolCalls, overlay.budget.maxToolCalls)
-      : base.budget.maxToolCalls;
-  const maxTokens =
-    typeof overlay.budget?.maxTokens === "number"
-      ? Math.min(base.budget.maxTokens, overlay.budget.maxTokens)
-      : base.budget.maxTokens;
-  const maxParallel =
-    typeof overlay.maxParallel === "number"
-      ? Math.min(base.maxParallel ?? overlay.maxParallel, overlay.maxParallel)
-      : base.maxParallel;
+  const budget = mergeBudgetCaps(base.budget, overlay.budget);
+  const maxParallel = mergeMaxParallel(base.maxParallel, overlay.maxParallel);
   const mergedOutputs = [...new Set([...(base.outputs ?? []), ...(overlay.outputs ?? [])])];
   const outputContracts = mergeOutputContracts(
     base.outputContracts,
@@ -970,52 +965,9 @@ export function mergeOverlayContract(
     mergedOutputs,
     base.name,
   );
-  const effectLevel =
-    overlay.effectLevel &&
-    EFFECT_LEVEL_RANK[overlay.effectLevel] > EFFECT_LEVEL_RANK[base.effectLevel ?? "read_only"]
-      ? overlay.effectLevel
-      : (base.effectLevel ?? "read_only");
-
-  const dispatch = (() => {
-    const baseDispatch = base.dispatch ?? {
-      gateThreshold: 10,
-      autoThreshold: 16,
-      defaultMode: "suggest" as const,
-    };
-    const overlayDispatch = overlay.dispatch;
-    if (!overlayDispatch) return base.dispatch;
-    const gateThreshold =
-      typeof overlayDispatch.gateThreshold === "number"
-        ? Math.max(baseDispatch.gateThreshold, Math.floor(overlayDispatch.gateThreshold))
-        : baseDispatch.gateThreshold;
-    const autoThreshold =
-      typeof overlayDispatch.autoThreshold === "number"
-        ? Math.max(baseDispatch.autoThreshold, Math.floor(overlayDispatch.autoThreshold))
-        : baseDispatch.autoThreshold;
-    const defaultMode =
-      overlayDispatch.defaultMode === "auto" ||
-      overlayDispatch.defaultMode === "gate" ||
-      overlayDispatch.defaultMode === "suggest"
-        ? overlayDispatch.defaultMode
-        : baseDispatch.defaultMode;
-    return {
-      gateThreshold,
-      autoThreshold: Math.max(gateThreshold, autoThreshold),
-      defaultMode,
-    };
-  })();
-  const routing = (() => {
-    const baseRouting = base.routing;
-    const overlayRouting = overlay.routing;
-    if (!baseRouting || !overlayRouting) {
-      return baseRouting;
-    }
-    return {
-      scope: baseRouting.scope,
-      continuityRequired:
-        baseRouting.continuityRequired === true || overlayRouting.continuityRequired === true,
-    };
-  })();
+  const effectLevel = mergeEffectLevel(base.effectLevel, overlay.effectLevel);
+  const dispatch = mergeDispatchPolicy(base.dispatch, overlay.dispatch);
+  const routing = mergeRoutingPolicy(base.routing, overlay.routing);
 
   return {
     ...base,
@@ -1035,10 +987,7 @@ export function mergeOverlayContract(
       optional: [...optional],
       denied: [...denied],
     },
-    budget: {
-      maxToolCalls,
-      maxTokens,
-    },
+    budget,
   };
 }
 

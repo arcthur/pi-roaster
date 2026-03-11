@@ -6,58 +6,85 @@ export type BrewvaThinkingLevel = (typeof VALID_THINKING_LEVELS)[number];
 
 type RegisteredModel = ReturnType<ModelRegistry["getAll"]>[number];
 
-function isAlias(id: string): boolean {
-  if (id.endsWith("-latest")) return true;
-  return !/-\d{8}$/u.test(id);
+interface ModelMatchResult {
+  model?: RegisteredModel;
+  ambiguous?: RegisteredModel[];
 }
 
 function isValidThinkingLevel(value: string): value is BrewvaThinkingLevel {
   return VALID_THINKING_LEVELS.includes(value as BrewvaThinkingLevel);
 }
 
-function tryMatchModel(
+function toModelKey(model: RegisteredModel): string {
+  return `${model.provider}/${model.id}`;
+}
+
+function dedupeMatches(matches: RegisteredModel[]): RegisteredModel[] {
+  const unique = new Map<string, RegisteredModel>();
+  for (const model of matches) {
+    unique.set(toModelKey(model).toLowerCase(), model);
+  }
+  return [...unique.values()];
+}
+
+function collectMatches(
   pattern: string,
   availableModels: RegisteredModel[],
-): RegisteredModel | undefined {
-  const slashIndex = pattern.indexOf("/");
-  if (slashIndex !== -1) {
-    const provider = pattern.substring(0, slashIndex);
-    const modelId = pattern.substring(slashIndex + 1);
-    const providerMatch = availableModels.find(
-      (model) =>
-        model.provider.toLowerCase() === provider.toLowerCase() &&
-        model.id.toLowerCase() === modelId.toLowerCase(),
-    );
-    if (providerMatch) return providerMatch;
+  predicate: (candidate: string, normalizedPattern: string) => boolean,
+): RegisteredModel[] {
+  const normalizedPattern = pattern.toLowerCase();
+  return dedupeMatches(
+    availableModels.filter((model) => {
+      const candidates = [model.id, `${model.provider}/${model.id}`, model.name ?? ""];
+      return candidates.some((candidate) => predicate(candidate.toLowerCase(), normalizedPattern));
+    }),
+  );
+}
+
+function toMatchResult(matches: RegisteredModel[]): ModelMatchResult {
+  if (matches.length === 1) {
+    return { model: matches[0] };
+  }
+  if (matches.length > 1) {
+    return {
+      ambiguous: matches.toSorted((left, right) =>
+        toModelKey(left).localeCompare(toModelKey(right)),
+      ),
+    };
+  }
+  return {};
+}
+
+function findModelMatch(pattern: string, availableModels: RegisteredModel[]): ModelMatchResult {
+  const exact = collectMatches(
+    pattern,
+    availableModels,
+    (candidate, normalizedPattern) => candidate === normalizedPattern,
+  );
+  if (exact.length > 0) {
+    return toMatchResult(exact);
   }
 
-  const exactMatch = availableModels.find(
-    (model) => model.id.toLowerCase() === pattern.toLowerCase(),
+  const prefix = collectMatches(pattern, availableModels, (candidate, normalizedPattern) =>
+    candidate.startsWith(normalizedPattern),
   );
-  if (exactMatch) return exactMatch;
+  if (prefix.length > 0) {
+    return toMatchResult(prefix);
+  }
 
-  const matches = availableModels.filter(
-    (model) =>
-      model.id.toLowerCase().includes(pattern.toLowerCase()) ||
-      model.name?.toLowerCase().includes(pattern.toLowerCase()),
+  const substring = collectMatches(pattern, availableModels, (candidate, normalizedPattern) =>
+    candidate.includes(normalizedPattern),
   );
-  if (matches.length === 0) return undefined;
-
-  const aliases = matches.filter((model) => isAlias(model.id));
-  const datedVersions = matches.filter((model) => !isAlias(model.id));
-  const ranked = aliases.length > 0 ? aliases : datedVersions;
-
-  ranked.sort((left, right) => right.id.localeCompare(left.id));
-  return ranked[0];
+  return toMatchResult(substring);
 }
 
 function parseModelPattern(
   pattern: string,
   availableModels: RegisteredModel[],
-): { model: RegisteredModel | undefined; thinkingLevel?: BrewvaThinkingLevel } {
-  const exactMatch = tryMatchModel(pattern, availableModels);
-  if (exactMatch) {
-    return { model: exactMatch };
+): ModelMatchResult & { thinkingLevel?: BrewvaThinkingLevel } {
+  const directMatch = findModelMatch(pattern, availableModels);
+  if (directMatch.model || directMatch.ambiguous) {
+    return directMatch;
   }
 
   const lastColonIndex = pattern.lastIndexOf(":");
@@ -72,7 +99,7 @@ function parseModelPattern(
   }
 
   const resolved = parseModelPattern(prefix, availableModels);
-  if (!resolved.model) {
+  if (!resolved.model || resolved.ambiguous) {
     return resolved;
   }
   return {
@@ -96,6 +123,11 @@ function findExactModel(
 export interface BrewvaModelSelection {
   model?: RegisteredModel;
   thinkingLevel?: BrewvaThinkingLevel;
+}
+
+function formatAmbiguousModelError(pattern: string, matches: RegisteredModel[]): Error {
+  const candidates = matches.map((model) => toModelKey(model)).join(", ");
+  return new Error(`Model "${pattern}" is ambiguous. Candidates: ${candidates}`);
 }
 
 export function resolveBrewvaModelSelection(
@@ -143,6 +175,12 @@ export function resolveBrewvaModelSelection(
     ? availableModels.filter((model) => model.provider === provider)
     : availableModels;
   const resolved = parseModelPattern(pattern, candidates);
+  if (resolved.ambiguous) {
+    throw formatAmbiguousModelError(
+      provider ? `${provider}/${pattern}` : pattern,
+      resolved.ambiguous,
+    );
+  }
   if (resolved.model) {
     return resolved;
   }
@@ -154,6 +192,9 @@ export function resolveBrewvaModelSelection(
     }
 
     const fallback = parseModelPattern(normalized, availableModels);
+    if (fallback.ambiguous) {
+      throw formatAmbiguousModelError(normalized, fallback.ambiguous);
+    }
     if (fallback.model) {
       return fallback;
     }

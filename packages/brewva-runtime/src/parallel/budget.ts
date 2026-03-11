@@ -14,7 +14,6 @@ interface SessionParallelState {
 interface ParallelSlotWaiter {
   runId: string;
   resolve: (result: ParallelAcquireResult) => void;
-  reject: (error: Error) => void;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -59,12 +58,15 @@ export class ParallelBudgetManager {
       return Promise.resolve(immediate);
     }
 
-    return new Promise<ParallelAcquireResult>((resolve, reject) => {
-      const state = this.getOrCreate(sessionId);
+    const state = this.getOrCreate(sessionId);
+    if (state.waiters.some((waiter) => waiter.runId === runId)) {
+      return Promise.resolve({ accepted: false, reason: "max_concurrent" });
+    }
+
+    return new Promise<ParallelAcquireResult>((resolve) => {
       const waiter: ParallelSlotWaiter = {
         runId,
         resolve,
-        reject,
       };
 
       const timeoutMs =
@@ -74,7 +76,7 @@ export class ParallelBudgetManager {
       if (timeoutMs > 0) {
         waiter.timer = setTimeout(() => {
           this.removeWaiter(sessionId, waiter);
-          reject(new Error(`parallel slot wait timed out for ${runId}`));
+          resolve({ accepted: false, reason: "timeout" });
         }, timeoutMs);
         waiter.timer.unref?.();
       }
@@ -118,7 +120,7 @@ export class ParallelBudgetManager {
         if (waiter.timer) {
           clearTimeout(waiter.timer);
         }
-        waiter.reject(new Error(`parallel slot wait cancelled for ${waiter.runId}`));
+        waiter.resolve({ accepted: false, reason: "cancelled" });
       }
     }
     this.sessions.delete(sessionId);
@@ -172,12 +174,7 @@ export class ParallelBudgetManager {
         clearTimeout(next.timer);
       }
 
-      if (acquired.accepted || acquired.reason === "disabled" || acquired.reason === "max_total") {
-        next.resolve(acquired);
-        continue;
-      }
-
-      next.reject(new Error(`parallel slot acquisition failed for ${next.runId}`));
+      next.resolve(acquired);
     }
   }
 

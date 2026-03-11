@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { composeContextBlocks } from "@brewva/brewva-extensions";
+import { composeContextBlocks } from "@brewva/brewva-gateway/runtime-plugins";
 import { CONTEXT_SOURCES, type ContextInjectionEntry } from "@brewva/brewva-runtime";
 
 function makeEntry(

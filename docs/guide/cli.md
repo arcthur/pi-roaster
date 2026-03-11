@@ -67,7 +67,7 @@ Useful flags:
 - `--agent`
 - `--task`
 - `--task-file`
-- `--no-extensions`
+- `--no-addons`
 - `--print`
 - `--interactive`
 - `--mode`
@@ -115,7 +115,7 @@ Short aliases:
 - `-v` for `--version`
 - `-h` for `--help`
 
-`--no-extensions` disables the full extension orchestration layer.
+`--no-addons` disables the full extension orchestration layer.
 CLI still installs runtime core bridge hooks, so tool policy, compaction gate,
 and ledger/patch tracking remain enforced.
 

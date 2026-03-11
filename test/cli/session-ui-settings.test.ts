@@ -239,8 +239,8 @@ describe("brewva session ui settings wiring", () => {
     }
   });
 
-  test("no-extensions session bootstrap still exposes the proposal boundary", async () => {
-    const workspace = createWorkspace("skill-broker-no-extensions");
+  test("no-addons session bootstrap still exposes the proposal boundary", async () => {
+    const workspace = createWorkspace("skill-broker-no-addons");
     const result = await createBrewvaSession({
       cwd: workspace,
       enableExtensions: false,
@@ -265,6 +265,120 @@ describe("brewva session ui settings wiring", () => {
       expect(payload.skillBroker?.proposalBoundary).toBe("runtime.proposals.submit");
     } finally {
       result.session.dispose();
+    }
+  });
+
+  test("autoloads workspace addons and applies persisted scope context packets", async () => {
+    const workspace = createWorkspace("addons-autoload");
+    const addonDir = join(workspace, ".brewva/addons/ops-status");
+    mkdirSync(addonDir, { recursive: true });
+    writeFileSync(
+      join(addonDir, "index.ts"),
+      ['export default { id: "ops-status" };'].join("\n"),
+      "utf8",
+    );
+    writeFileSync(
+      join(addonDir, "context-packets.jsonl"),
+      `${JSON.stringify({
+        addonId: "ops-status",
+        writtenAt: Date.now(),
+        scopeId: "scope-main",
+        packetKey: "daily-summary",
+        label: "Daily summary",
+        content: "Summary from addon host",
+        profile: "status_summary",
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await createBrewvaSession({
+      cwd: workspace,
+      scopeId: "scope-main",
+    });
+    try {
+      const sessionId = result.session.sessionManager.getSessionId();
+      const bootstrap = result.runtime.events.query(sessionId, {
+        type: "session_bootstrap",
+        last: 1,
+      })[0];
+      const payload = (bootstrap?.payload as { addonsEnabled?: boolean } | undefined) ?? {};
+      expect(payload.addonsEnabled).toBe(true);
+
+      const packets = result.runtime.proposals.list(sessionId, {
+        kind: "context_packet",
+      });
+      expect(packets).toHaveLength(1);
+      const firstPacket = packets[0];
+      expect(firstPacket?.proposal.issuer).toBe("addon:ops-status");
+      expect((firstPacket?.proposal.payload as { packetKey?: string } | undefined)?.packetKey).toBe(
+        "daily-summary",
+      );
+    } finally {
+      result.session.dispose();
+    }
+  });
+
+  test("fails fast when workspace addon omits required config", async () => {
+    const workspace = createWorkspace("addons-required-config");
+    const addonDir = join(workspace, ".brewva/addons/ops-status");
+    mkdirSync(addonDir, { recursive: true });
+    writeFileSync(
+      join(addonDir, "index.ts"),
+      [
+        "export default {",
+        '  id: "ops-status",',
+        "  config: {",
+        "    apiKey: {",
+        '      type: "string",',
+        '      description: "API key",',
+        "      required: true,",
+        "    },",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf8",
+    );
+
+    try {
+      await createBrewvaSession({
+        cwd: workspace,
+      });
+      throw new Error("expected addon config validation to fail");
+    } catch (error) {
+      expect((error as Error).message).toContain(
+        "missing required config for addon ops-status: apiKey",
+      );
+    }
+  });
+
+  test("fails fast when workspace addon exports invalid jobs", async () => {
+    const workspace = createWorkspace("addons-invalid-job");
+    const addonDir = join(workspace, ".brewva/addons/ops-status");
+    mkdirSync(addonDir, { recursive: true });
+    writeFileSync(
+      join(addonDir, "index.ts"),
+      [
+        "export default {",
+        '  id: "ops-status",',
+        "  jobs: [",
+        "    {",
+        '      id: "",',
+        "      schedule: {},",
+        '      run: "not-a-function",',
+        "    },",
+        "  ],",
+        "};",
+      ].join("\n"),
+      "utf8",
+    );
+
+    try {
+      await createBrewvaSession({
+        cwd: workspace,
+      });
+      throw new Error("expected addon job validation to fail");
+    } catch (error) {
+      expect((error as Error).message).toContain("addon jobs[0].id is required");
     }
   });
 });

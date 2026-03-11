@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { registerContextTransform, registerRuntimeCoreBridge } from "@brewva/brewva-extensions";
+import {
+  registerContextTransform,
+  registerRuntimeCoreBridge,
+} from "@brewva/brewva-gateway/runtime-plugins";
 import {
   createMockExtensionAPI,
   invokeHandler,

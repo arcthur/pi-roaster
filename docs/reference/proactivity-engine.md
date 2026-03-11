@@ -2,12 +2,12 @@
 
 Current implementation surfaces:
 
-- `packages/brewva-extensions/src/proactivity-engine.ts`
+- `packages/brewva-gateway/src/runtime-plugins/proactivity-engine.ts`
 - `packages/brewva-gateway/src/daemon/heartbeat-policy.ts`
 - `packages/brewva-gateway/src/daemon/gateway-daemon.ts`
 - `packages/brewva-gateway/src/daemon/session-supervisor.ts`
 - `packages/brewva-gateway/src/session/worker-main.ts`
-- `packages/brewva-extensions/src/proactivity-context.ts`
+- `packages/brewva-gateway/src/runtime-plugins/proactivity-context.ts`
 
 ## Role
 

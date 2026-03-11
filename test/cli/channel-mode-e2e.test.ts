@@ -7,7 +7,7 @@ import {
   runChannelMode,
   type ChannelModeLauncher,
   type RunChannelModeDependencies,
-} from "@brewva/brewva-cli";
+} from "@brewva/brewva-gateway";
 import type { ChannelTurnBridge, TurnEnvelope } from "@brewva/brewva-runtime/channels";
 
 function createWorkspace(prefix: string): string {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { registerCognitiveMetrics } from "@brewva/brewva-extensions";
+import { registerCognitiveMetrics } from "@brewva/brewva-gateway/runtime-plugins";
 import { createMockExtensionAPI, invokeHandler, invokeHandlers } from "../helpers/extension.js";
 import { createRuntimeFixture } from "./fixtures/runtime.js";
 

@@ -89,10 +89,10 @@ Flow:
 
 ## Code Pointers
 
-- CLI channel orchestration: `packages/brewva-cli/src/channel-mode.ts`
+- Gateway channel host: `packages/brewva-gateway/src/channels/host.ts`
 - Runtime channel bridge contracts: `packages/brewva-runtime/src/channels/turn-bridge.ts`
 - Public import path for channel contracts: `@brewva/brewva-runtime/channels`
-- Extension bridge telemetry wrapper: `packages/brewva-extensions/src/channel-turn-bridge.ts`
+- Extension bridge telemetry wrapper: `packages/brewva-gateway/src/runtime-plugins/channel-turn-bridge.ts`
 - Telegram adapter/projector/transport:
   - `packages/brewva-channels-telegram/src/adapter.ts`
   - `packages/brewva-channels-telegram/src/projector.ts`

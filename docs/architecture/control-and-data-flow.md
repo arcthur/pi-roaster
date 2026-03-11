@@ -9,7 +9,7 @@ sequenceDiagram
   participant U as User
   participant CLI as brewva-cli
   participant RT as BrewvaRuntime
-  participant EXT as brewva-extensions
+  participant EXT as brewva-gateway/runtime-plugins
   participant TOOLS as brewva-tools
   participant STORE as Event/Ledger/Projection Stores
 
@@ -25,7 +25,7 @@ sequenceDiagram
   RT->>STORE: event tape + evidence ledger + snapshots
 ```
 
-## Core Bridge Flow (`--no-extensions`)
+## Core Bridge Flow (`--no-addons`)
 
 ```mermaid
 flowchart TD

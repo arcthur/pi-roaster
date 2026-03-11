@@ -71,7 +71,7 @@ Relevant implementation:
 
 ## 7) Profile Transparency Invariant
 
-- Extension-enabled and `--no-extensions` profiles must be behaviorally explicit:
+- Extension-enabled and `--no-addons` profiles must be behaviorally explicit:
   extension presentation hooks may differ, but core safety/evidence invariants
   must remain equivalent.
 - When extensions are disabled, runtime core chain still enforces tool policy,
@@ -81,9 +81,9 @@ Relevant implementation:
 
 Relevant implementation:
 
-- `packages/brewva-cli/src/session.ts`
+- `packages/brewva-gateway/src/host/create-hosted-session.ts`
 - `packages/brewva-cli/src/session-event-bridge.ts`
-- `packages/brewva-extensions/src/index.ts`
+- `packages/brewva-gateway/src/runtime-plugins/index.ts`
 
 ## 8) Working Projection Integrity Invariant
 

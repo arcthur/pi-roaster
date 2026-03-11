@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildChannelSkillPolicyBlock, DEFAULT_TELEGRAM_SKILL_NAME } from "@brewva/brewva-cli";
+import { buildChannelSkillPolicyBlock, DEFAULT_TELEGRAM_SKILL_NAME } from "@brewva/brewva-gateway";
 import type { TurnEnvelope } from "@brewva/brewva-runtime/channels";
 
 function createTurn(channel: string): TurnEnvelope {

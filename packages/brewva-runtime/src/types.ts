@@ -1117,7 +1117,13 @@ export interface ToolAccessResult {
 
 export interface ParallelAcquireResult {
   accepted: boolean;
-  reason?: "disabled" | "max_concurrent" | "max_total" | "skill_max_parallel";
+  reason?:
+    | "disabled"
+    | "max_concurrent"
+    | "max_total"
+    | "skill_max_parallel"
+    | "timeout"
+    | "cancelled";
 }
 
 export interface ParallelSnapshot {

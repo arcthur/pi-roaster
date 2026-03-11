@@ -1,5 +1,8 @@
-import { resolveToolDisplayText, resolveToolDisplayVerdict } from "@brewva/brewva-extensions";
-import type { ToolDisplayVerdict } from "@brewva/brewva-extensions";
+import {
+  resolveToolDisplayText,
+  resolveToolDisplayVerdict,
+} from "@brewva/brewva-gateway/runtime-plugins";
+import type { ToolDisplayVerdict } from "@brewva/brewva-gateway/runtime-plugins";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import type { GatewaySessionResult } from "./create-session.js";
 

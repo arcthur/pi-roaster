@@ -1,4 +1,4 @@
-import { recordProactivityWakeup } from "@brewva/brewva-extensions";
+import { recordProactivityWakeup } from "@brewva/brewva-gateway/runtime-plugins";
 import { collectSessionPromptOutput } from "./collect-output.js";
 import { createGatewaySession, type GatewaySessionResult } from "./create-session.js";
 import { applySchedulePromptTrigger } from "./schedule-trigger.js";

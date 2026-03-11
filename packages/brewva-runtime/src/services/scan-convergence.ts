@@ -8,80 +8,16 @@ import {
 } from "../utils/tool-result.js";
 import type { RuntimeCallback } from "./callback.js";
 import {
+  classifyScanConvergenceToolStrategy,
+  listBlockedScanConvergenceTools,
+} from "./scan-convergence-strategy.js";
+import {
   type RuntimeSessionStateStore,
   type ScanConvergenceReason,
   type ScanConvergenceResetReason,
   type ScanConvergenceRuntimeState,
   type ScanConvergenceToolStrategy,
 } from "./session-state.js";
-
-const RAW_SCAN_TOOL_NAMES = new Set(["read", "grep"]);
-const LOW_SIGNAL_TOOL_NAMES = new Set([
-  "look_at",
-  "read_spans",
-  "ast_grep_search",
-  "toc_document",
-  "toc_search",
-  "lsp_goto_definition",
-  "lsp_find_references",
-  "lsp_symbols",
-  "lsp_diagnostics",
-  "lsp_prepare_rename",
-]);
-const EVIDENCE_REUSE_TOOL_NAMES = new Set([
-  "ledger_query",
-  "obs_query",
-  "obs_slo_assert",
-  "obs_snapshot",
-  "output_search",
-  "tape_info",
-  "tape_search",
-  "task_view_state",
-  "cost_view",
-]);
-const EXPLICIT_PROGRESS_TOOL_NAMES = new Set([
-  "task_set_spec",
-  "task_add_item",
-  "task_update_item",
-  "task_record_blocker",
-  "task_resolve_blocker",
-  "skill_load",
-  "skill_route_override",
-  "skill_complete",
-  "tape_handoff",
-  "session_compact",
-  "rollback_last_patch",
-  "schedule_intent",
-  "cognition_note",
-  "ast_grep_replace",
-  "lsp_rename",
-]);
-const SKILL_CHAIN_CONTROL_PROGRESS_ACTIONS = new Set(["start"]);
-const SKILL_CHAIN_CONTROL_NEUTRAL_ACTIONS = new Set(["status", "pause", "resume", "cancel"]);
-const LOW_SIGNAL_EXEC_PRIMARY_TOKENS = new Set([
-  "ls",
-  "find",
-  "cat",
-  "sed",
-  "head",
-  "tail",
-  "wc",
-  "tree",
-  "rg",
-  "grep",
-  "awk",
-  "cut",
-  "sort",
-  "uniq",
-  "basename",
-  "dirname",
-  "realpath",
-  "readlink",
-]);
-const COMMAND_PREFIX_TOKENS = new Set(["sudo", "command", "time"]);
-const SHELL_WRAPPER_TOKENS = new Set(["sh", "bash", "zsh", "dash", "ksh", "mksh", "ash"]);
-const ENV_ASSIGNMENT_TOKEN = /^[A-Za-z_][A-Za-z0-9_]*=.*/u;
-const MAX_COMMAND_PARSE_DEPTH = 2;
 
 const CONSECUTIVE_SCAN_ONLY_TURNS_THRESHOLD = 3;
 const CONSECUTIVE_INVESTIGATION_ONLY_TURNS_THRESHOLD = 6;
@@ -185,273 +121,6 @@ function normalizeReason(value: unknown): ScanConvergenceReason | null {
     return value;
   }
   return null;
-}
-
-function tokenizeCommand(command: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-  let escaped = false;
-
-  for (const char of command.trim()) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\" && quote !== "'") {
-      escaped = true;
-      continue;
-    }
-
-    if (quote) {
-      if (char === quote) {
-        quote = null;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-
-    if (/\s/u.test(char)) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-
-    current += char;
-  }
-
-  if (current.length > 0) {
-    tokens.push(current);
-  }
-  return tokens;
-}
-
-function normalizeCommandToken(token: string): string {
-  const trimmed = token.trim();
-  if (!trimmed) return "";
-  const withoutQuotes = trimmed.replace(/^["']+|["']+$/gu, "");
-  const normalized = withoutQuotes.toLowerCase();
-  return normalized.includes("/") ? normalized.slice(normalized.lastIndexOf("/") + 1) : normalized;
-}
-
-interface PrimaryCommandDescriptor {
-  token: string;
-  tokenIndex: number;
-  tokens: string[];
-}
-
-function resolvePrimaryCommandDescriptor(command: string): PrimaryCommandDescriptor | undefined {
-  const tokens = tokenizeCommand(command);
-  let envMode = false;
-
-  for (const [tokenIndex, token] of tokens.entries()) {
-    const normalizedToken = normalizeCommandToken(token);
-    if (!normalizedToken) continue;
-    if (ENV_ASSIGNMENT_TOKEN.test(token)) continue;
-
-    if (normalizedToken === "env") {
-      envMode = true;
-      continue;
-    }
-    if (envMode && token.startsWith("-")) continue;
-    if (COMMAND_PREFIX_TOKENS.has(normalizedToken)) continue;
-
-    return {
-      token: normalizedToken,
-      tokenIndex,
-      tokens,
-    };
-  }
-
-  return undefined;
-}
-
-function resolveShellInlineScript(descriptor: PrimaryCommandDescriptor): string | undefined {
-  if (!SHELL_WRAPPER_TOKENS.has(descriptor.token)) {
-    return undefined;
-  }
-
-  for (let index = descriptor.tokenIndex + 1; index < descriptor.tokens.length; index += 1) {
-    const token = descriptor.tokens[index]!;
-    if (token === "--") return undefined;
-
-    if (token.startsWith("--")) {
-      if (token === "--command") {
-        return descriptor.tokens[index + 1];
-      }
-      if (token.startsWith("--command=")) {
-        const inlineScript = token.slice("--command=".length);
-        return inlineScript.length > 0 ? inlineScript : undefined;
-      }
-      continue;
-    }
-
-    if (!token.startsWith("-")) {
-      return undefined;
-    }
-
-    const normalizedFlags = token.replace(/^-+/u, "");
-    if (!normalizedFlags) continue;
-
-    const commandIndex = normalizedFlags.indexOf("c");
-    if (commandIndex === -1) continue;
-
-    const inlineScript = normalizedFlags.slice(commandIndex + 1);
-    if (inlineScript.length > 0) return inlineScript;
-    return descriptor.tokens[index + 1];
-  }
-
-  return undefined;
-}
-
-function splitShellCommandSegments(command: string): string[] {
-  const segments: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-  let escaped = false;
-
-  const pushCurrent = () => {
-    const normalized = current.trim();
-    if (normalized.length > 0) {
-      segments.push(normalized);
-    }
-    current = "";
-  };
-
-  for (let index = 0; index < command.length; index += 1) {
-    const char = command[index]!;
-
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\" && quote !== "'") {
-      current += char;
-      escaped = true;
-      continue;
-    }
-
-    if (quote) {
-      current += char;
-      if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (char === '"' || char === "'") {
-      quote = char;
-      current += char;
-      continue;
-    }
-
-    if (char === ";" || char === "\n") {
-      pushCurrent();
-      continue;
-    }
-
-    if (char === "&" && command[index + 1] === "&") {
-      pushCurrent();
-      index += 1;
-      continue;
-    }
-
-    if (char === "|") {
-      pushCurrent();
-      if (command[index + 1] === "|") {
-        index += 1;
-      }
-      continue;
-    }
-
-    current += char;
-  }
-
-  pushCurrent();
-  return segments;
-}
-
-function collectPrimaryCommandTokens(command: string, depth = 0): string[] {
-  if (depth > MAX_COMMAND_PARSE_DEPTH) {
-    return [];
-  }
-
-  const tokens = new Set<string>();
-  for (const segment of splitShellCommandSegments(command)) {
-    const descriptor = resolvePrimaryCommandDescriptor(segment);
-    if (!descriptor) continue;
-
-    const inlineScript = resolveShellInlineScript(descriptor);
-    if (!inlineScript) {
-      tokens.add(descriptor.token);
-      continue;
-    }
-
-    const nestedTokens = collectPrimaryCommandTokens(inlineScript, depth + 1);
-    if (nestedTokens.length === 0) {
-      tokens.add(descriptor.token);
-      continue;
-    }
-
-    for (const token of nestedTokens) {
-      tokens.add(token);
-    }
-  }
-
-  return [...tokens];
-}
-
-function isLowSignalExecCommand(input: unknown): boolean {
-  if (!input || typeof input !== "object") return false;
-  const command = (input as { command?: unknown }).command;
-  if (typeof command !== "string" || !command.trim()) return false;
-  const primaryTokens = collectPrimaryCommandTokens(command);
-  if (primaryTokens.length === 0) return false;
-  return primaryTokens.every((token) => LOW_SIGNAL_EXEC_PRIMARY_TOKENS.has(token));
-}
-
-function classifyToolStrategy(
-  toolName: string,
-  args?: Record<string, unknown>,
-): ScanConvergenceToolStrategy {
-  if (RAW_SCAN_TOOL_NAMES.has(toolName)) {
-    return "raw_scan";
-  }
-  if (
-    LOW_SIGNAL_TOOL_NAMES.has(toolName) ||
-    (toolName === "exec" && isLowSignalExecCommand(args))
-  ) {
-    return "low_signal";
-  }
-  if (EVIDENCE_REUSE_TOOL_NAMES.has(toolName)) {
-    return "evidence_reuse";
-  }
-  if (toolName === "skill_chain_control") {
-    const action = typeof args?.action === "string" ? args.action.trim().toLowerCase() : "";
-    if (SKILL_CHAIN_CONTROL_PROGRESS_ACTIONS.has(action)) {
-      return "progress";
-    }
-    if (SKILL_CHAIN_CONTROL_NEUTRAL_ACTIONS.has(action)) {
-      return "neutral";
-    }
-    return "neutral";
-  }
-  if (EXPLICIT_PROGRESS_TOOL_NAMES.has(toolName)) {
-    return "progress";
-  }
-  return "progress";
 }
 
 function classifyScanFailure(text: string): "out_of_bounds" | "enoent" | "directory" | null {
@@ -591,7 +260,7 @@ export class ScanConvergenceService {
       return { allowed: true };
     }
 
-    const strategy = classifyToolStrategy(normalizedToolName, input.args);
+    const strategy = classifyScanConvergenceToolStrategy(normalizedToolName, input.args);
     state.toolStrategyByCallId.set(input.toolCallId, strategy);
 
     if (state.armedReason !== null && (strategy === "raw_scan" || strategy === "low_signal")) {
@@ -647,7 +316,7 @@ export class ScanConvergenceService {
 
     const strategy =
       state.toolStrategyByCallId.get(input.toolCallId) ??
-      classifyToolStrategy(normalizedToolName, input.args);
+      classifyScanConvergenceToolStrategy(normalizedToolName, input.args);
     state.toolStrategyByCallId.set(input.toolCallId, strategy);
 
     if (strategy === "neutral") {
@@ -774,7 +443,7 @@ export class ScanConvergenceService {
         consecutiveInvestigationOnlyTurns: state.consecutiveInvestigationOnlyTurns,
         consecutiveScanFailures: state.consecutiveScanFailures,
         blockedStrategy: "low_signal_investigation",
-        blockedTools: [...RAW_SCAN_TOOL_NAMES, ...LOW_SIGNAL_TOOL_NAMES, "exec(low_signal)"],
+        blockedTools: listBlockedScanConvergenceTools(),
         recommendedStrategyTools: [
           "task_add_item",
           "task_record_blocker",

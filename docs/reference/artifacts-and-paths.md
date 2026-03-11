@@ -93,5 +93,5 @@ Runtime artifact paths are resolved from the workspace root (`nearest .brewva/br
 - Runtime: `packages/brewva-runtime/src`
 - Deliberation: `packages/brewva-deliberation/src`
 - Tools: `packages/brewva-tools/src`
-- Extensions: `packages/brewva-extensions/src`
+- Extensions: `packages/brewva-gateway/src/runtime-plugins`
 - CLI: `packages/brewva-cli/src`

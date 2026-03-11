@@ -7,7 +7,7 @@ import {
   registerEventStream,
   registerLedgerWriter,
   registerQualityGate,
-} from "@brewva/brewva-extensions";
+} from "@brewva/brewva-gateway/runtime-plugins";
 import { DEFAULT_BREWVA_CONFIG, BrewvaRuntime } from "@brewva/brewva-runtime";
 import {
   createObsQueryTool,
@@ -48,7 +48,7 @@ describe("Extension integration: observability", () => {
     const extensionPath = join(workspace, "brewva-inline-extension.ts");
     const brewvaExtensionEntry = join(
       process.cwd(),
-      "packages/brewva-extensions/src/index.ts",
+      "packages/brewva-gateway/src/runtime-plugins/index.ts",
     ).replaceAll("\\", "/");
     writeFileSync(
       extensionPath,

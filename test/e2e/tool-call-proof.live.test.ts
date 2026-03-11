@@ -39,22 +39,22 @@ describe("e2e: tool call proof", () => {
     }
   });
 
-  runLive("--no-extensions mode still emits valid final bundle", () => {
-    const workspace = createWorkspace("no-extensions");
+  runLive("--no-addons mode still emits valid final bundle", () => {
+    const workspace = createWorkspace("no-addons");
     writeMinimalConfig(workspace);
 
     try {
       const run = runCliSync(workspace, [
-        "--no-extensions",
+        "--no-addons",
         "--mode",
         "json",
         "Do not call any tool. Reply exactly: NO-EXT-OK",
       ]);
 
-      if (skipLiveForProviderRateLimitResult("no-extensions", run)) {
+      if (skipLiveForProviderRateLimitResult("no-addons", run)) {
         return;
       }
-      assertCliSuccess(run, "no-extensions");
+      assertCliSuccess(run, "no-addons");
 
       const lines = parseJsonLines(run.stdout, { strict: true });
       const bundle = findFinalBundle(lines);

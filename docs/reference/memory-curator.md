@@ -2,7 +2,7 @@
 
 Implementation entrypoint:
 
-- `packages/brewva-extensions/src/memory-curator.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-curator.ts`
 
 Supporting helpers:
 

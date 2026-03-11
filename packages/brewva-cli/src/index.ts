@@ -4,7 +4,11 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseArgs as parseNodeArgs } from "node:util";
-import { runGatewayCli } from "@brewva/brewva-gateway";
+import {
+  ensureSessionShutdownRecorded,
+  runChannelMode,
+  runGatewayCli,
+} from "@brewva/brewva-gateway";
 import {
   BrewvaConfigLoadError,
   BrewvaRuntime,
@@ -14,7 +18,6 @@ import {
 } from "@brewva/brewva-runtime";
 import { InteractiveMode, runPrintMode } from "@mariozechner/pi-coding-agent";
 import { formatISO } from "date-fns";
-import { runChannelMode } from "./channel-mode.js";
 import { runDaemon } from "./daemon-mode.js";
 import {
   resolveBackendWorkingCwd,
@@ -23,7 +26,6 @@ import {
   writeGatewayAssistantText,
 } from "./gateway-print.js";
 import { writeJsonLine } from "./json-lines.js";
-import { ensureSessionShutdownRecorded } from "./runtime-utils.js";
 import { createBrewvaSession } from "./session.js";
 
 const NODE_VERSION_RANGE = "^20.19.0 || >=22.12.0";
@@ -109,7 +111,7 @@ Options:
   --agent <id>          Agent identity id (.brewva/agents/<id>/identity.md)
   --task <json>         TaskSpec JSON (schema: brewva.task.v1)
   --task-file <path>    TaskSpec JSON file
-  --no-extensions       Disable extension hooks (runtime core safety chain remains active)
+  --no-addons       Disable extension hooks (runtime core safety chain remains active)
   --print, -p           Run one-shot mode
   --interactive, -i     Force interactive TUI mode
   --mode <text|json>    One-shot output mode
@@ -220,7 +222,7 @@ const CLI_PARSE_OPTIONS = {
   agent: { type: "string" },
   task: { type: "string" },
   "task-file": { type: "string" },
-  "no-extensions": { type: "boolean" },
+  "no-addons": { type: "boolean" },
   print: { type: "boolean", short: "p" },
   interactive: { type: "boolean", short: "i" },
   mode: { type: "string" },
@@ -258,7 +260,7 @@ const ONBOARD_PARSE_OPTIONS = {
   "log-file": { type: "string" },
   "token-file": { type: "string" },
   heartbeat: { type: "string" },
-  "no-extensions": { type: "boolean" },
+  "no-addons": { type: "boolean" },
   "tick-interval-ms": { type: "string" },
   "session-idle-ms": { type: "string" },
   "max-workers": { type: "string" },
@@ -417,7 +419,7 @@ function parseCliArgs(argv: string[]): CliParseResult {
         pollRetryMs: pollRetryMs.value,
       },
     },
-    enableExtensions: parsed.values["no-extensions"] !== true,
+    enableExtensions: parsed.values["no-addons"] !== true,
     undo: parsed.values.undo === true,
     replay: parsed.values.replay === true,
     daemon: parsed.values.daemon === true,
@@ -540,7 +542,7 @@ async function runOnboardCli(argv: string[]): Promise<number> {
 
   if (installDaemon) {
     pushOnboardBooleanFlag(gatewayArgs, "no-start", parsed.values["no-start"]);
-    pushOnboardBooleanFlag(gatewayArgs, "no-extensions", parsed.values["no-extensions"]);
+    pushOnboardBooleanFlag(gatewayArgs, "no-addons", parsed.values["no-addons"]);
 
     pushOnboardStringFlag(gatewayArgs, "cwd", parsed.values.cwd);
     pushOnboardStringFlag(gatewayArgs, "config", parsed.values.config);
@@ -1074,42 +1076,6 @@ if (isBunMain ?? isNodeMain) {
 
 export { createBrewvaSession } from "./session.js";
 export { parseArgs };
-export {
-  SUPPORTED_CHANNELS,
-  buildChannelDispatchPrompt,
-  canonicalizeInboundTurnSession,
-  collectPromptTurnOutputs,
-  runChannelMode,
-  resolveTelegramWebhookIngressConfig,
-  resolveSupportedChannel,
-} from "./channel-mode.js";
-export type {
-  ChannelModeLauncher,
-  ChannelModeLauncherInput,
-  RunChannelModeDependencies,
-  RunChannelModeOptions,
-} from "./channel-mode.js";
-export { AgentRegistry } from "./channel/agent-registry.js";
-export { ApprovalRoutingStore } from "./channel/approval-routing.js";
-export { ApprovalStateStore } from "./channel/approval-state.js";
-export {
-  AgentRuntimeManager,
-  forceAgentRuntimeNamespace,
-} from "./channel/agent-runtime-manager.js";
-export { isOwnerAuthorized } from "./channel/acl.js";
-export { createChannelA2AExtension } from "./channel/channel-a2a-extension.js";
-export { ChannelCoordinator } from "./channel/coordinator.js";
-export { CommandRouter } from "./channel/command-router.js";
-export type { AgentSessionUsage } from "./channel/eviction.js";
-export { selectIdleEvictableAgentsByTtl, selectLruEvictableAgent } from "./channel/eviction.js";
-export { resolveChannelOrchestrationConfig } from "./channel/orchestration-config.js";
-export { buildAgentScopedConversationKey, buildRoutingScopeKey } from "./channel/routing-scope.js";
-export {
-  buildChannelSkillPolicyBlock,
-  resolveTelegramChannelSkillPolicyState,
-  DEFAULT_TELEGRAM_SKILL_NAME,
-} from "./channel/skill-policy.js";
-export type { TelegramChannelSkillPolicyState } from "./channel/skill-policy.js";
 export { JsonLineWriter, type JsonLineWritable, writeJsonLine } from "./json-lines.js";
 export {
   resolveBackendWorkingCwd,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { distillToolOutput } from "@brewva/brewva-extensions";
+import { distillToolOutput } from "@brewva/brewva-gateway/runtime-plugins";
 
 describe("tool output distiller", () => {
   test("applies exec heuristic and compresses noisy output", () => {

@@ -2,7 +2,7 @@
 
 Implementation entrypoint:
 
-- `packages/brewva-extensions/src/memory-formation.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-formation.ts`
 
 Supporting helpers:
 

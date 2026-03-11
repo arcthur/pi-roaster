@@ -3,7 +3,7 @@ import {
   selectIdleEvictableAgentsByTtl,
   selectLruEvictableAgent,
   type AgentSessionUsage,
-} from "@brewva/brewva-cli";
+} from "@brewva/brewva-gateway";
 
 describe("channel agent eviction selection", () => {
   test("selectLruEvictableAgent uses per-agent maxLastUsedAt and excludes in-flight agents", () => {

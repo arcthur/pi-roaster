@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCapabilityView } from "@brewva/brewva-extensions";
+import { buildCapabilityView } from "@brewva/brewva-gateway/runtime-plugins";
 
 describe("capability view", () => {
   test("builds compact capability list with governance-first ordering", () => {

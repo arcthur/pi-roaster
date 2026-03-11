@@ -92,11 +92,12 @@ function main(): void {
     import { createRequire } from "node:module";
     const require = createRequire(import.meta.url);
     const packages = [
+      "@brewva/brewva-addons",
       "@brewva/brewva-runtime",
       "@brewva/brewva-channels-telegram",
       "@brewva/brewva-ingress",
       "@brewva/brewva-tools",
-      "@brewva/brewva-extensions",
+      "@brewva/brewva-gateway/runtime-plugins",
       "@brewva/brewva-cli",
       "@brewva/brewva-gateway",
     ];

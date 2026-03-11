@@ -118,7 +118,10 @@ describe("session event bridge", () => {
     const { runtime, events, turnStarts, turnEnds } = createRuntimeMock();
     const sessionMock = createSessionMock("session-a");
 
-    registerRuntimeCoreEventBridge(runtime, sessionMock.session);
+    registerRuntimeCoreEventBridge(
+      runtime,
+      sessionMock.session as Parameters<typeof registerRuntimeCoreEventBridge>[1],
+    );
 
     sessionMock.emit({ type: "turn_start" } as AgentSessionEvent);
     sessionMock.emit(createTurnEndEvent());
@@ -147,7 +150,10 @@ describe("session event bridge", () => {
     costSummaryBySession.set("session-a", { totalTokens: 11, totalCostUsd: 0.11 });
     costSummaryBySession.set("session-b", { totalTokens: 22, totalCostUsd: 0.22 });
 
-    registerRuntimeCoreEventBridge(runtime, sessionMock.session);
+    registerRuntimeCoreEventBridge(
+      runtime,
+      sessionMock.session as Parameters<typeof registerRuntimeCoreEventBridge>[1],
+    );
 
     sessionMock.emit({ type: "agent_end", messages: [{ role: "assistant" }] } as AgentSessionEvent);
     sessionMock.setSessionId("session-b");
@@ -174,7 +180,10 @@ describe("session event bridge", () => {
     const { runtime, usage } = createRuntimeMock();
     const sessionMock = createSessionMock("usage-session");
 
-    registerRuntimeCoreEventBridge(runtime, sessionMock.session);
+    registerRuntimeCoreEventBridge(
+      runtime,
+      sessionMock.session as Parameters<typeof registerRuntimeCoreEventBridge>[1],
+    );
 
     sessionMock.emit({
       type: "message_end",
@@ -216,7 +225,10 @@ describe("session event bridge", () => {
     const { runtime, events } = createRuntimeMock();
     const sessionMock = createSessionMock("tool-events-session");
 
-    registerRuntimeCoreEventBridge(runtime, sessionMock.session);
+    registerRuntimeCoreEventBridge(
+      runtime,
+      sessionMock.session as Parameters<typeof registerRuntimeCoreEventBridge>[1],
+    );
 
     sessionMock.emit({
       type: "tool_execution_start",

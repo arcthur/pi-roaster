@@ -1,12 +1,5 @@
 import type { Server } from "node:http";
 import { TelegramWebhookTransport } from "@brewva/brewva-channels-telegram";
-import {
-  createRuntimeTelegramChannelBridge,
-  resolveToolDisplayStatus,
-  resolveToolDisplayText,
-  resolveToolDisplayVerdict,
-  type ToolDisplayVerdict,
-} from "@brewva/brewva-extensions";
 import { createTelegramIngressServer, type TelegramIngressAuth } from "@brewva/brewva-ingress";
 import { BrewvaRuntime } from "@brewva/brewva-runtime";
 import {
@@ -18,28 +11,34 @@ import {
   type TurnPart,
 } from "@brewva/brewva-runtime/channels";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
-import { isOwnerAuthorized } from "./channel/acl.js";
-import { AgentRegistry } from "./channel/agent-registry.js";
-import { AgentRuntimeManager } from "./channel/agent-runtime-manager.js";
-import { ApprovalRoutingStore } from "./channel/approval-routing.js";
-import { ApprovalStateStore } from "./channel/approval-state.js";
+import { AddonHost } from "../addons/host.js";
+import { ConversationBindingStore } from "../conversations/binding-store.js";
+import { createHostedSession, type HostedSessionResult } from "../host/create-hosted-session.js";
 import {
-  createChannelA2AExtension,
-  type ChannelA2AAdapter,
-} from "./channel/channel-a2a-extension.js";
-import { CommandRouter, type ChannelCommandMatch } from "./channel/command-router.js";
-import { ChannelCoordinator } from "./channel/coordinator.js";
-import type { AgentSessionUsage } from "./channel/eviction.js";
-import { selectIdleEvictableAgentsByTtl, selectLruEvictableAgent } from "./channel/eviction.js";
-import { resolveChannelOrchestrationConfig } from "./channel/orchestration-config.js";
-import { buildAgentScopedConversationKey, buildRoutingScopeKey } from "./channel/routing-scope.js";
+  createRuntimeTelegramChannelBridge,
+  resolveToolDisplayStatus,
+  resolveToolDisplayText,
+  resolveToolDisplayVerdict,
+  type ToolDisplayVerdict,
+} from "../runtime-plugins/index.js";
+import { clampText, ensureSessionShutdownRecorded } from "../utils/runtime.js";
+import { isOwnerAuthorized } from "./acl.js";
+import { AgentRegistry } from "./agent-registry.js";
+import { AgentRuntimeManager } from "./agent-runtime-manager.js";
+import { ApprovalRoutingStore } from "./approval-routing.js";
+import { ApprovalStateStore } from "./approval-state.js";
+import { createChannelA2AExtension, type ChannelA2AAdapter } from "./channel-a2a-extension.js";
+import { CommandRouter, type ChannelCommandMatch } from "./command-router.js";
+import { ChannelCoordinator } from "./coordinator.js";
+import type { AgentSessionUsage } from "./eviction.js";
+import { selectIdleEvictableAgentsByTtl, selectLruEvictableAgent } from "./eviction.js";
+import { resolveChannelOrchestrationConfig } from "./orchestration-config.js";
+import { buildAgentScopedConversationKey, buildRoutingScopeKey } from "./routing-scope.js";
 import {
   buildChannelSkillPolicyBlock,
   resolveTelegramChannelSkillPolicyState,
   type TelegramChannelSkillPolicyState,
-} from "./channel/skill-policy.js";
-import { clampText, ensureSessionShutdownRecorded } from "./runtime-utils.js";
-import { createBrewvaSession, type BrewvaSessionResult } from "./session.js";
+} from "./skill-policy.js";
 
 export interface RunChannelModeOptions {
   cwd?: string;
@@ -88,7 +87,7 @@ interface ConversationSessionState {
   agentId: string;
   runtime: BrewvaRuntime;
   agentSessionId: string;
-  result: BrewvaSessionResult;
+  result: HostedSessionResult;
   queueTail: Promise<void>;
   inFlightTasks: number;
   outboundSequence: number;
@@ -167,10 +166,10 @@ export type ChannelModeLauncher = (input: ChannelModeLauncherInput) => ChannelMo
 
 export interface RunChannelModeDependencies {
   createSession?: (
-    options?: Parameters<typeof createBrewvaSession>[0],
-  ) => Promise<BrewvaSessionResult>;
+    options?: Parameters<typeof createHostedSession>[0],
+  ) => Promise<HostedSessionResult>;
   collectPromptTurnOutputs?: (
-    session: BrewvaSessionResult["session"],
+    session: HostedSessionResult["session"],
     prompt: string,
   ) => Promise<PromptTurnOutputs>;
   launchers?: Partial<Record<SupportedChannel, ChannelModeLauncher>>;
@@ -759,7 +758,7 @@ export function canonicalizeInboundTurnSession(
 }
 
 export async function collectPromptTurnOutputs(
-  session: BrewvaSessionResult["session"],
+  session: HostedSessionResult["session"],
   prompt: string,
 ): Promise<PromptTurnOutputs> {
   let latestAssistantText = "";
@@ -892,7 +891,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
     }
   }
 
-  const createSession = options.dependencies?.createSession ?? createBrewvaSession;
+  const createSession = options.dependencies?.createSession ?? createHostedSession;
   const collectPromptOutputs =
     options.dependencies?.collectPromptTurnOutputs ?? collectPromptTurnOutputs;
   const channelLaunchers: Record<SupportedChannel, ChannelModeLauncher> = {
@@ -902,6 +901,14 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
 
   const orchestrationConfig = resolveChannelOrchestrationConfig(runtime);
   const scopeStrategy = orchestrationConfig.enabled ? orchestrationConfig.scopeStrategy : "chat";
+  const conversationBindings = ConversationBindingStore.create({
+    workspaceRoot: runtime.workspaceRoot,
+  });
+  const addonHost = new AddonHost({
+    cwd: runtime.workspaceRoot,
+  });
+  await addonHost.loadAll();
+  addonHost.startJobs();
 
   const registry = await AgentRegistry.create({
     workspaceRoot: runtime.workspaceRoot,
@@ -968,6 +975,34 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
   let shuttingDown = false;
 
   let bundle: ChannelModeLaunchBundle;
+
+  const resolveScopeKey = (turn: TurnEnvelope): string => {
+    const conversationKey = buildRoutingScopeKey(turn, scopeStrategy);
+    const existingScopeId = conversationBindings.resolveScopeId(conversationKey);
+    if (existingScopeId) {
+      return existingScopeId;
+    }
+    const created = conversationBindings.ensureBinding({
+      conversationKey,
+      proposedScopeId: conversationKey,
+      channel: turn.channel,
+      conversationId: turn.conversationId,
+      threadId: turn.threadId,
+    });
+    runtime.events.record({
+      sessionId: turnWalStore.scope,
+      type: "channel_conversation_bound",
+      payload: {
+        channel: created.channel,
+        conversationId: created.conversationId,
+        threadId: created.threadId,
+        conversationKey: created.conversationKey,
+        scopeId: created.scopeId,
+      },
+      skipTapeCheckpoint: true,
+    });
+    return created.scopeId;
+  };
 
   const nextControllerSequenceByScope = new Map<string, number>();
   const nextControllerSequence = (scopeKey: string): number => {
@@ -1213,6 +1248,8 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
         model,
         enableExtensions: options.enableExtensions,
         runtime: workerRuntime,
+        addonHost,
+        scopeId: scopeKey,
         extensionFactories: [extensionFactory],
       });
       runtimeManager.retainRuntime(agentId);
@@ -1840,7 +1877,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
         dedupeKey: `${turn.channel}:${turn.turnId}`,
       }).walId;
 
-    const scopeKey = buildRoutingScopeKey(turn, scopeStrategy);
+    const scopeKey = resolveScopeKey(turn);
     const previous = scopeQueues.get(scopeKey) ?? Promise.resolve();
     const next = previous
       .catch(() => undefined)
@@ -1916,7 +1953,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
         });
       },
       resolveIngestedSessionId: (turn) => {
-        const scopeKey = buildRoutingScopeKey(turn, scopeStrategy);
+        const scopeKey = resolveScopeKey(turn);
         let targetAgentId = orchestrationConfig.enabled
           ? registry.resolveFocus(scopeKey)
           : runtime.agentId;
@@ -1953,6 +1990,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
       },
     });
   } catch (error) {
+    addonHost.stopJobs();
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
     return;
@@ -1994,6 +2032,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
       turnWalCompactTimer = null;
     }
     await turnWalMaintenance.whenIdle();
+    addonHost.stopJobs();
     await Promise.allSettled([bundle.onStop?.(), bundle.bridge.stop()]);
     console.error(`Error: ${toErrorMessage(error)}`);
     process.exitCode = 1;
@@ -2033,6 +2072,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
           }),
         );
         runtimeManager.disposeAll();
+        addonHost.stopJobs();
 
         process.off("SIGINT", onSigInt);
         process.off("SIGTERM", onSigTerm);

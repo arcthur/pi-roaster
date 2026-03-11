@@ -9,7 +9,7 @@ import {
   registerMemoryAdaptation,
   registerMemoryCurator,
   resolveMemoryAdaptationPolicyPath,
-} from "@brewva/brewva-extensions";
+} from "@brewva/brewva-gateway/runtime-plugins";
 import {
   createMockExtensionAPI,
   invokeHandler,

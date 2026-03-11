@@ -44,6 +44,24 @@ function createRegistry(): ModelRegistry {
         contextWindow: 128000,
         maxTokens: 4096,
       },
+      {
+        id: "beta-mini",
+        name: "Beta Mini",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 4096,
+      },
+      {
+        id: "alpha-mini",
+        name: "Alpha Mini",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 4096,
+      },
     ],
   });
 
@@ -98,6 +116,12 @@ describe("resolveBrewvaModelSelection", () => {
     );
     expect(() => resolveBrewvaModelSelection("demo/alpha:nope", createRegistry())).toThrow(
       'Model "demo/alpha:nope" was not found in the configured Brewva model registry.',
+    );
+  });
+
+  test("throws for ambiguous fuzzy matches instead of silently picking one", () => {
+    expect(() => resolveBrewvaModelSelection("mini", createRegistry())).toThrow(
+      'Model "mini" is ambiguous.',
     );
   });
 });

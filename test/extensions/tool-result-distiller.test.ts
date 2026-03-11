@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { registerLedgerWriter, registerToolResultDistiller } from "@brewva/brewva-extensions";
+import {
+  registerLedgerWriter,
+  registerToolResultDistiller,
+} from "@brewva/brewva-gateway/runtime-plugins";
 import { createMockExtensionAPI } from "../helpers/extension.js";
 import { createRuntimeFixture } from "./fixtures/runtime.js";
 

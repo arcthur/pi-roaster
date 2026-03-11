@@ -21,7 +21,7 @@ without hidden process-local assumptions.
 Source anchors:
 
 - Runtime core wiring: `packages/brewva-runtime/src/runtime.ts`
-- Event stream hook: `packages/brewva-extensions/src/event-stream.ts`
+- Event stream hook: `packages/brewva-gateway/src/runtime-plugins/event-stream.ts`
 - Event store and query path: `packages/brewva-runtime/src/events/store.ts`
 
 Related docs:
@@ -47,7 +47,7 @@ Keep projection injection bounded and deterministic under large histories.
 
 Source anchors:
 
-- Context transform hook: `packages/brewva-extensions/src/context-transform.ts`
+- Context transform hook: `packages/brewva-gateway/src/runtime-plugins/context-transform.ts`
 - Runtime context budget service: `packages/brewva-runtime/src/context/budget.ts`
 - Runtime context API wiring: `packages/brewva-runtime/src/runtime.ts`
 
@@ -103,7 +103,7 @@ Source anchors:
 
 - Cost tracker: `packages/brewva-runtime/src/cost/tracker.ts`
 - Runtime cost surface wiring: `packages/brewva-runtime/src/runtime.ts`
-- Session bootstrap and reporting path: `packages/brewva-cli/src/session.ts`
+- Session bootstrap and reporting path: `packages/brewva-gateway/src/host/create-hosted-session.ts`
 
 Related docs:
 

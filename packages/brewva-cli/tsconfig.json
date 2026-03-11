@@ -10,7 +10,7 @@
     { "path": "../brewva-channels-telegram" },
     { "path": "../brewva-ingress" },
     { "path": "../brewva-tools" },
-    { "path": "../brewva-extensions" },
+    { "path": "../brewva-addons" },
     { "path": "../brewva-gateway" }
   ],
   "include": ["src/**/*.ts"]

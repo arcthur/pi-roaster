@@ -53,6 +53,7 @@ This repository uses a layered documentation system:
 - Operator teaching: `docs/reference/operator-teaching.md`
 - Proposal boundary: `docs/reference/proposal-boundary.md`
 - Events: `docs/reference/events.md`
+- Addons: `docs/reference/addons.md`
 - Extensions: `docs/reference/extensions.md`
 - Commands (CLI surface): `docs/reference/commands.md`
 - Gateway control-plane protocol: `docs/reference/gateway-control-plane-protocol.md`
@@ -78,6 +79,6 @@ This repository uses a layered documentation system:
 - Telegram channel package: `packages/brewva-channels-telegram/src/index.ts`
 - Telegram ingress package: `packages/brewva-ingress/src/index.ts`
 - Tool package: `packages/brewva-tools/src/index.ts`
-- Extension package: `packages/brewva-extensions/src/index.ts`
+- Extension package: `packages/brewva-gateway/src/runtime-plugins/index.ts`
 - CLI package: `packages/brewva-cli/src/index.ts`
 - Gateway package: `packages/brewva-gateway/src/index.ts`

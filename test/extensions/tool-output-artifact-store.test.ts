@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { persistToolOutputArtifact } from "../../packages/brewva-extensions/src/tool-output-artifact-store.js";
+import { persistToolOutputArtifact } from "../../packages/brewva-gateway/src/runtime-plugins/tool-output-artifact-store.js";
 
 describe("tool output artifact store", () => {
   test("persists raw output and returns artifact metadata", () => {

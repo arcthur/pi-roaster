@@ -8,7 +8,7 @@
     { "path": "../brewva-runtime" },
     { "path": "../brewva-skill-broker" },
     { "path": "../brewva-tools" },
-    { "path": "../brewva-extensions" }
+    { "path": "../brewva-addons" }
   ],
   "include": ["src/**/*.ts"]
 }

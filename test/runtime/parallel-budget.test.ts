@@ -71,12 +71,37 @@ describe("S-007 parallel budget control", () => {
     const waiting = manager.acquireAsync("s7d", "run-b");
 
     manager.clear("s7d");
-    try {
-      await waiting;
-      throw new Error("expected acquireAsync to reject");
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toContain("parallel slot wait cancelled for run-b");
-    }
+    expect(await waiting).toEqual({ accepted: false, reason: "cancelled" });
+  });
+
+  test("given waiters time out, when no slot opens before the deadline, then acquireAsync resolves timeout", async () => {
+    const manager = new ParallelBudgetManager({
+      enabled: true,
+      maxConcurrent: 1,
+      maxTotalPerSession: 10,
+    });
+
+    expect(manager.acquire("s7e", "run-a").accepted).toBe(true);
+    expect(await manager.acquireAsync("s7e", "run-b", { timeoutMs: 5 })).toEqual({
+      accepted: false,
+      reason: "timeout",
+    });
+  });
+
+  test("given duplicate waiters for the same runId, when capacity opens, then only one waiter acquires the slot", async () => {
+    const manager = new ParallelBudgetManager({
+      enabled: true,
+      maxConcurrent: 1,
+      maxTotalPerSession: 10,
+    });
+
+    expect(manager.acquire("s7f", "run-a").accepted).toBe(true);
+    const firstWaiting = manager.acquireAsync("s7f", "run-b");
+    const duplicateWaiting = manager.acquireAsync("s7f", "run-b");
+
+    expect(await duplicateWaiting).toEqual({ accepted: false, reason: "max_concurrent" });
+
+    manager.release("s7f", "run-a");
+    expect(await firstWaiting).toEqual({ accepted: true });
   });
 });

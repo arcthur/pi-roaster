@@ -5,7 +5,7 @@ Skill parsing, merge, and selection logic:
 - `packages/brewva-runtime/src/skills/contract.ts`
 - `packages/brewva-runtime/src/skills/registry.ts`
 - `packages/brewva-runtime/src/skills/dispatch.ts`
-- `packages/brewva-extensions/src/context-transform.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-transform.ts`
 
 ## V2 Model
 

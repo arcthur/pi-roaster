@@ -88,6 +88,69 @@ describe("skill contract tightening", () => {
     expect(merged.tools.denied).toEqual(expect.arrayContaining(["write", "process"]));
     expect(merged.budget.maxToolCalls).toBe(10);
   });
+
+  test("shared merge policies keep dispatch, routing, effect level, and maxParallel aligned", () => {
+    const base: SkillContract = {
+      name: "implementation",
+      category: "core",
+      routing: { scope: "core", continuityRequired: false },
+      dispatch: {
+        gateThreshold: 10,
+        autoThreshold: 20,
+        defaultMode: "suggest",
+      },
+      tools: {
+        required: ["read"],
+        optional: ["exec"],
+        denied: [],
+      },
+      budget: {
+        maxToolCalls: 50,
+        maxTokens: 100000,
+      },
+      maxParallel: 5,
+      effectLevel: "read_only",
+    };
+
+    const override = {
+      budget: {
+        maxToolCalls: 12,
+        maxTokens: 20000,
+      },
+      dispatch: {
+        gateThreshold: 14,
+        autoThreshold: 18,
+        defaultMode: "gate" as const,
+      },
+      routing: {
+        continuityRequired: true,
+      },
+      maxParallel: 3,
+      effectLevel: "execute" as const,
+    };
+
+    const tightened = tightenContract(base, override);
+    const merged = mergeOverlayContract(
+      {
+        ...base,
+        outputs: [],
+        outputContracts: {},
+      },
+      override,
+    );
+
+    for (const result of [tightened, merged]) {
+      expect(result.budget).toEqual({ maxToolCalls: 12, maxTokens: 20000 });
+      expect(result.dispatch).toEqual({
+        gateThreshold: 14,
+        autoThreshold: 20,
+        defaultMode: "gate",
+      });
+      expect(result.routing).toEqual({ scope: "core", continuityRequired: true });
+      expect(result.maxParallel).toBe(3);
+      expect(result.effectLevel).toBe("execute");
+    }
+  });
 });
 
 describe("skill document parsing", () => {
@@ -301,6 +364,62 @@ describe("skill document parsing", () => {
         },
       }),
     ).toThrow("cannot replace the base contract");
+  });
+
+  test("accepts equivalent nested output contracts even when object key order differs", () => {
+    const base: SkillContract = {
+      name: "review",
+      category: "core",
+      routing: { scope: "core" },
+      tools: {
+        required: ["read"],
+        optional: [],
+        denied: [],
+      },
+      budget: {
+        maxToolCalls: 50,
+        maxTokens: 100000,
+      },
+      outputs: ["review_report"],
+      outputContracts: {
+        review_report: {
+          kind: "object",
+          required: ["summary", "decision"],
+          properties: {
+            summary: { kind: "informative_text", minWords: 3, minLength: 18 },
+            decision: {
+              kind: "one_of",
+              variants: [
+                { kind: "enum", values: ["approve", "reject"] },
+                { kind: "informative_text", minWords: 2 },
+              ],
+            },
+          },
+        },
+      },
+    };
+
+    expect(() =>
+      mergeOverlayContract(base, {
+        outputs: ["review_report"],
+        outputContracts: {
+          review_report: {
+            properties: {
+              decision: {
+                variants: [
+                  { values: ["approve", "reject"], kind: "enum" },
+                  { minWords: 2, kind: "informative_text" },
+                ],
+                kind: "one_of",
+              },
+              summary: { minLength: 18, kind: "informative_text", minWords: 3 },
+            },
+            kind: "object",
+            required: ["summary", "decision"],
+          },
+        },
+      }),
+    ).not.toThrow();
   });
 
   test("parses skill-local resources with relative paths", () => {

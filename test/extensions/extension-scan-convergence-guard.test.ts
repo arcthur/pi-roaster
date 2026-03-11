@@ -3,7 +3,7 @@ import {
   registerEventStream,
   registerLedgerWriter,
   registerQualityGate,
-} from "@brewva/brewva-extensions";
+} from "@brewva/brewva-gateway/runtime-plugins";
 import { createMockExtensionAPI, invokeHandler, invokeHandlers } from "../helpers/extension.js";
 import { createRuntimeFixture } from "./fixtures/runtime.js";
 

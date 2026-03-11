@@ -55,8 +55,9 @@ Implementation detail and system boundaries:
 - `@brewva/brewva-deliberation`: proposal producers, evidence helpers, and control-plane planning helpers
 - `@brewva/brewva-skill-broker`: broker-backed skill selection and control-plane integration
 - `@brewva/brewva-tools`: runtime-aware tools for code, tape, task, schedule, observability, and skill control flows
-- `@brewva/brewva-extensions`: runtime hook wiring, integration guards, and debug-loop orchestration
-- `@brewva/brewva-cli`: interactive CLI, print/json modes, replay/undo, daemon, and channel entrypoints
+- `@brewva/brewva-addons`: public addon SDK for jobs, panels, artifact stores, and scope-scoped context publication
+- `@brewva/brewva-gateway/runtime-plugins`: runtime hook wiring, integration guards, and debug-loop orchestration
+- `@brewva/brewva-cli`: interactive CLI, print/json modes, replay/undo, daemon, and the user-facing front door into gateway-hosted channels
 - `@brewva/brewva-gateway`: local control-plane daemon and worker supervision
 - `@brewva/brewva-channels-telegram`: Telegram adapter and transport
 - `@brewva/brewva-ingress`: webhook worker/server ingress for Telegram edge delivery

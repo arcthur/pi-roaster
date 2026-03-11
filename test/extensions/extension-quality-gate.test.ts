@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { registerQualityGate } from "@brewva/brewva-extensions";
+import { registerQualityGate } from "@brewva/brewva-gateway/runtime-plugins";
 import { createMockExtensionAPI, invokeHandler } from "../helpers/extension.js";
 import { createRuntimeFixture } from "./fixtures/runtime.js";
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { registerToolSurface } from "@brewva/brewva-extensions";
+import { registerToolSurface } from "@brewva/brewva-gateway/runtime-plugins";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import type { ToolInfo } from "@mariozechner/pi-coding-agent";
 import { createMockExtensionAPI, invokeHandlerAsync } from "../helpers/extension.js";

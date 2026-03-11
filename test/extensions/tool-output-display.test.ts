@@ -3,7 +3,7 @@ import {
   resolveToolDisplayStatus,
   resolveToolDisplayText,
   resolveToolDisplayVerdict,
-} from "@brewva/brewva-extensions";
+} from "@brewva/brewva-gateway/runtime-plugins";
 
 describe("tool output display", () => {
   test("prefers explicit fail verdict over channel success", () => {

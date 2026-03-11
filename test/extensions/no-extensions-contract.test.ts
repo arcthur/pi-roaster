@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createBrewvaExtension, createRuntimeCoreBridgeExtension } from "@brewva/brewva-extensions";
+import {
+  createBrewvaExtension,
+  createRuntimeCoreBridgeExtension,
+} from "@brewva/brewva-gateway/runtime-plugins";
 import { createMockExtensionAPI, invokeHandlerAsync } from "../helpers/extension.js";
 import { createRuntimeFixture } from "./fixtures/runtime.js";
 
@@ -7,7 +10,7 @@ function handlerNames(handlers: Map<string, unknown[]>): string[] {
   return [...handlers.keys()].toSorted((left, right) => left.localeCompare(right));
 }
 
-describe("no-extensions contract", () => {
+describe("no-addons contract", () => {
   test("default extension and runtime-core bridge register different handler surfaces", async () => {
     const defaultRuntime = createRuntimeFixture();
     const defaultApi = createMockExtensionAPI();

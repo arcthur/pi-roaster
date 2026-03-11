@@ -8,8 +8,8 @@ Boundary contract sources:
 - Deliberation cognition bridge: `packages/brewva-deliberation/src/cognition.ts`
 - Deliberation helpers: `packages/brewva-deliberation/src/proposals.ts`
 - Deliberation runtime planning: `packages/brewva-deliberation/src/runtime-skills.ts`
-- Context composition bridge: `packages/brewva-extensions/src/context-transform.ts`
-- Memory curator producer: `packages/brewva-extensions/src/memory-curator.ts`
+- Context composition bridge: `packages/brewva-gateway/src/runtime-plugins/context-transform.ts`
+- Memory curator producer: `packages/brewva-gateway/src/runtime-plugins/memory-curator.ts`
 - Broker proposal producer: `packages/brewva-skill-broker/src/extension.ts`
 
 The proposal boundary is the public handoff between deliberation and kernel

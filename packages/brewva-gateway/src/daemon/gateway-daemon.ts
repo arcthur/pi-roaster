@@ -3,10 +3,11 @@ import { existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import process from "node:process";
-import { planHeartbeatWake } from "@brewva/brewva-extensions";
+import { planHeartbeatWake } from "@brewva/brewva-gateway/runtime-plugins";
 import { loadBrewvaConfig, resolveWorkspaceRootDir } from "@brewva/brewva-runtime";
 import { TurnWALStore } from "@brewva/brewva-runtime/channels";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { AddonHost } from "../addons/host.js";
 import { loadOrCreateGatewayToken, rotateGatewayToken } from "../auth.js";
 import { assertLoopbackHost, normalizeGatewayHost } from "../network.js";
 import type { GatewayErrorShape } from "../protocol/index.js";
@@ -203,6 +204,7 @@ export class GatewayDaemon {
   private readonly supervisor: SessionBackend;
   private readonly turnWalStore?: TurnWALStore;
   private readonly heartbeatScheduler: HeartbeatScheduler;
+  private readonly addonHost: AddonHost;
   private readonly heartbeatSessionByRule = new Map<string, string>();
   private readonly startedAt = Date.now();
   private readonly stopDeferred = createDeferred<void>();
@@ -252,6 +254,9 @@ export class GatewayDaemon {
     const runtimeConfig = loadBrewvaConfig({
       cwd: resolvedCwd,
       configPath: options.configPath,
+    });
+    this.addonHost = new AddonHost({
+      cwd: workspaceRoot,
     });
     this.turnWalStore = options.sessionBackend
       ? undefined
@@ -317,6 +322,8 @@ export class GatewayDaemon {
       this.ownsPidRecord = true;
 
       await this.supervisor.start();
+      await this.addonHost.loadAll();
+      this.addonHost.startJobs();
       this.heartbeatScheduler.start();
       this.startTickEmitter();
       this.installSignalHandlers();
@@ -477,6 +484,7 @@ export class GatewayDaemon {
     }
 
     this.heartbeatScheduler.stop();
+    this.addonHost.stopJobs();
     try {
       await this.supervisor.stop();
     } catch {
@@ -548,6 +556,7 @@ export class GatewayDaemon {
     }
 
     this.heartbeatScheduler.stop();
+    this.addonHost.stopJobs();
 
     if (this.wss) {
       const server = this.wss;

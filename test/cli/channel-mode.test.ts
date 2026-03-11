@@ -6,7 +6,7 @@ import {
   canonicalizeInboundTurnSession,
   collectPromptTurnOutputs,
   resolveSupportedChannel,
-} from "@brewva/brewva-cli";
+} from "@brewva/brewva-gateway";
 import type { TurnEnvelope } from "@brewva/brewva-runtime/channels";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 

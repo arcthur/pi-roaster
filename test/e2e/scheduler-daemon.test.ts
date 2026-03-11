@@ -72,7 +72,7 @@ async function waitForCondition<T>(
 function startSchedulerDaemon(workspace: string): DaemonProcess {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
-  const child = spawn("bun", ["run", "start", "--cwd", workspace, "--daemon", "--no-extensions"], {
+  const child = spawn("bun", ["run", "start", "--cwd", workspace, "--daemon", "--no-addons"], {
     cwd: repoRoot,
     env: {
       ...process.env,

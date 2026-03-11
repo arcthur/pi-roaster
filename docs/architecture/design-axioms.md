@@ -79,18 +79,18 @@ Current module anchors:
   - `packages/brewva-runtime/src/context/*`
   - `packages/brewva-runtime/src/services/context*.ts`
   - `packages/brewva-runtime/src/projection/*`
-  - `packages/brewva-extensions/src/tool-surface.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/tool-surface.ts`
 - `Cognitive Product Plane`
-  - `packages/brewva-extensions/src/context-composer.ts`
-  - `packages/brewva-extensions/src/memory-formation.ts`
-  - `packages/brewva-extensions/src/memory-curator.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/context-composer.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/memory-formation.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/memory-curator.ts`
   - `packages/brewva-runtime/src/context/identity.ts`
 - `Control Plane`
   - `packages/brewva-skill-broker/src/*`
-  - `packages/brewva-extensions/src/debug-loop.ts`
-  - `packages/brewva-extensions/src/proactivity-context.ts`
-  - `packages/brewva-extensions/src/cognitive-metrics.ts`
-  - `packages/brewva-extensions/src/memory-adaptation.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/debug-loop.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/proactivity-context.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/cognitive-metrics.ts`
+  - `packages/brewva-gateway/src/runtime-plugins/memory-adaptation.ts`
   - gateway heartbeat / scheduler policy code
 
 Rings answer "who may commit". Planes answer "what concern is this code

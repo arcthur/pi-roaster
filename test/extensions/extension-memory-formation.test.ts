@@ -6,7 +6,7 @@ import {
   createEmptyMemoryAdaptationPolicy,
   registerMemoryFormation,
   resolveMemoryAdaptationPolicyPath,
-} from "@brewva/brewva-extensions";
+} from "@brewva/brewva-gateway/runtime-plugins";
 import { createMockExtensionAPI, invokeHandlersAsync } from "../helpers/extension.js";
 import { createRuntimeFixture } from "./fixtures/runtime.js";
 

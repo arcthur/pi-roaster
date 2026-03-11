@@ -1,6 +1,6 @@
 # Reference: Extensions
 
-Extension factory entrypoint: `packages/brewva-extensions/src/index.ts`.
+Extension factory entrypoint: `packages/brewva-gateway/src/runtime-plugins/index.ts`.
 
 Control-plane broker entrypoint: `packages/brewva-skill-broker/src/index.ts`.
 
@@ -44,21 +44,21 @@ Optional profiles add:
 
 Implementation files:
 
-- `packages/brewva-extensions/src/event-stream.ts`
-- `packages/brewva-extensions/src/tool-surface.ts`
-- `packages/brewva-extensions/src/memory-curator.ts`
-- `packages/brewva-extensions/src/memory-formation.ts`
-- `packages/brewva-extensions/src/context-composer.ts`
-- `packages/brewva-extensions/src/context-contract.ts`
-- `packages/brewva-extensions/src/context-transform.ts`
-- `packages/brewva-extensions/src/cognitive-metrics.ts`
-- `packages/brewva-extensions/src/proactivity-context.ts`
-- `packages/brewva-extensions/src/quality-gate.ts`
-- `packages/brewva-extensions/src/debug-loop.ts`
-- `packages/brewva-extensions/src/ledger-writer.ts`
-- `packages/brewva-extensions/src/tool-result-distiller.ts`
-- `packages/brewva-extensions/src/completion-guard.ts`
-- `packages/brewva-extensions/src/notification.ts`
+- `packages/brewva-gateway/src/runtime-plugins/event-stream.ts`
+- `packages/brewva-gateway/src/runtime-plugins/tool-surface.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-curator.ts`
+- `packages/brewva-gateway/src/runtime-plugins/memory-formation.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-composer.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-contract.ts`
+- `packages/brewva-gateway/src/runtime-plugins/context-transform.ts`
+- `packages/brewva-gateway/src/runtime-plugins/cognitive-metrics.ts`
+- `packages/brewva-gateway/src/runtime-plugins/proactivity-context.ts`
+- `packages/brewva-gateway/src/runtime-plugins/quality-gate.ts`
+- `packages/brewva-gateway/src/runtime-plugins/debug-loop.ts`
+- `packages/brewva-gateway/src/runtime-plugins/ledger-writer.ts`
+- `packages/brewva-gateway/src/runtime-plugins/tool-result-distiller.ts`
+- `packages/brewva-gateway/src/runtime-plugins/completion-guard.ts`
+- `packages/brewva-gateway/src/runtime-plugins/notification.ts`
 
 ## Tool Surface Resolution
 
@@ -327,7 +327,7 @@ Default context injection sources are:
 - `brewva.tool-outputs-distilled`
 - `brewva.projection-working`
 
-## Runtime Core Bridge (`--no-extensions`)
+## Runtime Core Bridge (`--no-addons`)
 
 `createRuntimeCoreBridgeExtension` / `registerRuntimeCoreBridge` provide a reduced extension surface when full extensions are disabled.
 
@@ -352,7 +352,7 @@ Disabled full-extension hooks in this profile:
 - `registerDebugLoop`
 - `registerNotification`
 
-This means no-extensions keeps core safety/evidence guarantees, but omits presentation-oriented lifecycle orchestration from the full extension stack.
+This means no-addons keeps core safety/evidence guarantees, but omits presentation-oriented lifecycle orchestration from the full extension stack.
 
 ## Channel Bridge Notes
 
