@@ -8,6 +8,7 @@ import type {
   SkillContractOverride,
   SkillDocument,
   SkillEffectLevel,
+  SkillOutputContract,
   SkillResourceSet,
   SkillRoutingPolicy,
 } from "../types.js";
@@ -37,6 +38,21 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter {
 
 function failSkillContract(filePath: string, message: string): never {
   throw new Error(`[skill_contract] ${filePath}: ${message}`);
+}
+
+function assertAllowedKeys(
+  data: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  filePath: string,
+  fieldPath: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  const unexpected = Object.keys(data).filter((key) => !allowed.has(key));
+  if (unexpected.length === 0) return;
+  failSkillContract(
+    filePath,
+    `${fieldPath} contains unsupported field(s): ${unexpected.join(", ")}.`,
+  );
 }
 
 function requireRecordField(
@@ -137,6 +153,333 @@ function normalizeToolListStrict(values: string[], filePath: string, fieldPath: 
 
 function toString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function readOptionalBooleanField(
+  data: Record<string, unknown>,
+  key: string,
+  filePath: string,
+  fieldPath: string,
+): boolean | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, key)) {
+    return undefined;
+  }
+  const value = data[key];
+  if (typeof value !== "boolean") {
+    failSkillContract(filePath, `${fieldPath}.${key} must be a boolean.`);
+  }
+  return value;
+}
+
+function readOptionalPositiveIntegerField(
+  data: Record<string, unknown>,
+  key: string,
+  filePath: string,
+  fieldPath: string,
+): number | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, key)) {
+    return undefined;
+  }
+  const value = data[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+    failSkillContract(filePath, `${fieldPath}.${key} must be a number >= 1.`);
+  }
+  return Math.floor(value);
+}
+
+function parseOutputContractMap(
+  value: unknown,
+  filePath: string,
+  fieldPath: string,
+): Record<string, SkillOutputContract> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    failSkillContract(filePath, `${fieldPath} must be an object keyed by output name.`);
+  }
+  const record = value as Record<string, unknown>;
+  const parsed: Record<string, SkillOutputContract> = {};
+  for (const [name, entry] of Object.entries(record)) {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      failSkillContract(filePath, `${fieldPath} contains an empty output name.`);
+    }
+    parsed[normalizedName] = parseOutputContract(entry, filePath, `${fieldPath}.${normalizedName}`);
+  }
+  return parsed;
+}
+
+function parseObjectProperties(
+  data: Record<string, unknown>,
+  key: string,
+  filePath: string,
+  fieldPath: string,
+): Record<string, SkillOutputContract> | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, key)) {
+    return undefined;
+  }
+  return parseOutputContractMap(data[key], filePath, `${fieldPath}.${key}`);
+}
+
+function parseOutputContract(
+  value: unknown,
+  filePath: string,
+  fieldPath: string,
+): SkillOutputContract {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    failSkillContract(filePath, `${fieldPath} must be an object.`);
+  }
+  const data = value as Record<string, unknown>;
+  const kind = typeof data.kind === "string" ? data.kind.trim() : "";
+  if (!kind) {
+    failSkillContract(filePath, `${fieldPath}.kind must be a non-empty string.`);
+  }
+
+  switch (kind) {
+    case "informative_text": {
+      assertAllowedKeys(data, ["kind", "min_words", "min_length"], filePath, fieldPath);
+      return {
+        kind,
+        minWords: readOptionalPositiveIntegerField(data, "min_words", filePath, fieldPath),
+        minLength: readOptionalPositiveIntegerField(data, "min_length", filePath, fieldPath),
+      };
+    }
+    case "enum": {
+      assertAllowedKeys(data, ["kind", "values", "case_sensitive"], filePath, fieldPath);
+      return {
+        kind,
+        values: requireStringArrayField(data, "values", filePath),
+        caseSensitive: readOptionalBooleanField(data, "case_sensitive", filePath, fieldPath),
+      };
+    }
+    case "informative_list": {
+      assertAllowedKeys(
+        data,
+        ["kind", "min_items", "allow_objects", "min_words", "min_length"],
+        filePath,
+        fieldPath,
+      );
+      return {
+        kind,
+        minItems: readOptionalPositiveIntegerField(data, "min_items", filePath, fieldPath),
+        allowObjects: readOptionalBooleanField(data, "allow_objects", filePath, fieldPath),
+        minWords: readOptionalPositiveIntegerField(data, "min_words", filePath, fieldPath),
+        minLength: readOptionalPositiveIntegerField(data, "min_length", filePath, fieldPath),
+      };
+    }
+    case "path_list": {
+      assertAllowedKeys(data, ["kind", "min_items"], filePath, fieldPath);
+      return {
+        kind,
+        minItems: readOptionalPositiveIntegerField(data, "min_items", filePath, fieldPath),
+      };
+    }
+    case "object": {
+      assertAllowedKeys(
+        data,
+        ["kind", "min_keys", "required", "properties", "require_any_informative_field"],
+        filePath,
+        fieldPath,
+      );
+      return {
+        kind,
+        minKeys: readOptionalPositiveIntegerField(data, "min_keys", filePath, fieldPath),
+        required: Object.prototype.hasOwnProperty.call(data, "required")
+          ? requireStringArrayField(data, "required", filePath)
+          : undefined,
+        properties: parseObjectProperties(data, "properties", filePath, fieldPath),
+        requireAnyInformativeField: readOptionalBooleanField(
+          data,
+          "require_any_informative_field",
+          filePath,
+          fieldPath,
+        ),
+      };
+    }
+    case "record_list": {
+      assertAllowedKeys(
+        data,
+        ["kind", "min_items", "required", "properties", "require_any_informative_field"],
+        filePath,
+        fieldPath,
+      );
+      const properties = parseObjectProperties(data, "properties", filePath, fieldPath);
+      if (!properties || Object.keys(properties).length === 0) {
+        failSkillContract(filePath, `${fieldPath}.properties must declare at least one field.`);
+      }
+      return {
+        kind,
+        minItems: readOptionalPositiveIntegerField(data, "min_items", filePath, fieldPath),
+        required: Object.prototype.hasOwnProperty.call(data, "required")
+          ? requireStringArrayField(data, "required", filePath)
+          : undefined,
+        properties,
+        requireAnyInformativeField: readOptionalBooleanField(
+          data,
+          "require_any_informative_field",
+          filePath,
+          fieldPath,
+        ),
+      };
+    }
+    case "json": {
+      assertAllowedKeys(data, ["kind", "min_keys", "min_items"], filePath, fieldPath);
+      return {
+        kind,
+        minKeys: readOptionalPositiveIntegerField(data, "min_keys", filePath, fieldPath),
+        minItems: readOptionalPositiveIntegerField(data, "min_items", filePath, fieldPath),
+      };
+    }
+    case "one_of": {
+      assertAllowedKeys(data, ["kind", "variants"], filePath, fieldPath);
+      const variants = data.variants;
+      if (!Array.isArray(variants) || variants.length === 0) {
+        failSkillContract(filePath, `${fieldPath}.variants must be a non-empty array.`);
+      }
+      return {
+        kind,
+        variants: variants.map((entry, index) =>
+          parseOutputContract(entry, filePath, `${fieldPath}.variants[${index}]`),
+        ),
+      };
+    }
+    default:
+      failSkillContract(
+        filePath,
+        `${fieldPath}.kind must be one of: informative_text | enum | informative_list | path_list | object | record_list | json | one_of.`,
+      );
+  }
+}
+
+function normalizeOutputContracts(
+  data: Record<string, unknown>,
+  outputs: string[] | undefined,
+  category: SkillCategory,
+  filePath: string,
+): Record<string, SkillOutputContract> | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, "output_contracts")) {
+    if (category !== "overlay" && (outputs?.length ?? 0) > 0) {
+      failSkillContract(filePath, "missing required frontmatter field 'output_contracts'.");
+    }
+    return undefined;
+  }
+
+  const parsed = parseOutputContractMap(data.output_contracts, filePath, "output_contracts");
+  const outputNames = outputs ?? [];
+  const outputSet = new Set(outputNames);
+  if (category !== "overlay") {
+    const unexpected = Object.keys(parsed).filter((name) => !outputSet.has(name));
+    if (unexpected.length > 0) {
+      failSkillContract(
+        filePath,
+        `output_contracts contains undeclared outputs: ${unexpected.join(", ")}.`,
+      );
+    }
+    const missing = outputNames.filter(
+      (name) => !Object.prototype.hasOwnProperty.call(parsed, name),
+    );
+    if (missing.length > 0) {
+      failSkillContract(
+        filePath,
+        `output_contracts must define every declared output. Missing: ${missing.join(", ")}.`,
+      );
+    }
+  }
+  if (outputNames.length === 0 && Object.keys(parsed).length > 0 && category !== "overlay") {
+    failSkillContract(filePath, "output_contracts cannot be declared when outputs is empty.");
+  }
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
+function outputContractsEqual(left: SkillOutputContract, right: SkillOutputContract): boolean {
+  if (left.kind !== right.kind) return false;
+  const leftEntries = Object.entries(left as unknown as Record<string, unknown>);
+  const rightEntries = Object.entries(right as unknown as Record<string, unknown>);
+  if (leftEntries.length !== rightEntries.length) return false;
+  for (const [key, leftValue] of leftEntries) {
+    const rightValue = (right as unknown as Record<string, unknown>)[key];
+    if (Array.isArray(leftValue) && Array.isArray(rightValue)) {
+      if (leftValue.length !== rightValue.length) return false;
+      for (let index = 0; index < leftValue.length; index += 1) {
+        const leftItem = leftValue[index];
+        const rightItem = rightValue[index];
+        if (
+          typeof leftItem === "object" &&
+          leftItem !== null &&
+          !Array.isArray(leftItem) &&
+          typeof rightItem === "object" &&
+          rightItem !== null &&
+          !Array.isArray(rightItem)
+        ) {
+          if (
+            !outputContractsEqual(leftItem as SkillOutputContract, rightItem as SkillOutputContract)
+          ) {
+            return false;
+          }
+          continue;
+        }
+        if (JSON.stringify(leftItem) !== JSON.stringify(rightItem)) return false;
+      }
+      continue;
+    }
+    if (
+      typeof leftValue === "object" &&
+      leftValue !== null &&
+      !Array.isArray(leftValue) &&
+      typeof rightValue === "object" &&
+      rightValue !== null &&
+      !Array.isArray(rightValue)
+    ) {
+      const leftRecord = leftValue as Record<string, SkillOutputContract>;
+      const rightRecord = rightValue as Record<string, SkillOutputContract>;
+      const leftKeys = Object.keys(leftRecord).toSorted();
+      const rightKeys = Object.keys(rightRecord).toSorted();
+      if (leftKeys.length !== rightKeys.length) return false;
+      for (const nestedKey of leftKeys) {
+        if (!rightKeys.includes(nestedKey)) return false;
+        if (!outputContractsEqual(leftRecord[nestedKey]!, rightRecord[nestedKey]!)) return false;
+      }
+      continue;
+    }
+    if (leftValue !== rightValue) return false;
+  }
+  return true;
+}
+
+function mergeOutputContracts(
+  base: Record<string, SkillOutputContract> | undefined,
+  overlay: Record<string, SkillOutputContract> | undefined,
+  outputNames: string[],
+  filePath: string,
+): Record<string, SkillOutputContract> | undefined {
+  if (!base && !overlay) {
+    return undefined;
+  }
+  const merged: Record<string, SkillOutputContract> = { ...base };
+  for (const [name, contract] of Object.entries(overlay ?? {})) {
+    const existing = merged[name];
+    if (existing && !outputContractsEqual(existing, contract)) {
+      failSkillContract(
+        filePath,
+        `overlay output_contracts cannot replace the base contract for '${name}'.`,
+      );
+    }
+    merged[name] = contract;
+  }
+  const outputSet = new Set(outputNames);
+  const unexpected = Object.keys(merged).filter((name) => !outputSet.has(name));
+  if (unexpected.length > 0) {
+    failSkillContract(
+      filePath,
+      `merged output_contracts contains outputs not declared by the merged skill: ${unexpected.join(", ")}.`,
+    );
+  }
+  const missing = outputNames.filter((name) => !Object.prototype.hasOwnProperty.call(merged, name));
+  if (missing.length > 0) {
+    failSkillContract(
+      filePath,
+      `merged output_contracts must cover every merged output. Missing: ${missing.join(", ")}.`,
+    );
+  }
+  return merged;
 }
 
 function normalizePositiveInteger(value: unknown, fallback: number): number {
@@ -400,6 +743,7 @@ function normalizeContract(
     category === "overlay"
       ? readNullableStringArrayField(data, "outputs", filePath)
       : requireStringArrayField(data, "outputs", filePath);
+  const outputContracts = normalizeOutputContracts(data, outputs, category, filePath);
   if (Object.prototype.hasOwnProperty.call(data, "composableWith")) {
     failSkillContract(
       filePath,
@@ -440,6 +784,7 @@ function normalizeContract(
       maxTokens: Math.max(1000, Math.trunc(maxTokens)),
     },
     outputs,
+    outputContracts,
     composableWith,
     consumes,
     requires,
@@ -460,6 +805,11 @@ export function tightenContract(
   base: SkillContract,
   override: SkillContractOverride,
 ): SkillContract {
+  if (override.outputContracts && Object.keys(override.outputContracts).length > 0) {
+    throw new Error(
+      "[skill_contract] config overrides cannot replace or extend output contracts. Update the skill frontmatter instead.",
+    );
+  }
   const baseDenied = new Set([...base.tools.denied].map((tool) => normalizeToolName(tool)));
   const baseAllowed = new Set(
     [...base.tools.required, ...base.tools.optional]
@@ -560,6 +910,7 @@ export function tightenContract(
     dispatch,
     routing,
     outputs: override.outputs ?? base.outputs,
+    outputContracts: base.outputContracts,
     composableWith: override.composableWith ?? base.composableWith,
     consumes: override.consumes ?? base.consumes,
     requires: [...new Set([...(base.requires ?? []), ...(override.requires ?? [])])],
@@ -612,6 +963,13 @@ export function mergeOverlayContract(
     typeof overlay.maxParallel === "number"
       ? Math.min(base.maxParallel ?? overlay.maxParallel, overlay.maxParallel)
       : base.maxParallel;
+  const mergedOutputs = [...new Set([...(base.outputs ?? []), ...(overlay.outputs ?? [])])];
+  const outputContracts = mergeOutputContracts(
+    base.outputContracts,
+    overlay.outputContracts,
+    mergedOutputs,
+    base.name,
+  );
   const effectLevel =
     overlay.effectLevel &&
     EFFECT_LEVEL_RANK[overlay.effectLevel] > EFFECT_LEVEL_RANK[base.effectLevel ?? "read_only"]
@@ -663,7 +1021,8 @@ export function mergeOverlayContract(
     ...base,
     dispatch,
     routing,
-    outputs: [...new Set([...(base.outputs ?? []), ...(overlay.outputs ?? [])])],
+    outputs: mergedOutputs,
+    outputContracts,
     composableWith: [
       ...new Set([...(base.composableWith ?? []), ...(overlay.composableWith ?? [])]),
     ],

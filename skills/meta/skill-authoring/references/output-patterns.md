@@ -2,6 +2,10 @@
 
 Use these patterns when skills need to produce consistent, high-quality output.
 
+Pair each declared output with an explicit `output_contracts` entry in
+frontmatter. Keep the contract just strong enough to reject placeholder output
+without over-constraining normal use.
+
 ## Template Pattern
 
 Provide templates for output format. Match the level of strictness to your needs.

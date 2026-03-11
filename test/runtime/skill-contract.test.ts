@@ -68,6 +68,8 @@ describe("skill contract tightening", () => {
         maxToolCalls: 50,
         maxTokens: 100000,
       },
+      outputs: [],
+      outputContracts: {},
     };
 
     const merged = mergeOverlayContract(base, {
@@ -210,6 +212,13 @@ describe("skill document parsing", () => {
           maxTokens: 100000,
         },
         outputs: ["change_set"],
+        outputContracts: {
+          change_set: {
+            kind: "informative_text",
+            minWords: 3,
+            minLength: 18,
+          },
+        },
         consumes: ["root_cause"],
         composableWith: ["debugging"],
       },
@@ -217,8 +226,81 @@ describe("skill document parsing", () => {
     );
 
     expect(merged.outputs).toEqual(["change_set"]);
+    expect(merged.outputContracts).toEqual({
+      change_set: {
+        kind: "informative_text",
+        minWords: 3,
+        minLength: 18,
+      },
+    });
     expect(merged.consumes).toEqual(["root_cause"]);
     expect(merged.composableWith).toEqual(["debugging"]);
+  });
+
+  test("fails fast when non-overlay outputs omit output contracts", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-missing-output-contracts-"));
+    const filePath = join(workspace, "skills", "core", "review", "SKILL.md");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(
+      filePath,
+      [
+        "---",
+        "name: review",
+        "description: review skill",
+        "tools:",
+        "  required: [read]",
+        "  optional: []",
+        "  denied: []",
+        "budget:",
+        "  max_tool_calls: 10",
+        "  max_tokens: 10000",
+        "outputs: [review_report]",
+        "consumes: []",
+        "---",
+        "# review",
+      ].join("\n"),
+      "utf8",
+    );
+
+    expect(() => parseSkillDocument(filePath, "core")).toThrow("output_contracts");
+  });
+
+  test("rejects overlays that attempt to replace a base output contract", () => {
+    const base: SkillContract = {
+      name: "review",
+      category: "core",
+      routing: { scope: "core" },
+      tools: {
+        required: ["read"],
+        optional: [],
+        denied: [],
+      },
+      budget: {
+        maxToolCalls: 50,
+        maxTokens: 100000,
+      },
+      outputs: ["review_report"],
+      outputContracts: {
+        review_report: {
+          kind: "informative_text",
+          minWords: 3,
+          minLength: 18,
+        },
+      },
+    };
+
+    expect(() =>
+      mergeOverlayContract(base, {
+        outputs: ["review_report"],
+        outputContracts: {
+          review_report: {
+            kind: "informative_text",
+            minWords: 2,
+            minLength: 12,
+          },
+        },
+      }),
+    ).toThrow("cannot replace the base contract");
   });
 
   test("parses skill-local resources with relative paths", () => {
@@ -262,5 +344,30 @@ describe("repository catalog contracts", () => {
     expect(review.contract.outputs).toEqual(
       expect.arrayContaining(["review_report", "review_findings", "merge_decision"]),
     );
+    expect(Object.keys(review.contract.outputContracts ?? {}).toSorted()).toEqual([
+      "merge_decision",
+      "review_findings",
+      "review_report",
+    ]);
+  });
+
+  test("built-in base skills declare explicit output contracts for every declared output", () => {
+    const runtime = new BrewvaRuntime({ cwd: repoRoot() });
+    const missing = runtime.skills
+      .list()
+      .filter((skill) => skill.category !== "overlay")
+      .flatMap((skill) => {
+        const outputs = skill.contract.outputs ?? [];
+        if (outputs.length === 0) {
+          return [];
+        }
+        const contracts = skill.contract.outputContracts ?? {};
+        const uncovered = outputs.filter(
+          (name) => !Object.prototype.hasOwnProperty.call(contracts, name),
+        );
+        return uncovered.length === 0 ? [] : [`${skill.name}:${uncovered.join(",")}`];
+      });
+
+    expect(missing).toEqual([]);
   });
 });

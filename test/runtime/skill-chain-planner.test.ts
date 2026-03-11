@@ -138,4 +138,20 @@ describe("skill chain planner", () => {
     expect(chain.chain).toEqual(["review"]);
     expect(chain.unresolvedConsumes).toEqual([]);
   });
+
+  test("project design overlay requires repository-analysis before design", () => {
+    const repositoryAnalysis = loadEntry(
+      "skills/project/overlays/repository-analysis/SKILL.md",
+      "overlay",
+    );
+    const design = loadEntry("skills/project/overlays/design/SKILL.md", "overlay");
+
+    const chain = planSkillChain({
+      primary: design,
+      index: [repositoryAnalysis, design],
+    });
+
+    expect(chain.chain).toEqual(["repository-analysis", "design"]);
+    expect(chain.unresolvedConsumes).toEqual([]);
+  });
 });

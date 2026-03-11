@@ -20,6 +20,25 @@ scripts:
   - templates/capture-workflow.sh
   - templates/form-automation.sh
 outputs: [browser_observations, browser_artifacts]
+output_contracts:
+  browser_observations:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  browser_artifacts:
+    kind: one_of
+    variants:
+      - kind: informative_text
+        min_words: 2
+        min_length: 12
+      - kind: informative_list
+        min_items: 1
+        allow_objects: true
+        min_words: 2
+        min_length: 12
+      - kind: object
+        min_keys: 1
+        require_any_informative_field: true
 consumes: [structured_payload, design_spec]
 requires: []
 ---

@@ -113,6 +113,11 @@ budget:
   max_tool_calls: 20
   max_tokens: 20000
 outputs: [change_set]
+output_contracts:
+  change_set:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
 consumes: []
 requires: []
 ---

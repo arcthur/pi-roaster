@@ -16,6 +16,15 @@ references:
   - references/repair-loop-protocol.md
   - templates/extract-api-response.md
 outputs: [structured_payload, extraction_report]
+output_contracts:
+  structured_payload:
+    kind: json
+    min_keys: 1
+    min_items: 1
+  extraction_report:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
 consumes: [browser_observations]
 requires: []
 ---

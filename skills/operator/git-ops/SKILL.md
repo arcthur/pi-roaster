@@ -17,6 +17,26 @@ references:
 scripts:
   - scripts/detect-commit-style.sh
 outputs: [git_context, commit_plan, git_operation_report]
+output_contracts:
+  git_context:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  commit_plan:
+    kind: one_of
+    variants:
+      - kind: informative_text
+        min_words: 3
+        min_length: 18
+      - kind: informative_list
+        min_items: 1
+        allow_objects: true
+        min_words: 2
+        min_length: 12
+  git_operation_report:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
 consumes: [change_set, files_changed, verification_evidence, review_report]
 requires: []
 ---

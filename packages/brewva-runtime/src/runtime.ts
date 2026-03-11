@@ -196,12 +196,20 @@ export class BrewvaRuntime {
     validateOutputs(
       sessionId: string,
       outputs: Record<string, unknown>,
-    ): { ok: boolean; missing: string[] };
+    ): {
+      ok: boolean;
+      missing: string[];
+      invalid: Array<{ name: string; reason: string }>;
+    };
     complete(
       sessionId: string,
       output: Record<string, unknown>,
       options?: { proof?: string; summary?: string; notes?: string },
-    ): { ok: boolean; missing: string[] };
+    ): {
+      ok: boolean;
+      missing: string[];
+      invalid: Array<{ name: string; reason: string }>;
+    };
     getOutputs(sessionId: string, skillName: string): Record<string, unknown> | undefined;
     getConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown>;
     getCascadeIntent(sessionId: string): SkillChainIntent | undefined;

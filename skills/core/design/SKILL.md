@@ -15,6 +15,33 @@ references:
   - references/oracle-consultation-protocol.md
   - references/plan-output-template.md
 outputs: [design_spec, execution_plan, execution_mode_hint, risk_register]
+output_contracts:
+  design_spec:
+    kind: informative_text
+    min_words: 4
+    min_length: 24
+  execution_plan:
+    kind: informative_list
+    min_items: 2
+    allow_objects: true
+    min_words: 2
+    min_length: 12
+  execution_mode_hint:
+    kind: enum
+    values: [direct_patch, test_first, coordinated_rollout]
+  risk_register:
+    kind: record_list
+    min_items: 1
+    required: [risk, mitigation]
+    properties:
+      risk:
+        kind: informative_text
+        min_words: 2
+        min_length: 12
+      mitigation:
+        kind: informative_text
+        min_words: 2
+        min_length: 12
 consumes: [repository_snapshot, impact_map, root_cause, runtime_trace]
 requires: []
 ---

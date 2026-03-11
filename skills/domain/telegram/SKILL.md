@@ -11,6 +11,15 @@ budget:
   max_tool_calls: 60
   max_tokens: 120000
 outputs: [telegram_response_plan, telegram_payload]
+output_contracts:
+  telegram_response_plan:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  telegram_payload:
+    kind: json
+    min_keys: 1
+    min_items: 1
 consumes: [structured_payload, review_report]
 requires: []
 ---

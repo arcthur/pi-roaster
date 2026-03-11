@@ -44,11 +44,16 @@ export interface BrewvaToolRuntime {
     ): {
       ok: boolean;
       missing: string[];
+      invalid: Array<{ name: string; reason: string }>;
     };
     complete(
       sessionId: string,
       outputs: Record<string, unknown>,
-    ): { ok: boolean; missing: string[] };
+    ): {
+      ok: boolean;
+      missing: string[];
+      invalid: Array<{ name: string; reason: string }>;
+    };
     getConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown>;
     overridePendingDispatch(
       sessionId: string,

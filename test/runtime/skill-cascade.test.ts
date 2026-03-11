@@ -65,7 +65,43 @@ function startExplicitChain(runtime: BrewvaRuntime, sessionId: string, steps: st
 function buildSkillOutputs(runtime: BrewvaRuntime, skillName: string): Record<string, unknown> {
   const skill = runtime.skills.get(skillName);
   const outputs = skill?.contract.outputs ?? [];
-  return Object.fromEntries(outputs.map((output) => [output, `${output}:ok`]));
+  const fixtures: Record<string, unknown> = {
+    repository_snapshot: "Repository snapshot covering runtime, tools, CLI, and gateway ownership.",
+    impact_map: "Primary impact lands in routing, skill lifecycle, and orchestration boundaries.",
+    unknowns: "No unresolved repository blind spots remain after the inventory pass.",
+    root_cause:
+      "Cascade completion depended on placeholder artifacts instead of contract-quality outputs.",
+    fix_strategy: "Generate contract-shaped artifacts before advancing the cascade.",
+    failure_evidence: "Replay log showed repository-analysis finishing with placeholder summaries.",
+    design_spec:
+      "Keep prerequisite discovery ahead of design work so design decisions start from a stable repository map.",
+    execution_plan: [
+      "Complete repository-analysis with an informative snapshot and impact map.",
+      "Advance the cascade only after downstream contracts can consume those artifacts.",
+    ],
+    execution_mode_hint: "direct_patch",
+    risk_register: [
+      {
+        risk: "Placeholder artifacts could unblock downstream steps without preserving real task state.",
+        mitigation: "Require informative artifacts before skill completion succeeds.",
+      },
+    ],
+    review_report: "Reviewed cascade progression for contract integrity and downstream readiness.",
+    review_findings: [
+      {
+        title: "Contract quality",
+        detail: "Downstream steps should only receive informative upstream artifacts.",
+      },
+    ],
+    merge_decision: "needs_changes",
+  };
+
+  return Object.fromEntries(
+    outputs.map((output) => [
+      output,
+      fixtures[output] ?? `${output} artifact generated for ${skillName}`,
+    ]),
+  );
 }
 
 describe("skill cascade orchestration", () => {

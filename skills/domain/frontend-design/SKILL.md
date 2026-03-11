@@ -14,6 +14,15 @@ references:
   - references/bento-paradigm.md
   - references/creative-arsenal.md
 outputs: [ui_direction, ui_spec]
+output_contracts:
+  ui_direction:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  ui_spec:
+    kind: informative_text
+    min_words: 4
+    min_length: 24
 consumes: [design_spec, browser_observations]
 requires: []
 ---

@@ -28,7 +28,7 @@ Skill frontmatter supports routing- and artifact-focused metadata:
 
 - `dispatch.gate_threshold/auto_threshold/default_mode`
 - `routing.continuity_required`
-- `outputs/requires/consumes/composable_with`
+- `outputs/output_contracts/requires/consumes/composable_with`
 - `effect_level`
 - resource lists: `references`, `scripts`, `heuristics`, `invariants`
 
@@ -53,6 +53,12 @@ runtime/control-plane code today rather than structured `SKILL.md` documents.
 
 Dispatch planning uses only `requires` as hard prerequisites; `consumes` remain
 optional context for loading and scoring.
+
+`output_contracts` make artifact quality explicit in the skill contract instead
+of hiding it inside runtime heuristics. Non-overlay skills with declared outputs
+must define a contract for every output. Overlays may inherit base
+`output_contracts`, but they cannot silently replace an existing base output
+contract.
 
 ## Routing Scopes And Profiles
 
@@ -182,7 +188,8 @@ Overlays merge onto the base skill contract with project semantics:
 - resources are additive
 - project-required tools may be added
 - denied tools and budgets still only tighten, never relax
-- outputs/consumes remain base-derived unless the overlay explicitly replaces them
+- outputs/consumes/requires merge additively with the base contract
+- output contracts remain base-derived unless the overlay adds a brand-new output
 - multiple overlays apply in deterministic root load order; within one root,
   overlay files are applied in lexical path order, and later overlays only
   tighten or replace fields according to the merge contract

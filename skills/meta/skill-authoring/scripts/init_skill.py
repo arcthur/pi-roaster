@@ -26,6 +26,7 @@ budget:
   max_tool_calls: 40
   max_tokens: 80000
 outputs: []
+output_contracts: {{}}
 consumes: []
 requires: []
 ---

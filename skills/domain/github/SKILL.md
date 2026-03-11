@@ -11,6 +11,30 @@ budget:
   max_tool_calls: 90
   max_tokens: 160000
 outputs: [github_context, issue_brief, pr_brief, ci_findings]
+output_contracts:
+  github_context:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  issue_brief:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  pr_brief:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  ci_findings:
+    kind: one_of
+    variants:
+      - kind: informative_text
+        min_words: 2
+        min_length: 12
+      - kind: informative_list
+        min_items: 1
+        allow_objects: true
+        min_words: 2
+        min_length: 12
 consumes: [change_set, verification_evidence, review_report]
 requires: []
 ---

@@ -14,7 +14,7 @@ describe("skill output registry", () => {
     const outputs = {
       repository_snapshot: "monorepo with runtime, tools, cli, gateway",
       impact_map: "routing, registry, docs",
-      unknowns: "none",
+      unknowns: "No blocking unknowns remain after the repository inventory pass.",
     };
     runtime.skills.complete(sessionId, outputs);
 
@@ -31,7 +31,7 @@ describe("skill output registry", () => {
     runtime.skills.complete(sessionId, {
       repository_snapshot: "module map here",
       impact_map: "routing and cascade",
-      unknowns: "none",
+      unknowns: "No blocking unknowns remain after validating the main code path.",
     });
 
     const debuggingAvailable = runtime.skills.getConsumedOutputs(sessionId, "debugging");
@@ -44,7 +44,7 @@ describe("skill output registry", () => {
       fix_strategy: "add continuity-aware filtering",
       failure_evidence: "repro + failing route selection",
     });
-    expect(completion).toEqual({ ok: true, missing: [] });
+    expect(completion).toEqual({ ok: true, missing: [], invalid: [] });
 
     const implementationAvailable = runtime.skills.getConsumedOutputs(sessionId, "implementation");
     expect(implementationAvailable.root_cause).toBe("continuity gate was missing");
@@ -64,7 +64,7 @@ describe("skill output registry", () => {
     runtimeA.skills.complete(sessionId, {
       repository_snapshot: "replayed module map",
       impact_map: "registry and router",
-      unknowns: "none",
+      unknowns: "No unresolved repository gaps remained at replay capture time.",
     });
 
     const runtimeB = new BrewvaRuntime({ cwd: repoRoot() });
@@ -78,9 +78,9 @@ describe("skill output registry", () => {
     const sessionId = `skill-complete-event-${Date.now()}`;
     runtime.skills.activate(sessionId, "repository-analysis");
     const outputs = {
-      repository_snapshot: "map",
-      impact_map: "router",
-      unknowns: "none",
+      repository_snapshot: "repository layout for runtime, tools, and gateway modules",
+      impact_map: "routing flow and registry boundaries touched by the change",
+      unknowns: "No blocking repository blind spots remained after the analysis pass.",
     };
     runtime.skills.complete(sessionId, outputs);
 
@@ -117,14 +117,14 @@ describe("skill output registry", () => {
     const completion = runtime.skills.complete(sessionId, {
       repository_snapshot: "runtime, tools, projection",
       impact_map: "verification, skill lifecycle",
-      unknowns: "none",
+      unknowns: "No blocking unknowns remain after mapping runtime and projection ownership.",
       task_spec: {
         schema: "brewva.task.v1",
         goal: "Stabilize verification outcome semantics",
         constraints: ["Prefer deterministic events"],
       },
     });
-    expect(completion).toEqual({ ok: true, missing: [] });
+    expect(completion).toEqual({ ok: true, missing: [], invalid: [] });
 
     const taskState = runtime.task.getState(sessionId);
     expect(taskState.spec?.goal).toBe("Stabilize verification outcome semantics");

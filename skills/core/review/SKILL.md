@@ -27,6 +27,25 @@ references:
   - references/contract-drift.md
   - references/security-concurrency.md
 outputs: [review_report, review_findings, merge_decision]
+output_contracts:
+  review_report:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  review_findings:
+    kind: one_of
+    variants:
+      - kind: informative_text
+        min_words: 2
+        min_length: 12
+      - kind: informative_list
+        min_items: 1
+        allow_objects: true
+        min_words: 2
+        min_length: 12
+  merge_decision:
+    kind: enum
+    values: [ready, needs_changes, blocked]
 consumes: [change_set, design_spec, verification_evidence, impact_map]
 requires: []
 ---

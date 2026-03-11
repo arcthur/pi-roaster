@@ -20,6 +20,30 @@ references:
   - references/convergence-patterns.md
   - references/handoff-patterns.md
 outputs: [loop_contract, iteration_report, convergence_report, continuation_plan]
+output_contracts:
+  loop_contract:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  iteration_report:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  convergence_report:
+    kind: informative_text
+    min_words: 2
+    min_length: 12
+  continuation_plan:
+    kind: one_of
+    variants:
+      - kind: informative_text
+        min_words: 3
+        min_length: 18
+      - kind: informative_list
+        min_items: 1
+        allow_objects: true
+        min_words: 2
+        min_length: 12
 consumes: [design_spec, execution_plan, verification_evidence]
 requires: []
 ---

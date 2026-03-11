@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -43,6 +43,7 @@ describe("skill-authoring init script default paths", () => {
       expect(existsSync(join(skillPath, "scripts/example.py"))).toBe(true);
       expect(existsSync(join(skillPath, "references/api_reference.md"))).toBe(true);
       expect(existsSync(join(skillPath, "assets/example_asset.txt"))).toBe(true);
+      expect(readFileSync(join(skillPath, "SKILL.md"), "utf8")).toContain("output_contracts: {}");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -65,6 +66,9 @@ describe("skill-authoring init script default paths", () => {
 
       const globalSkillPath = join(xdgRoot, "brewva/skills/domain", skillName);
       expect(existsSync(join(globalSkillPath, "SKILL.md"))).toBe(true);
+      expect(readFileSync(join(globalSkillPath, "SKILL.md"), "utf8")).toContain(
+        "output_contracts: {}",
+      );
       expect(existsSync(join(workspace, ".brewva/skills/domain", skillName))).toBe(false);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -84,6 +88,9 @@ describe("skill-authoring init script default paths", () => {
 
       const explicitPath = join(workspace, "custom-target/skills/domain", skillName);
       expect(existsSync(join(explicitPath, "SKILL.md"))).toBe(true);
+      expect(readFileSync(join(explicitPath, "SKILL.md"), "utf8")).toContain(
+        "output_contracts: {}",
+      );
       expect(existsSync(join(workspace, ".brewva/skills/domain", skillName))).toBe(false);
     } finally {
       rmSync(workspace, { recursive: true, force: true });

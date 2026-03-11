@@ -365,9 +365,10 @@ describe("extension debug loop", () => {
 
     runtime.skills.activate(sessionId, "runtime-forensics");
     runtime.skills.complete(sessionId, {
-      runtime_trace: "trace",
-      session_summary: "summary",
-      artifact_findings: "none",
+      runtime_trace: "Observed repeated guard arming, status polling, and late completion retries.",
+      session_summary:
+        "The session stayed in analysis mode and never converged on a stable completion contract.",
+      artifact_findings: "No durable artifact explained the repeated guard resets.",
     });
 
     await loadTool.execute("tc-load", { name: "implementation" }, undefined, undefined, toolCtx);
@@ -495,9 +496,10 @@ describe("extension debug loop", () => {
     await scheduleInitialRetry(fixture);
     fixture.runtime.skills.activate("ext-debug-loop-5", "runtime-forensics");
     fixture.runtime.skills.complete("ext-debug-loop-5", {
-      runtime_trace: "trace",
-      session_summary: "summary",
-      artifact_findings: "none",
+      runtime_trace: "Observed repeated guard arming, status polling, and late completion retries.",
+      session_summary:
+        "The session stayed in analysis mode and never converged on a stable completion contract.",
+      artifact_findings: "No durable artifact explained the repeated guard resets.",
     });
     fixture.runtime.skills.activate("ext-debug-loop-5", "debugging");
     fixture.runtime.skills.complete("ext-debug-loop-5", {

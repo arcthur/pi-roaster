@@ -7,7 +7,12 @@ export type ScanConvergenceReason =
 
 export type ScanConvergenceResetReason = "strategy_shift" | "input_reset";
 
-export type ScanConvergenceToolStrategy = "raw_scan" | "low_signal" | "evidence_reuse" | "progress";
+export type ScanConvergenceToolStrategy =
+  | "raw_scan"
+  | "low_signal"
+  | "evidence_reuse"
+  | "progress"
+  | "neutral";
 
 export interface ScanConvergenceRuntimeState {
   currentTurnRawScanToolCalls: number;

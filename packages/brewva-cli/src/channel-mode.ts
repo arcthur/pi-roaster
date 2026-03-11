@@ -810,6 +810,33 @@ async function waitForAllSettledWithTimeout(
   await Promise.race([Promise.allSettled(promises).then(() => undefined), timeoutPromise]);
 }
 
+export function createSerializedAsyncTaskRunner(task: () => Promise<void>): {
+  run: () => Promise<boolean>;
+  whenIdle: () => Promise<void>;
+} {
+  let inFlight: Promise<void> | null = null;
+
+  return {
+    async run(): Promise<boolean> {
+      if (inFlight) {
+        return false;
+      }
+      inFlight = (async () => {
+        try {
+          await task();
+        } finally {
+          inFlight = null;
+        }
+      })();
+      await inFlight;
+      return true;
+    },
+    async whenIdle(): Promise<void> {
+      await inFlight;
+    },
+  };
+}
+
 function combineOutputsForInternalDispatch(outputs: PromptTurnOutputs): string {
   const assistant = normalizeText(outputs.assistantText);
   if (assistant.length > 0) {
@@ -904,6 +931,28 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
     Math.floor(runtime.config.infrastructure.turnWal.compactAfterMs / 2),
   );
   let turnWalCompactTimer: ReturnType<typeof setInterval> | null = null;
+  const turnWalMaintenance = createSerializedAsyncTaskRunner(async () => {
+    try {
+      turnWalStore.compact();
+      await evictIdleAgentRuntimesByTtl(Date.now());
+      const evicted = runtimeManager.evictIdleRuntimes(Date.now());
+      if (evicted.length > 0) {
+        runtime.events.record({
+          sessionId: turnWalStore.scope,
+          type: "channel_runtime_evicted",
+          payload: {
+            agentIds: evicted,
+            source: "runtime_idle_reclaim",
+          },
+          skipTapeCheckpoint: true,
+        });
+      }
+    } catch (error) {
+      if (options.verbose) {
+        console.error(`[channel:${channel}:wal] compact failed: ${toErrorMessage(error)}`);
+      }
+    }
+  });
 
   const sessions = new Map<string, ConversationSessionState>();
   const sessionByAgentSessionId = new Map<string, ConversationSessionState>();
@@ -1922,28 +1971,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
   turnWalStore.compact();
   if (turnWalStore.isEnabled) {
     turnWalCompactTimer = setInterval(() => {
-      void (async () => {
-        try {
-          turnWalStore.compact();
-          await evictIdleAgentRuntimesByTtl(Date.now());
-          const evicted = runtimeManager.evictIdleRuntimes(Date.now());
-          if (evicted.length > 0) {
-            runtime.events.record({
-              sessionId: turnWalStore.scope,
-              type: "channel_runtime_evicted",
-              payload: {
-                agentIds: evicted,
-                source: "runtime_idle_reclaim",
-              },
-              skipTapeCheckpoint: true,
-            });
-          }
-        } catch (error) {
-          if (options.verbose) {
-            console.error(`[channel:${channel}:wal] compact failed: ${toErrorMessage(error)}`);
-          }
-        }
-      })();
+      void turnWalMaintenance.run();
     }, turnWalCompactIntervalMs);
     turnWalCompactTimer.unref?.();
   }
@@ -1952,6 +1980,11 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
     await bundle.bridge.start();
     await bundle.onStart?.();
   } catch (error) {
+    if (turnWalCompactTimer) {
+      clearInterval(turnWalCompactTimer);
+      turnWalCompactTimer = null;
+    }
+    await turnWalMaintenance.whenIdle();
     await Promise.allSettled([bundle.onStop?.(), bundle.bridge.stop()]);
     console.error(`Error: ${toErrorMessage(error)}`);
     process.exitCode = 1;
@@ -1977,6 +2010,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
           clearInterval(turnWalCompactTimer);
           turnWalCompactTimer = null;
         }
+        await turnWalMaintenance.whenIdle();
         await bundle.onStop?.();
         await bundle.bridge.stop();
         await waitForAllSettledWithTimeout(

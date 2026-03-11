@@ -9,7 +9,8 @@ budget:
   max_tool_calls: 70
   max_tokens: 140000
 outputs: [design_spec, execution_plan, execution_mode_hint, risk_register]
-consumes: [repository_snapshot, impact_map, root_cause, runtime_trace]
+requires: [repository_snapshot, impact_map]
+consumes: [root_cause, runtime_trace]
 ---
 
 # Brewva Design Overlay

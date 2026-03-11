@@ -92,10 +92,21 @@ export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinit
 
       const completion = options.runtime.skills.validateOutputs(sessionId, outputs);
       if (!completion.ok) {
-        return failTextResult(
-          `Skill completion rejected. Missing required outputs: ${completion.missing.join(", ")}`,
-          { ok: false, missing: completion.missing },
-        );
+        const details = [
+          completion.missing.length > 0
+            ? `Missing required outputs: ${completion.missing.join(", ")}`
+            : null,
+          completion.invalid.length > 0
+            ? `Invalid required outputs: ${completion.invalid.map((entry) => entry.name).join(", ")}`
+            : null,
+        ]
+          .filter((entry): entry is string => Boolean(entry))
+          .join(". ");
+        return failTextResult(`Skill completion rejected. ${details}`, {
+          ok: false,
+          missing: completion.missing,
+          invalid: completion.invalid,
+        });
       }
 
       const verification = await options.runtime.verification.verify(sessionId, undefined, {

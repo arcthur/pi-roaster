@@ -19,6 +19,7 @@ ALLOWED_PROPERTIES = {
     "tools",
     "budget",
     "outputs",
+    "output_contracts",
     "consumes",
     "requires",
     "composable_with",
@@ -49,6 +50,51 @@ STRING_ARRAY_FIELDS = {
     "heuristics",
     "invariants",
 }
+
+
+def is_overlay_skill(skill_dir: Path) -> bool:
+    parts = skill_dir.resolve().parts
+    return len(parts) >= 3 and parts[-3:-1] == ("project", "overlays")
+
+
+def validate_output_contracts(
+    frontmatter: dict[str, object], skill_dir: Path
+) -> tuple[bool, str | None]:
+    outputs = frontmatter.get("outputs")
+    output_contracts = frontmatter.get("output_contracts")
+    overlay = is_overlay_skill(skill_dir)
+
+    if not isinstance(outputs, list):
+        return False, "Field 'outputs' must be an array"
+
+    if output_contracts is None:
+        if outputs and not overlay:
+            return False, "Missing 'output_contracts' for declared outputs"
+        return True, None
+
+    if not isinstance(output_contracts, dict):
+        return False, "Field 'output_contracts' must be an object"
+
+    declared_outputs = {item for item in outputs if isinstance(item, str)}
+    contract_keys = set(output_contracts.keys())
+    if not overlay:
+        missing = sorted(declared_outputs - contract_keys)
+        if missing:
+            return False, f"Field 'output_contracts' is missing contracts for: {', '.join(missing)}"
+    unexpected = sorted(name for name in contract_keys if declared_outputs and name not in declared_outputs)
+    if unexpected and not overlay:
+        return False, f"Field 'output_contracts' contains undeclared outputs: {', '.join(unexpected)}"
+
+    for name, contract in output_contracts.items():
+        if not isinstance(name, str) or not name.strip():
+            return False, "Field 'output_contracts' must use non-empty string keys"
+        if not isinstance(contract, dict):
+            return False, f"Field 'output_contracts.{name}' must be an object"
+        kind = contract.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
+            return False, f"Field 'output_contracts.{name}.kind' must be a non-empty string"
+
+    return True, None
 
 
 def validate_string_array(frontmatter: dict[str, object], key: str) -> tuple[bool, str | None]:
@@ -148,6 +194,10 @@ def validate_skill(skill_path: str | Path) -> tuple[bool, str]:
         ok, message = validate_string_array(frontmatter, key)
         if not ok:
             return False, message or f"Invalid '{key}' field"
+
+    ok, message = validate_output_contracts(frontmatter, skill_dir)
+    if not ok:
+        return False, message or "Invalid 'output_contracts' field"
 
     dispatch = frontmatter.get("dispatch")
     if dispatch is not None and not isinstance(dispatch, dict):

@@ -20,6 +20,21 @@ scripts:
   - scripts/review.sh
   - scripts/setup.sh
 outputs: [improvement_hypothesis, learning_backlog, improvement_plan]
+output_contracts:
+  improvement_hypothesis:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  learning_backlog:
+    kind: informative_list
+    min_items: 1
+    allow_objects: true
+    min_words: 2
+    min_length: 12
+  improvement_plan:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
 consumes: [review_report, runtime_trace, artifact_findings]
 requires: []
 ---

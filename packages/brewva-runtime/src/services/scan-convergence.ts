@@ -48,7 +48,6 @@ const EXPLICIT_PROGRESS_TOOL_NAMES = new Set([
   "skill_load",
   "skill_route_override",
   "skill_complete",
-  "skill_chain_control",
   "tape_handoff",
   "session_compact",
   "rollback_last_patch",
@@ -57,6 +56,8 @@ const EXPLICIT_PROGRESS_TOOL_NAMES = new Set([
   "ast_grep_replace",
   "lsp_rename",
 ]);
+const SKILL_CHAIN_CONTROL_PROGRESS_ACTIONS = new Set(["start"]);
+const SKILL_CHAIN_CONTROL_NEUTRAL_ACTIONS = new Set(["status", "pause", "resume", "cancel"]);
 const LOW_SIGNAL_EXEC_PRIMARY_TOKENS = new Set([
   "ls",
   "find",
@@ -437,6 +438,16 @@ function classifyToolStrategy(
   if (EVIDENCE_REUSE_TOOL_NAMES.has(toolName)) {
     return "evidence_reuse";
   }
+  if (toolName === "skill_chain_control") {
+    const action = typeof args?.action === "string" ? args.action.trim().toLowerCase() : "";
+    if (SKILL_CHAIN_CONTROL_PROGRESS_ACTIONS.has(action)) {
+      return "progress";
+    }
+    if (SKILL_CHAIN_CONTROL_NEUTRAL_ACTIONS.has(action)) {
+      return "neutral";
+    }
+    return "neutral";
+  }
   if (EXPLICIT_PROGRESS_TOOL_NAMES.has(toolName)) {
     return "progress";
   }
@@ -638,6 +649,10 @@ export class ScanConvergenceService {
       state.toolStrategyByCallId.get(input.toolCallId) ??
       classifyToolStrategy(normalizedToolName, input.args);
     state.toolStrategyByCallId.set(input.toolCallId, strategy);
+
+    if (strategy === "neutral") {
+      return;
+    }
 
     if (isToolResultPass(verdict) && strategy !== "raw_scan" && strategy !== "low_signal") {
       if (state.armedReason !== null) {

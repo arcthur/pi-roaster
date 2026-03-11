@@ -12,6 +12,25 @@ budget:
   max_tokens: 180000
 composable_with: [debugging, runtime-forensics]
 outputs: [change_set, files_changed, verification_evidence]
+output_contracts:
+  change_set:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  files_changed:
+    kind: path_list
+    min_items: 1
+  verification_evidence:
+    kind: one_of
+    variants:
+      - kind: informative_text
+        min_words: 2
+        min_length: 12
+      - kind: informative_list
+        min_items: 1
+        allow_objects: true
+        min_words: 2
+        min_length: 12
 consumes: [design_spec, execution_plan, execution_mode_hint, root_cause, fix_strategy]
 requires: []
 ---

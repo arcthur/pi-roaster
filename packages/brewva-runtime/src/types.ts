@@ -29,6 +29,68 @@ export interface SkillResourceSet {
   invariants: string[];
 }
 
+export interface SkillOutputInformativeTextContract {
+  kind: "informative_text";
+  minWords?: number;
+  minLength?: number;
+}
+
+export interface SkillOutputEnumContract {
+  kind: "enum";
+  values: string[];
+  caseSensitive?: boolean;
+}
+
+export interface SkillOutputInformativeListContract {
+  kind: "informative_list";
+  minItems?: number;
+  allowObjects?: boolean;
+  minWords?: number;
+  minLength?: number;
+}
+
+export interface SkillOutputPathListContract {
+  kind: "path_list";
+  minItems?: number;
+}
+
+export interface SkillOutputObjectContract {
+  kind: "object";
+  minKeys?: number;
+  required?: string[];
+  properties?: Record<string, SkillOutputContract>;
+  requireAnyInformativeField?: boolean;
+}
+
+export interface SkillOutputRecordListContract {
+  kind: "record_list";
+  minItems?: number;
+  required?: string[];
+  properties: Record<string, SkillOutputContract>;
+  requireAnyInformativeField?: boolean;
+}
+
+export interface SkillOutputJsonContract {
+  kind: "json";
+  minKeys?: number;
+  minItems?: number;
+}
+
+export interface SkillOutputOneOfContract {
+  kind: "one_of";
+  variants: SkillOutputContract[];
+}
+
+export type SkillOutputContract =
+  | SkillOutputInformativeTextContract
+  | SkillOutputEnumContract
+  | SkillOutputInformativeListContract
+  | SkillOutputPathListContract
+  | SkillOutputObjectContract
+  | SkillOutputRecordListContract
+  | SkillOutputJsonContract
+  | SkillOutputOneOfContract;
+
 export interface SkillContract {
   name: string;
   category: SkillCategory;
@@ -44,6 +106,7 @@ export interface SkillContract {
     maxTokens: number;
   };
   outputs?: string[];
+  outputContracts?: Record<string, SkillOutputContract>;
   composableWith?: string[];
   consumes?: string[];
   requires?: string[];

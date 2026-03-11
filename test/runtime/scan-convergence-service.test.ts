@@ -311,4 +311,100 @@ describe("scan convergence service", () => {
     })[0];
     expect(reset).toBeUndefined();
   });
+
+  test("skill_chain_control status does not clear an armed guard", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-status-"));
+    const runtime = createRuntime(workspace);
+    const sessionId = "scan-runtime-status-1";
+
+    runtime.context.onUserInput(sessionId);
+
+    for (let turn = 1; turn <= 3; turn += 1) {
+      runtime.context.onTurnStart(sessionId, turn);
+      startAndFinishTool({
+        runtime,
+        sessionId,
+        toolCallId: `tc-read-status-${turn}`,
+        toolName: "read",
+        args: { file_path: `src/status-${turn}.ts` },
+        outputText: "content",
+      });
+      runtime.context.onTurnEnd(sessionId);
+    }
+
+    runtime.context.onTurnStart(sessionId, 4);
+    const status = startAndFinishTool({
+      runtime,
+      sessionId,
+      toolCallId: "tc-skill-chain-status",
+      toolName: "skill_chain_control",
+      args: { action: "status" },
+      outputText: "# Skill Cascade\n- status: pending",
+    });
+    expect(status.allowed).toBe(true);
+
+    const blocked = runtime.tools.start({
+      sessionId,
+      toolCallId: "tc-read-after-status",
+      toolName: "read",
+      args: { file_path: "src/still-blocked.ts" },
+    });
+    expect(blocked.allowed).toBe(false);
+
+    const reset = runtime.events.query(sessionId, {
+      type: "scan_convergence_reset",
+      last: 1,
+    })[0];
+    expect(reset).toBeUndefined();
+  });
+
+  test("skill_chain_control start clears the guard as a strategy shift", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-start-"));
+    const runtime = createRuntime(workspace);
+    const sessionId = "scan-runtime-start-1";
+
+    runtime.context.onUserInput(sessionId);
+
+    for (let turn = 1; turn <= 3; turn += 1) {
+      runtime.context.onTurnStart(sessionId, turn);
+      startAndFinishTool({
+        runtime,
+        sessionId,
+        toolCallId: `tc-read-start-${turn}`,
+        toolName: "read",
+        args: { file_path: `src/start-${turn}.ts` },
+        outputText: "content",
+      });
+      runtime.context.onTurnEnd(sessionId);
+    }
+
+    runtime.context.onTurnStart(sessionId, 4);
+    const started = startAndFinishTool({
+      runtime,
+      sessionId,
+      toolCallId: "tc-skill-chain-start",
+      toolName: "skill_chain_control",
+      args: {
+        action: "start",
+        steps: [{ skill: "repository-analysis", produces: ["repository_snapshot"] }],
+      },
+      outputText: "# Skill Cascade\n- status: pending",
+    });
+    expect(started.allowed).toBe(true);
+
+    const rawScan = runtime.tools.start({
+      sessionId,
+      toolCallId: "tc-read-after-start",
+      toolName: "read",
+      args: { file_path: "src/after-start.ts" },
+    });
+    expect(rawScan.allowed).toBe(true);
+
+    const reset = runtime.events.query(sessionId, {
+      type: "scan_convergence_reset",
+      last: 1,
+    })[0];
+    expect(reset?.payload?.reason).toBe("strategy_shift");
+    expect(reset?.payload?.toolStrategy).toBe("progress");
+  });
 });

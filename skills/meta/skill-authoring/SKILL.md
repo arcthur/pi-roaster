@@ -11,6 +11,19 @@ budget:
   max_tool_calls: 70
   max_tokens: 140000
 outputs: [skill_spec, skill_contract, skill_scaffold]
+output_contracts:
+  skill_spec:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  skill_contract:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
+  skill_scaffold:
+    kind: informative_text
+    min_words: 3
+    min_length: 18
 consumes: [repository_snapshot, design_spec]
 requires: []
 references: [references/output-patterns.md, references/workflows.md]
