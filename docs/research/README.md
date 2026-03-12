@@ -40,4 +40,5 @@ yet stable enough for `docs/architecture/` or `docs/reference/`.
 
 ## Promoted notes (status pointers)
 
+- `docs/research/rfc-effect-governance-and-contract-vnext.md`
 - `docs/research/rfc-capability-compression-and-output-distillation.md`

@@ -4,7 +4,7 @@ import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const SkillChainControlActionSchema = Type.Union([
   Type.Literal("status"),
@@ -39,7 +39,7 @@ function formatIntent(intent: SkillChainIntent): string {
 }
 
 export function createSkillChainControlTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "skill_chain_control",
     label: "Skill Chain Control",
     description:

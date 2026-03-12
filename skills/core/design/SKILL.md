@@ -1,35 +1,64 @@
 ---
 name: design
-description: Turn a request into a bounded design and executable plan, choosing the right implementation mode without over-designing trivial work.
+description: Turn a request into a bounded design and executable plan, choosing the
+  right implementation mode without over-designing trivial work.
 stability: stable
-effect_level: read_only
-tools:
-  required: [read, grep]
-  optional: [glob, lsp_symbols, lsp_find_references, ledger_query, skill_complete]
-  denied: [write, edit, exec, process]
-budget:
-  max_tool_calls: 90
-  max_tokens: 180000
+intent:
+  outputs:
+    - design_spec
+    - execution_plan
+    - execution_mode_hint
+    - risk_register
+  output_contracts:
+    design_spec:
+      kind: text
+      min_words: 4
+      min_length: 24
+    execution_plan:
+      kind: json
+      min_items: 2
+    execution_mode_hint:
+      kind: enum
+      values:
+        - direct_patch
+        - test_first
+        - coordinated_rollout
+    risk_register:
+      kind: json
+      min_items: 1
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+    - local_exec
+resources:
+  default_lease:
+    max_tool_calls: 90
+    max_tokens: 180000
+  hard_ceiling:
+    max_tool_calls: 130
+    max_tokens: 240000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - glob
+    - lsp_symbols
+    - lsp_find_references
+    - ledger_query
+    - skill_complete
 references:
   - references/executable-evidence-bridge.md
   - references/oracle-consultation-protocol.md
   - references/plan-output-template.md
-outputs: [design_spec, execution_plan, execution_mode_hint, risk_register]
-output_contracts:
-  design_spec:
-    kind: text
-    min_words: 4
-    min_length: 24
-  execution_plan:
-    kind: json
-    min_items: 2
-  execution_mode_hint:
-    kind: enum
-    values: [direct_patch, test_first, coordinated_rollout]
-  risk_register:
-    kind: json
-    min_items: 1
-consumes: [repository_snapshot, impact_map, root_cause, runtime_trace]
+consumes:
+  - repository_snapshot
+  - impact_map
+  - root_cause
+  - runtime_trace
 requires: []
 ---
 

@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 function normalizeReason(input: unknown): string | undefined {
   if (typeof input !== "string") return undefined;
@@ -18,7 +18,7 @@ function normalizeErrorMessage(error: unknown): string {
 }
 
 export function createSessionCompactTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "session_compact",
     label: "Session Compact",
     description: "Compact LLM message history for the current session.",

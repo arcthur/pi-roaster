@@ -18,7 +18,7 @@ import {
 } from "./exec-process-registry.js";
 import { textResult, type ToolResultVerdict, withVerdict } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const ProcessActionSchema = Type.Union([
   Type.Literal("list"),
@@ -136,7 +136,7 @@ function resolveProcessVerdict(
 }
 
 export function createProcessTool(): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "process",
     label: "Process",
     description:

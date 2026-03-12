@@ -80,17 +80,20 @@ Resolution inputs:
 
 - built-in always-on tools
 - Brewva base governance tools
-- tools declared by the current active/pending/cascade skill contracts
+- current skill execution hints plus effect-authorized managed skill tools
 - routing scopes
-- explicit capability requests such as `$task_view_state` or `$obs_query`
+- explicit `$name` tool-surface requests such as `$task_view_state` or
+  `$obs_query`
 
 The extension updates only the active tool surface. Runtime policy, contract,
 and compaction gates still decide whether execution is actually allowed.
 
 Default behavior is intentionally narrow:
 
-- explicit `$name` requests always expand capability details in the context block
+- explicit `$name` requests always expand tool details in the capability-view
+  block
 - any managed Brewva tool can be surfaced for the current turn by that request path
+- that disclosure path does not widen runtime authority or effect authorization
 - skill commitments still activate the normal task-specific tool surface without
   requiring `$name`
 - operator and meta tools stay hidden unless routing scopes explicitly include them
@@ -267,7 +270,8 @@ Key implications:
 
 - applies a compact system-level context contract
 - calls `ContextComposer` with kernel-admitted context entries
-- injects a capability view block for progressive disclosure (compact tool list; expand with `$name`)
+- injects a capability-view block for progressive tool disclosure (compact
+  visible tool list; expand with `$name`)
 - enforces compaction gate behavior under critical context pressure
 - projects proposal-derived selection telemetry (`skill_routing_selection`)
 

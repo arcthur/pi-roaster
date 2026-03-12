@@ -3,7 +3,7 @@ import { extname, resolve } from "node:path";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { failTextResult, inconclusiveTextResult, textResult } from "./utils/result.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 function isLikelyText(content: Buffer): boolean {
   const sample = content.subarray(0, Math.min(content.length, 1024));
@@ -110,7 +110,7 @@ function extractRelevantText(text: string, goal: string): RelevantTextResult {
 }
 
 export function createLookAtTool(): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "look_at",
     label: "Look At",
     description: "Analyze file content and extract goal-focused findings.",

@@ -4,7 +4,7 @@ import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const VerificationLevelSchema = Type.Union([
   Type.Literal("quick"),
@@ -20,7 +20,7 @@ const TaskItemStatusSchema = Type.Union([
 ]);
 
 export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinition[] {
-  const taskSetSpec = defineTool({
+  const taskSetSpec = defineBrewvaTool({
     name: "task_set_spec",
     label: "Task Set Spec",
     description: "Set or update the TaskSpec (event-sourced Task Ledger).",
@@ -59,7 +59,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     },
   });
 
-  const taskAddItem = defineTool({
+  const taskAddItem = defineBrewvaTool({
     name: "task_add_item",
     label: "Task Add Item",
     description: "Add a task item to the Task Ledger.",
@@ -84,7 +84,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     },
   });
 
-  const taskUpdateItem = defineTool({
+  const taskUpdateItem = defineBrewvaTool({
     name: "task_update_item",
     label: "Task Update Item",
     description: "Update a task item in the Task Ledger.",
@@ -111,7 +111,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     },
   });
 
-  const taskRecordBlocker = defineTool({
+  const taskRecordBlocker = defineBrewvaTool({
     name: "task_record_blocker",
     label: "Task Record Blocker",
     description: "Record a blocker in the Task Ledger.",
@@ -137,7 +137,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     },
   });
 
-  const taskResolveBlocker = defineTool({
+  const taskResolveBlocker = defineBrewvaTool({
     name: "task_resolve_blocker",
     label: "Task Resolve Blocker",
     description: "Resolve (remove) a blocker from the Task Ledger.",
@@ -158,7 +158,7 @@ export function createTaskLedgerTools(options: BrewvaToolOptions): ToolDefinitio
     },
   });
 
-  const taskViewState = defineTool({
+  const taskViewState = defineBrewvaTool({
     name: "task_view_state",
     label: "Task View State",
     description: "Show the current folded Task Ledger state.",

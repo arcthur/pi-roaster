@@ -1,32 +1,57 @@
 ---
 name: debugging
-description: Reproduce failures, rank hypotheses, confirm root cause, and define the minimum valid fix strategy.
+description: Reproduce failures, rank hypotheses, confirm root cause, and define the
+  minimum valid fix strategy.
 stability: stable
-effect_level: execute
-tools:
-  required: [read, exec, grep]
-  optional: [lsp_diagnostics, ast_grep_search, ledger_query, skill_complete]
-  denied: [write, edit]
-budget:
-  max_tool_calls: 100
-  max_tokens: 180000
+intent:
+  outputs:
+    - root_cause
+    - fix_strategy
+    - failure_evidence
+  output_contracts:
+    root_cause:
+      kind: text
+      min_words: 3
+      min_length: 18
+    fix_strategy:
+      kind: text
+      min_words: 3
+      min_length: 18
+    failure_evidence:
+      kind: text
+      min_words: 2
+      min_length: 12
+effects:
+  allowed_effects:
+    - workspace_read
+    - local_exec
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+resources:
+  default_lease:
+    max_tool_calls: 100
+    max_tokens: 180000
+  hard_ceiling:
+    max_tool_calls: 140
+    max_tokens: 240000
+execution_hints:
+  preferred_tools:
+    - read
+    - exec
+    - grep
+  fallback_tools:
+    - lsp_diagnostics
+    - ast_grep_search
+    - ledger_query
+    - skill_complete
 references:
   - references/failure-triage.md
-outputs: [root_cause, fix_strategy, failure_evidence]
-output_contracts:
-  root_cause:
-    kind: text
-    min_words: 3
-    min_length: 18
-  fix_strategy:
-    kind: text
-    min_words: 3
-    min_length: 18
-  failure_evidence:
-    kind: text
-    min_words: 2
-    min_length: 12
-consumes: [repository_snapshot, impact_map, verification_evidence, runtime_trace]
+consumes:
+  - repository_snapshot
+  - impact_map
+  - verification_evidence
+  - runtime_trace
 requires: []
 ---
 

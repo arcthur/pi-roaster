@@ -4,6 +4,10 @@ Brewva's kernel is defined by one constitutional line:
 
 `Intelligence proposes. Kernel commits. Tape remembers.`
 
+Implementation-grade constitutional reading:
+
+`Intelligence explores. Kernel authorizes effects. Tape remembers commitments.`
+
 This document fixes the long-lived architectural taste behind that line so new
 features can be judged against a stable standard instead of local convenience.
 
@@ -29,6 +33,26 @@ features can be judged against a stable standard instead of local convenience.
 6. `Graceful degradation beats hidden cleverness.`
    If a deliberation path fails, the kernel must stay safe and explainable
    rather than silently improvising new behavior.
+7. `Govern effects, not thought paths.`
+   Kernel authority should constrain what may happen to the world, not prescribe
+   the exact reasoning path that intelligence must take.
+8. `Process defaults are hints before they are gates.`
+   Recommended tools, likely chains, and estimated budgets are useful planner
+   priors, but they should not become constitutional truth by accident.
+9. `Resource expansion is negotiated, not assumed.`
+   When a run needs more budget, the preferred answer is an explicit
+   `resource_lease`, not hidden privilege escalation. When a run needs a
+   different effect boundary, the answer is a different commitment boundary,
+   not silent self-escalation.
+
+Implementation note:
+
+- the runtime now centers authority on effect classes, effective resource
+  ceilings, and `resource_lease` negotiation
+- the visible tool surface and execution hints still shape exploration, but
+  they do not define authority on their own
+- explicit control-plane exemptions and direct governance flows may exist, but
+  they must stay narrow, receipt-bearing, and auditable
 
 ## Ring Model
 
@@ -100,6 +124,10 @@ Product rule:
 
 `Model sees narrative. Operator sees telemetry. Kernel sees receipts.`
 
+Additional rule:
+
+`Deliberation searches for paths. Kernel judges effects.`
+
 ## Kernel Admission Rules
 
 The kernel may:
@@ -116,6 +144,7 @@ The kernel may not:
 - perform adaptive model-side ranking inside the commitment path
 - treat lossy summaries as authoritative state
 - hide commitment reasons behind opaque heuristics
+- prescribe an internal thought path when the real governance need is effect authorization
 
 ## Package Realization
 

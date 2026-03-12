@@ -1,4 +1,9 @@
 import type {
+  ResourceLeaseCancelResult,
+  ResourceLeaseQuery,
+  ResourceLeaseRecord,
+  ResourceLeaseRequest,
+  ResourceLeaseResult,
   ContextBudgetUsage,
   ContextPressureStatus,
   BrewvaEventQuery,
@@ -27,7 +32,20 @@ import type {
   TaskState,
   VerificationLevel,
   VerificationReport,
+  ToolGovernanceDescriptor,
 } from "@brewva/brewva-runtime";
+import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+
+export type BrewvaToolSurface = "base" | "skill" | "operator";
+
+export interface BrewvaToolMetadata {
+  surface: BrewvaToolSurface;
+  governance: ToolGovernanceDescriptor;
+}
+
+export type BrewvaManagedToolDefinition = ToolDefinition & {
+  brewva?: BrewvaToolMetadata;
+};
 
 export interface BrewvaToolRuntime {
   readonly cwd?: string;
@@ -87,6 +105,13 @@ export interface BrewvaToolRuntime {
       options?: { timeoutMs?: number },
     ): Promise<{ accepted: boolean; reason?: string }>;
     releaseParallelSlot?(sessionId: string, runId: string): void;
+    requestResourceLease?(sessionId: string, request: ResourceLeaseRequest): ResourceLeaseResult;
+    listResourceLeases?(sessionId: string, query?: ResourceLeaseQuery): ResourceLeaseRecord[];
+    cancelResourceLease?(
+      sessionId: string,
+      leaseId: string,
+      reason?: string,
+    ): ResourceLeaseCancelResult;
     rollbackLastPatchSet(sessionId: string): RollbackResult;
   };
   ledger: {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize a v2 Brewva skill scaffold."""
+"""Initialize a latest-generation Brewva skill scaffold."""
 
 from __future__ import annotations
 
@@ -17,16 +17,21 @@ SKILL_TEMPLATE = """---
 name: {skill_name}
 description: "TODO: explain what this skill does and exactly when it should be used."
 stability: experimental
-effect_level: {effect_level}
-tools:
-  required: [read]
-  optional: [grep]
-  denied: []
-budget:
-  max_tool_calls: 40
-  max_tokens: 80000
-outputs: []
-output_contracts: {{}}
+intent:
+  outputs: []
+effects:
+  allowed_effects:
+{allowed_effects}
+resources:
+  default_lease:
+    max_tool_calls: 40
+    max_tokens: 80000
+  hard_ceiling:
+    max_tool_calls: 60
+    max_tokens: 120000
+execution_hints:
+  preferred_tools: [read]
+  fallback_tools: [grep]
 consumes: []
 requires: []
 ---
@@ -135,10 +140,12 @@ def resolve_explicit_skill_parent(base_path: Path, category: str) -> Path:
     return (normalized / "skills" / relative_dir).resolve()
 
 
-def default_effect_level(category: str) -> str:
+def default_allowed_effects(category: str) -> str:
     if category == "operator":
-        return "execute"
-    return "read_only"
+        effects = ["workspace_read", "runtime_observe", "local_exec"]
+    else:
+        effects = ["workspace_read", "runtime_observe"]
+    return "\n".join(f"    - {effect}" for effect in effects)
 
 
 def validate_skill_name(skill_name: str) -> None:
@@ -163,7 +170,7 @@ def init_skill(skill_name: str, parent_dir: Path, category: str) -> Path:
         SKILL_TEMPLATE.format(
             skill_name=skill_name,
             skill_title=skill_title,
-            effect_level=default_effect_level(category),
+            allowed_effects=default_allowed_effects(category),
         ),
         encoding="utf8",
     )
@@ -182,7 +189,9 @@ def init_skill(skill_name: str, parent_dir: Path, category: str) -> Path:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Initialize a v2 Brewva skill scaffold.")
+    parser = argparse.ArgumentParser(
+        description="Initialize a latest-generation Brewva skill scaffold."
+    )
     parser.add_argument("skill_name")
     parser.add_argument(
         "--category",
@@ -192,7 +201,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--path",
-        help="Optional target root. The script creates a v2 skills/<category>/... layout under it.",
+        help="Optional target root. The script creates a latest-generation skills/<category>/... layout under it.",
     )
     return parser.parse_args()
 

@@ -7,13 +7,13 @@ Skill parsing, merge, and selection logic:
 - `packages/brewva-runtime/src/skills/dispatch.ts`
 - `packages/brewva-gateway/src/runtime-plugins/context-transform.ts`
 
-## V2 Model
+## Current Model
 
 Skill taxonomy is now split by role:
 
-- public capability skills: routable semantic territory
+- public routable skills: routable semantic territory
 - runtime/control-plane phases: workflow semantics, not public skills
-- project overlays: project-specific tightening and resource extension
+- project overlays: project-specific tightening, execution guidance, and shared-context extension
 - operator/meta skills: loaded, but usually hidden from standard routing
 
 This keeps lifecycle choreography out of the public catalog.
@@ -24,12 +24,22 @@ public skill and not a runtime-kernel planner.
 
 ## Contract Metadata
 
-Skill frontmatter supports routing- and artifact-focused metadata:
+Skill frontmatter supports intent, effect, resource, and execution metadata:
 
 - `dispatch.suggest_threshold/auto_threshold`
-- `outputs/output_contracts`
-- `effect_level`
+- `intent.outputs/intent.output_contracts`
+- `effects.allowed_effects/effects.denied_effects`
+- `resources.default_lease/resources.hard_ceiling`
+- `execution_hints.preferred_tools/execution_hints.fallback_tools/execution_hints.cost_hint`
 - resource lists: `references`, `scripts`, `heuristics`, `invariants`
+
+For non-overlay skills:
+
+- both `resources.default_lease` and `resources.hard_ceiling` are required
+- `resources.hard_ceiling` must stay greater than or equal to
+  `resources.default_lease`
+- `effects.allowed_effects: []` is treated as an explicit zero-effect boundary,
+  not as implicit read-only fallback
 
 Directory layout derives category and routing scope:
 
@@ -50,10 +60,10 @@ not in a second base skill definition that relies on load order.
 phases. Verification, finishing, recovery, and compose-style planning live in
 runtime/control-plane code today rather than structured `SKILL.md` documents.
 
-`output_contracts` make artifact quality explicit in the skill contract instead
-of hiding it inside runtime heuristics. Non-overlay skills with declared outputs
-must define a contract for every output. Overlays may inherit base
-`output_contracts`, but they cannot silently replace an existing base output
+`intent.output_contracts` makes artifact quality explicit in the skill contract
+instead of hiding it inside runtime heuristics. Non-overlay skills with
+declared outputs must define a contract for every output. Overlays may inherit
+base output contracts, but they cannot silently replace an existing base output
 contract.
 
 Current output contract kinds are intentionally limited to `text`, `enum`, and
@@ -85,7 +95,7 @@ boundary. The model-assisted judge therefore does not make the kernel
 
 `skills_index.json` carries normalized contract metadata for each routable skill
 entry, including `category`, `routingScope`, `outputs`, `requires`, `consumes`,
-`effectLevel`, and `dispatch`.
+derived `effectLevel`, `allowedEffects`, and `dispatch`.
 
 ## Cascade Orchestration
 
@@ -129,7 +139,7 @@ into Deliberation-side cognition artifacts and cross back as a scoped
 `context_packet`, but it still remains non-authoritative context rather than
 skill output or kernel state.
 
-## Public Capability Skills
+## Public Routable Skills
 
 ### Core
 
@@ -148,8 +158,8 @@ skill output or kernel state.
 - `structured-extraction`
 - `goal-loop`
 
-`goal-loop` should be treated as a bounded multi-run
-capability, not a general-purpose implementation skill.
+`goal-loop` should be treated as a bounded multi-run skill, not a
+general-purpose implementation skill.
 
 ## Hidden-By-Default Skills
 
@@ -177,11 +187,14 @@ unless routing scopes explicitly include them.
 
 Overlays merge onto the base skill contract with project semantics:
 
-- resources are additive
-- project-required tools may be added
-- denied tools and budgets still only tighten, never relax
-- outputs merge additively with the base contract
+- intent outputs merge additively with the base contract
 - output contracts remain base-derived unless the overlay adds a brand-new output
+- completion definitions merge field-by-field, so overlays may tighten
+  `verification_level` without silently dropping inherited
+  `required_evidence_kinds`
+- allowed effects may tighten, and denied effects only accumulate
+- resource ceilings and default leases only tighten, never relax
+- execution hints may specialize planning guidance without changing kernel authority
 - multiple overlays apply in deterministic root load order; within one root,
   overlay files are applied in lexical path order, and later overlays only
   tighten or replace fields according to the merge contract

@@ -20,20 +20,28 @@ while IFS= read -r file; do
     missing+=("frontmatter")
   fi
 
-  if ! grep -Eq '^outputs:' "${file}"; then
-    missing+=("outputs_field")
+  if ! grep -Eq '^intent:' "${file}"; then
+    missing+=("intent_contract_field")
   fi
 
   if ! grep -Eq '^consumes:' "${file}"; then
     missing+=("consumes_field")
   fi
 
-  if ! grep -Eq '^tools:' "${file}"; then
-    missing+=("tools_field")
+  if ! grep -Eq '^requires:' "${file}"; then
+    missing+=("requires_field")
   fi
 
-  if ! grep -Eq '^budget:' "${file}"; then
-    missing+=("budget_field")
+  if ! grep -Eq '^effects:' "${file}"; then
+    missing+=("effects_field")
+  fi
+
+  if ! grep -Eq '^resources:' "${file}"; then
+    missing+=("resources_field")
+  fi
+
+  if ! grep -Eq '^execution_hints:' "${file}"; then
+    missing+=("execution_hints_field")
   fi
 
   if ! grep -Eq '^## Intent' "${file}"; then

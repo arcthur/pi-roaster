@@ -1,37 +1,54 @@
+import type { SkillContract, SkillResourceSet, ToolEffectClass } from "@brewva/brewva-runtime";
+import {
+  getSkillCostHint,
+  getSkillOutputContracts,
+  listSkillAllowedEffects,
+  listSkillDeniedEffects,
+  listSkillFallbackTools,
+  listSkillOutputs,
+  listSkillPreferredTools,
+  resolveSkillDefaultLease,
+  resolveSkillEffectLevel,
+  resolveSkillHardCeiling,
+} from "@brewva/brewva-runtime";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 function formatSkillOutput(input: {
   name: string;
   category: string;
   baseDir: string;
   markdown: string;
-  contract: {
-    tools: { required: string[]; optional: string[]; denied: string[] };
-    budget: { maxToolCalls: number; maxTokens: number };
-    outputs?: string[];
-    consumes?: string[];
-    requires?: string[];
-    effectLevel?: string;
-    routing?: {
-      scope: string;
-    };
-  };
-  resources?: {
-    references: string[];
-    scripts: string[];
-    heuristics: string[];
-    invariants: string[];
-  };
+  contract: SkillContract;
+  resources?: SkillResourceSet;
   availableConsumedOutputs?: Record<string, unknown>;
 }): string {
-  const outputs = input.contract.outputs?.length ? input.contract.outputs.join(", ") : "(none)";
+  const outputsList = listSkillOutputs(input.contract);
+  const outputs = outputsList.length > 0 ? outputsList.join(", ") : "(none)";
   const requires = input.contract.requires?.length ? input.contract.requires.join(", ") : "(none)";
   const consumes = input.contract.consumes?.length ? input.contract.consumes.join(", ") : "(none)";
+  const outputContracts = getSkillOutputContracts(input.contract);
+  const defaultLease = resolveSkillDefaultLease(input.contract);
+  const hardCeiling = resolveSkillHardCeiling(input.contract);
+  const preferredTools = listSkillPreferredTools(input.contract);
+  const fallbackTools = listSkillFallbackTools(input.contract);
+  const allowedEffects = listSkillAllowedEffects(input.contract);
+  const deniedEffects = listSkillDeniedEffects(input.contract);
+
+  const formatEffects = (effects: ToolEffectClass[]): string =>
+    effects.length > 0 ? effects.join(", ") : "(none)";
+  const formatBudget = (budget: typeof defaultLease): string =>
+    budget
+      ? [
+          `max_tool_calls=${budget.maxToolCalls ?? "(unset)"}`,
+          `max_tokens=${budget.maxTokens ?? "(unset)"}`,
+          `max_parallel=${budget.maxParallel ?? "(unset)"}`,
+        ].join(", ")
+      : "(none)";
 
   const lines = [
     `# Skill Loaded: ${input.name}`,
@@ -39,13 +56,16 @@ function formatSkillOutput(input: {
     `Base directory: ${input.baseDir}`,
     "",
     "## Contract",
-    `- required tools: ${input.contract.tools.required.join(", ") || "(none)"}`,
-    `- optional tools: ${input.contract.tools.optional.join(", ") || "(none)"}`,
-    `- denied tools: ${input.contract.tools.denied.join(", ") || "(none)"}`,
-    `- max tool calls: ${input.contract.budget.maxToolCalls}`,
-    `- max tokens: ${input.contract.budget.maxTokens}`,
-    `- effect level: ${input.contract.effectLevel ?? "read_only"}`,
+    `- effect level: ${resolveSkillEffectLevel(input.contract)}`,
+    `- allowed effects: ${formatEffects(allowedEffects)}`,
+    `- denied effects: ${formatEffects(deniedEffects)}`,
+    `- preferred tools: ${preferredTools.join(", ") || "(none)"}`,
+    `- fallback tools: ${fallbackTools.join(", ") || "(none)"}`,
+    `- cost hint: ${getSkillCostHint(input.contract)}`,
+    `- default lease: ${formatBudget(defaultLease)}`,
+    `- hard ceiling: ${formatBudget(hardCeiling)}`,
     `- required outputs: ${outputs}`,
+    `- output contracts: ${Object.keys(outputContracts).join(", ") || "(none)"}`,
     `- required inputs: ${requires}`,
     `- optional inputs: ${consumes}`,
     `- routing scope: ${input.contract.routing?.scope ?? "(not routable)"}`,
@@ -78,7 +98,7 @@ function formatSkillOutput(input: {
 }
 
 export function createSkillLoadTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "skill_load",
     label: "Skill Load",
     description: "Load a skill by name, activate its contract, and return full skill instructions.",

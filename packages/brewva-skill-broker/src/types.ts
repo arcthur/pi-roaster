@@ -1,3 +1,4 @@
+import type { ToolEffectClass } from "@brewva/brewva-runtime";
 import type {
   SkillDocument,
   SkillRoutingOutcome,
@@ -31,7 +32,9 @@ export interface SkillBrokerJudgeCandidate {
   consumes: string[];
   requires: string[];
   effectLevel: SkillsIndexEntry["effectLevel"];
-  toolsRequired: string[];
+  preferredTools: string[];
+  fallbackTools: string[];
+  allowedEffects: ToolEffectClass[];
   score: number;
   stageOneScore: number;
   previewScore: number;

@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
 import { textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 function formatRollbackMessage(input: {
   ok: boolean;
@@ -31,7 +31,7 @@ function formatRollbackMessage(input: {
 }
 
 export function createRollbackLastPatchTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "rollback_last_patch",
     label: "Rollback Last Patch",
     description: "Roll back the most recently tracked file mutation patch set for this session.",

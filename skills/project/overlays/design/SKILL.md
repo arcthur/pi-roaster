@@ -1,16 +1,36 @@
 ---
+intent:
+  outputs:
+    - design_spec
+    - execution_plan
+    - execution_mode_hint
+    - risk_register
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 70
+    max_tokens: 140000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - glob
+    - lsp_symbols
+    - ledger_query
+    - skill_complete
 references:
-  [skills/project/shared/package-boundaries.md, skills/project/shared/migration-priority-matrix.md]
-tools:
-  required: [read, grep]
-  optional: [glob, lsp_symbols, ledger_query, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 70
-  max_tokens: 140000
-outputs: [design_spec, execution_plan, execution_mode_hint, risk_register]
-requires: [repository_snapshot, impact_map]
-consumes: [root_cause, runtime_trace]
+  - skills/project/shared/package-boundaries.md
+  - skills/project/shared/migration-priority-matrix.md
+consumes:
+  - root_cause
+  - runtime_trace
+requires:
+  - repository_snapshot
+  - impact_map
 ---
 
 # Brewva Design Overlay

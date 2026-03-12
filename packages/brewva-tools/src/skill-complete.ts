@@ -8,7 +8,7 @@ import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, inconclusiveTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -73,7 +73,7 @@ function buildDebugLoopHint(options: BrewvaToolOptions, sessionId: string): stri
 }
 
 export function createSkillCompleteTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "skill_complete",
     label: "Skill Complete",
     description: "Validate skill outputs against contract and complete the active skill.",

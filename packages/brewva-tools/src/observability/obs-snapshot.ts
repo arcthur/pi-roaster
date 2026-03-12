@@ -4,7 +4,7 @@ import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "../types.js";
 import { textResult } from "../utils/result.js";
 import { getSessionId } from "../utils/session.js";
-import { defineTool } from "../utils/tool.js";
+import { defineBrewvaTool } from "../utils/tool.js";
 
 function formatPercent(value: number | null): string {
   if (value === null) return "unknown";
@@ -12,7 +12,7 @@ function formatPercent(value: number | null): string {
 }
 
 export function createObsSnapshotTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "obs_snapshot",
     label: "Observability Snapshot",
     description: "Show a compact health snapshot for the current session runtime state.",

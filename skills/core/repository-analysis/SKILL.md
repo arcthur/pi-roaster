@@ -1,28 +1,49 @@
 ---
 name: repository-analysis
-description: Build a reliable repository snapshot, module boundary map, and impact analysis before design, debugging, or review.
+description: Build a reliable repository snapshot, module boundary map, and impact
+  analysis before design, debugging, or review.
 stability: stable
-effect_level: read_only
-tools:
-  required: [read, grep]
-  optional: [glob, lsp_symbols, lsp_find_references, ledger_query, skill_complete]
-  denied: [write, edit, exec, process]
-budget:
-  max_tool_calls: 80
-  max_tokens: 160000
-outputs: [repository_snapshot, impact_map, unknowns]
-output_contracts:
-  repository_snapshot:
-    kind: text
-    min_words: 3
-    min_length: 18
-  impact_map:
-    kind: text
-    min_words: 3
-    min_length: 18
-  unknowns:
-    kind: json
-    min_items: 1
+intent:
+  outputs:
+    - repository_snapshot
+    - impact_map
+    - unknowns
+  output_contracts:
+    repository_snapshot:
+      kind: text
+      min_words: 3
+      min_length: 18
+    impact_map:
+      kind: text
+      min_words: 3
+      min_length: 18
+    unknowns:
+      kind: json
+      min_items: 1
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+    - local_exec
+resources:
+  default_lease:
+    max_tool_calls: 80
+    max_tokens: 160000
+  hard_ceiling:
+    max_tool_calls: 120
+    max_tokens: 220000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - glob
+    - lsp_symbols
+    - lsp_find_references
+    - ledger_query
+    - skill_complete
 consumes: []
 requires: []
 ---

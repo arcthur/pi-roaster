@@ -1,29 +1,48 @@
 ---
 name: frontend-design
-description: Shape UI direction, interaction structure, and visual intent for frontend work that needs taste and product judgment.
+description: Shape UI direction, interaction structure, and visual intent for frontend
+  work that needs taste and product judgment.
 stability: stable
-effect_level: read_only
-tools:
-  required: [read]
-  optional: [look_at, grep, skill_complete]
-  denied: [write, edit, exec, process]
-budget:
-  max_tool_calls: 70
-  max_tokens: 140000
+intent:
+  outputs:
+    - ui_direction
+    - ui_spec
+  output_contracts:
+    ui_direction:
+      kind: text
+      min_words: 3
+      min_length: 18
+    ui_spec:
+      kind: text
+      min_words: 4
+      min_length: 24
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+    - local_exec
+resources:
+  default_lease:
+    max_tool_calls: 70
+    max_tokens: 140000
+  hard_ceiling:
+    max_tool_calls: 110
+    max_tokens: 200000
+execution_hints:
+  preferred_tools:
+    - read
+  fallback_tools:
+    - look_at
+    - grep
+    - skill_complete
 references:
   - references/bento-paradigm.md
   - references/creative-arsenal.md
-outputs: [ui_direction, ui_spec]
-output_contracts:
-  ui_direction:
-    kind: text
-    min_words: 3
-    min_length: 18
-  ui_spec:
-    kind: text
-    min_words: 4
-    min_length: 24
-consumes: [design_spec, browser_observations]
+consumes:
+  - design_spec
+  - browser_observations
 requires: []
 ---
 

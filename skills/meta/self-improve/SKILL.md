@@ -1,15 +1,52 @@
 ---
 name: self-improve
-description: Distill recurring failures, weak heuristics, or review patterns into explicit improvement hypotheses and follow-up changes.
+description: Distill recurring failures, weak heuristics, or review patterns into
+  explicit improvement hypotheses and follow-up changes.
 stability: experimental
-effect_level: mutation
-tools:
-  required: [read, grep]
-  optional: [ledger_query, tape_search, cost_view, exec, edit, process, skill_complete]
-  denied: [write]
-budget:
-  max_tool_calls: 80
-  max_tokens: 150000
+intent:
+  outputs:
+    - improvement_hypothesis
+    - learning_backlog
+    - improvement_plan
+  output_contracts:
+    improvement_hypothesis:
+      kind: text
+      min_words: 3
+      min_length: 18
+    learning_backlog:
+      kind: json
+      min_items: 1
+    improvement_plan:
+      kind: text
+      min_words: 3
+      min_length: 18
+effects:
+  allowed_effects:
+    - workspace_read
+    - workspace_write
+    - local_exec
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+resources:
+  default_lease:
+    max_tool_calls: 80
+    max_tokens: 150000
+  hard_ceiling:
+    max_tool_calls: 120
+    max_tokens: 210000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - ledger_query
+    - tape_search
+    - cost_view
+    - exec
+    - edit
+    - process
+    - skill_complete
 references:
   - references/promotion-targets.md
 scripts:
@@ -19,20 +56,10 @@ scripts:
   - scripts/promote.sh
   - scripts/review.sh
   - scripts/setup.sh
-outputs: [improvement_hypothesis, learning_backlog, improvement_plan]
-output_contracts:
-  improvement_hypothesis:
-    kind: text
-    min_words: 3
-    min_length: 18
-  learning_backlog:
-    kind: json
-    min_items: 1
-  improvement_plan:
-    kind: text
-    min_words: 3
-    min_length: 18
-consumes: [review_report, runtime_trace, artifact_findings]
+consumes:
+  - review_report
+  - runtime_trace
+  - artifact_findings
 requires: []
 ---
 
@@ -43,7 +70,7 @@ requires: []
 Turn repeated mistakes or friction into explicit learning loops instead of one-off observations.
 
 Use the helper scripts to initialize workspace learning logs, mine repeated failures,
-and promote high-value patterns into v2 skill categories, project overlays, or shared project rules. Templates for
+and promote high-value patterns into current skill categories, project overlays, or shared project rules. Templates for
 workspace learning files live under `assets/`.
 
 ## Trigger

@@ -6,6 +6,16 @@ export type SkillCategory = "core" | "domain" | "operator" | "meta" | "internal"
 export type SkillRoutingScope = "core" | "domain" | "operator" | "meta";
 export type SkillCostHint = "low" | "medium" | "high";
 export type SkillEffectLevel = "read_only" | "execute" | "mutation";
+export type ToolEffectClass =
+  | "workspace_read"
+  | "workspace_write"
+  | "local_exec"
+  | "runtime_observe"
+  | "external_network"
+  | "external_side_effect"
+  | "schedule_mutation"
+  | "memory_write";
+export type ToolGovernanceRisk = "low" | "medium" | "high";
 export type SkillDispatchMode = "suggest" | "auto";
 export type SkillCascadeMode = "off" | "assist" | "auto";
 export type SkillCascadeSource = "dispatch" | "explicit";
@@ -49,38 +59,81 @@ export type SkillOutputContract =
   | SkillOutputEnumContract
   | SkillOutputJsonContract;
 
+export interface ToolGovernanceDescriptor {
+  effects: ToolEffectClass[];
+  defaultRisk?: ToolGovernanceRisk;
+}
+
+export interface SkillCompletionDefinition {
+  verificationLevel?: VerificationLevel;
+  requiredEvidenceKinds?: string[];
+}
+
+export interface SkillIntentContract {
+  outputs?: string[];
+  outputContracts?: Record<string, SkillOutputContract>;
+  completionDefinition?: SkillCompletionDefinition;
+}
+
+export interface SkillEffectsContract {
+  allowedEffects?: ToolEffectClass[];
+  deniedEffects?: ToolEffectClass[];
+}
+
+export interface SkillEffectsOverride {
+  allowedEffects?: ToolEffectClass[];
+  deniedEffects?: ToolEffectClass[];
+}
+
+export interface SkillResourceBudget {
+  maxToolCalls?: number;
+  maxTokens?: number;
+  maxParallel?: number;
+}
+
+export interface SkillResourcePolicy {
+  defaultLease?: SkillResourceBudget;
+  hardCeiling?: SkillResourceBudget;
+}
+
+export interface SkillSuggestedChain {
+  steps: string[];
+}
+
+export interface SkillExecutionHints {
+  preferredTools?: string[];
+  fallbackTools?: string[];
+  suggestedChains?: SkillSuggestedChain[];
+  costHint?: SkillCostHint;
+}
+
 export interface SkillContract {
   name: string;
   category: SkillCategory;
   dispatch?: SkillDispatchPolicy;
   routing?: SkillRoutingPolicy;
-  tools: {
-    required: string[];
-    optional: string[];
-    denied: string[];
-  };
-  budget: {
-    maxToolCalls: number;
-    maxTokens: number;
-  };
-  outputs?: string[];
-  outputContracts?: Record<string, SkillOutputContract>;
+  intent?: SkillIntentContract;
+  effects?: SkillEffectsContract;
+  resources?: SkillResourcePolicy;
+  executionHints?: SkillExecutionHints;
   composableWith?: string[];
   consumes?: string[];
   requires?: string[];
-  maxParallel?: number;
   stability?: "experimental" | "stable" | "deprecated";
   description?: string;
-  costHint?: SkillCostHint;
-  effectLevel?: SkillEffectLevel;
 }
 
 export interface SkillContractOverride extends Omit<
   Partial<SkillContract>,
-  "tools" | "budget" | "routing"
+  "intent" | "effects" | "resources" | "executionHints" | "routing"
 > {
-  tools?: Partial<SkillContract["tools"]>;
-  budget?: Partial<SkillContract["budget"]>;
+  intent?: Partial<SkillIntentContract>;
+  effects?: SkillEffectsOverride;
+  resources?: {
+    defaultLease?: Partial<SkillResourceBudget>;
+    hardCeiling?: Partial<SkillResourceBudget>;
+  };
+  executionHints?: Partial<SkillExecutionHints>;
   routing?: Partial<SkillRoutingPolicy>;
 }
 
@@ -106,7 +159,9 @@ export interface SkillsIndexEntry {
   category: SkillCategory;
   description: string;
   outputs: string[];
-  toolsRequired: string[];
+  preferredTools: string[];
+  fallbackTools: string[];
+  allowedEffects: ToolEffectClass[];
   costHint: SkillCostHint;
   stability: "experimental" | "stable" | "deprecated";
   composableWith: string[];
@@ -665,7 +720,7 @@ export interface BrewvaConfig {
     mode: "permissive" | "standard" | "strict";
     sanitizeContext: boolean;
     enforcement: {
-      allowedToolsMode: SecurityEnforcementPreference;
+      effectAuthorizationMode: SecurityEnforcementPreference;
       skillMaxTokensMode: SecurityEnforcementPreference;
       skillMaxToolCallsMode: SecurityEnforcementPreference;
       skillMaxParallelMode: SecurityEnforcementPreference;
@@ -1075,6 +1130,46 @@ export interface ToolAccessResult {
   reason?: string;
   warning?: string;
 }
+
+export interface ResourceLeaseBudget {
+  maxToolCalls?: number;
+  maxTokens?: number;
+  maxParallel?: number;
+}
+
+export interface ResourceLeaseRecord {
+  id: string;
+  sessionId: string;
+  skillName: string;
+  reason: string;
+  budget: ResourceLeaseBudget;
+  createdAt: number;
+  expiresAt?: number;
+  expiresAfterTurn?: number;
+  status: "active" | "expired" | "cancelled";
+  cancelledAt?: number;
+  cancelledReason?: string;
+}
+
+export interface ResourceLeaseRequest {
+  reason: string;
+  budget?: ResourceLeaseBudget;
+  ttlMs?: number;
+  ttlTurns?: number;
+}
+
+export interface ResourceLeaseQuery {
+  includeInactive?: boolean;
+  skillName?: string;
+}
+
+export type ResourceLeaseResult =
+  | { ok: true; lease: ResourceLeaseRecord }
+  | { ok: false; error: string };
+
+export type ResourceLeaseCancelResult =
+  | { ok: true; lease: ResourceLeaseRecord }
+  | { ok: false; error: string };
 
 export interface ParallelAcquireResult {
   accepted: boolean;

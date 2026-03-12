@@ -21,7 +21,7 @@ import {
 import type { BrewvaToolRuntime } from "./types.js";
 import { textResult, withVerdict } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const ExecSchema = Type.Object({
   command: Type.String({ minLength: 1 }),
@@ -988,7 +988,7 @@ async function executeSandboxCommand(input: {
 }
 
 export function createExecTool(options?: ExecToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "exec",
     label: "Exec",
     description:

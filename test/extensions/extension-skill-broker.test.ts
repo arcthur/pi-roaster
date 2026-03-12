@@ -20,7 +20,8 @@ function writeCatalog(
       outputs?: string[];
       consumes?: string[];
       requires?: string[];
-      toolsRequired?: string[];
+      preferredTools?: string[];
+      fallbackTools?: string[];
     }>;
   },
 ): void {
@@ -36,7 +37,9 @@ function writeCatalog(
           category: "domain",
           description: entry.description,
           outputs: entry.outputs ?? [],
-          toolsRequired: entry.toolsRequired ?? ["read"],
+          preferredTools: entry.preferredTools ?? ["read"],
+          fallbackTools: entry.fallbackTools ?? [],
+          allowedEffects: ["workspace_read"],
           costHint: "medium",
           stability: "stable",
           composableWith: [],

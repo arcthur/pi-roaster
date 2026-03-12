@@ -1,4 +1,5 @@
 import type { SkillEffectLevel, SkillsIndexEntry } from "../types.js";
+import { deriveSkillEffectLevel } from "./facets.js";
 
 export interface SkillChainPlannerInput {
   primary: SkillsIndexEntry;
@@ -70,6 +71,12 @@ function resolveEffectLevel(value: unknown): SkillEffectLevel {
   return "read_only";
 }
 
+function resolveEntryEffectLevel(entry: SkillsIndexEntry): SkillEffectLevel {
+  return entry.allowedEffects.length > 0
+    ? deriveSkillEffectLevel(entry.allowedEffects)
+    : resolveEffectLevel(entry.effectLevel);
+}
+
 function hasOutput(entry: SkillsIndexEntry, outputName: string): boolean {
   return normalizeStringArray(entry.outputs).some((value) => value === outputName);
 }
@@ -91,8 +98,7 @@ function isProducerEffectCompatible(
   candidate: SkillsIndexEntry,
 ): boolean {
   return (
-    EFFECT_RANK[resolveEffectLevel(candidate.effectLevel)] <=
-    EFFECT_RANK[resolveEffectLevel(primary.effectLevel)]
+    EFFECT_RANK[resolveEntryEffectLevel(candidate)] <= EFFECT_RANK[resolveEntryEffectLevel(primary)]
   );
 }
 
@@ -106,8 +112,7 @@ function compareProducer(
   if (composableRankDiff !== 0) return composableRankDiff;
 
   const effectDiff =
-    EFFECT_RANK[resolveEffectLevel(left.effectLevel)] -
-    EFFECT_RANK[resolveEffectLevel(right.effectLevel)];
+    EFFECT_RANK[resolveEntryEffectLevel(left)] - EFFECT_RANK[resolveEntryEffectLevel(right)];
   if (effectDiff !== 0) return effectDiff;
 
   const costDiff =

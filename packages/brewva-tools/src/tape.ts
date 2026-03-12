@@ -9,7 +9,7 @@ import { formatISO } from "date-fns";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const TapeSearchScopeSchema = Type.Union([
   Type.Literal("current_phase"),
@@ -112,7 +112,7 @@ function toSafeScope(value: unknown): TapeSearchScope {
 }
 
 export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
-  const tapeHandoff = defineTool({
+  const tapeHandoff = defineBrewvaTool({
     name: "tape_handoff",
     label: "Tape Handoff",
     description:
@@ -156,7 +156,7 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
     },
   });
 
-  const tapeInfo = defineTool({
+  const tapeInfo = defineBrewvaTool({
     name: "tape_info",
     label: "Tape Info",
     description: "Show tape status and context pressure for the current session.",
@@ -185,7 +185,7 @@ export function createTapeTools(options: BrewvaToolOptions): ToolDefinition[] {
     },
   });
 
-  const tapeSearch = defineTool({
+  const tapeSearch = defineBrewvaTool({
     name: "tape_search",
     label: "Tape Search",
     description: "Search historical tape entries by text query.",

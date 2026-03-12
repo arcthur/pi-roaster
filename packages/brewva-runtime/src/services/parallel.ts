@@ -8,6 +8,7 @@ import type {
   WorkerMergeReport,
   WorkerResult,
 } from "../types.js";
+import type { ResourceLeaseService } from "./resource-lease.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 import type { SkillLifecycleService } from "./skill-lifecycle.js";
 
@@ -18,6 +19,7 @@ export interface ParallelServiceOptions {
   sessionState: RuntimeKernelContext["sessionState"];
   getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
   recordEvent: RuntimeKernelContext["recordEvent"];
+  resourceLeaseService: Pick<ResourceLeaseService, "getEffectiveBudget">;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
 }
 
@@ -28,6 +30,7 @@ export class ParallelService {
   private readonly sessionState: RuntimeSessionStateStore;
   private readonly getActiveSkill: (sessionId: string) => SkillDocument | undefined;
   private readonly getCurrentTurn: (sessionId: string) => number;
+  private readonly getEffectiveBudget: ResourceLeaseService["getEffectiveBudget"];
   private readonly recordEvent: (input: {
     sessionId: string;
     type: string;
@@ -44,6 +47,8 @@ export class ParallelService {
     this.sessionState = options.sessionState;
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
     this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
+    this.getEffectiveBudget = (sessionId, contract, skillName) =>
+      options.resourceLeaseService.getEffectiveBudget(sessionId, contract, skillName);
     this.recordEvent = (input) => options.recordEvent(input);
   }
 
@@ -99,7 +104,11 @@ export class ParallelService {
   ): ParallelAcquireResult {
     const state = this.sessionState.getCell(sessionId);
     const skill = this.getActiveSkill(sessionId);
-    const maxParallel = skill?.contract.maxParallel;
+    const effectiveBudget =
+      skill?.contract !== undefined
+        ? this.getEffectiveBudget(sessionId, skill.contract, skill.name)
+        : undefined;
+    const maxParallel = effectiveBudget?.maxParallel;
 
     if (
       skill &&

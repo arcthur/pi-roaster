@@ -1,5 +1,15 @@
-import { BrewvaRuntime, type BrewvaRuntimeOptions } from "@brewva/brewva-runtime";
-import { buildBrewvaTools, getBrewvaToolSurface } from "@brewva/brewva-tools";
+import {
+  BrewvaRuntime,
+  getExactToolGovernanceDescriptor,
+  registerToolGovernanceDescriptor,
+  sameToolGovernanceDescriptor,
+  type BrewvaRuntimeOptions,
+} from "@brewva/brewva-runtime";
+import {
+  buildBrewvaTools,
+  getBrewvaToolMetadata,
+  getBrewvaToolSurface,
+} from "@brewva/brewva-tools";
 import type { ExtensionAPI, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 import { createCognitiveMetricsLifecycle, registerCognitiveMetrics } from "./cognitive-metrics.js";
 import { createCompletionGuardLifecycle, registerCompletionGuard } from "./completion-guard.js";
@@ -113,6 +123,16 @@ export function createBrewvaExtension(
       : undefined;
 
     if (shouldRegisterTools) {
+      for (const tool of allTools) {
+        const metadata = getBrewvaToolMetadata(tool);
+        if (metadata?.governance) {
+          const exactGovernance = getExactToolGovernanceDescriptor(tool.name);
+          if (sameToolGovernanceDescriptor(exactGovernance, metadata.governance)) {
+            continue;
+          }
+          registerToolGovernanceDescriptor(tool.name, metadata.governance);
+        }
+      }
       for (const tool of allTools) {
         if (getBrewvaToolSurface(tool.name) !== "base") continue;
         pi.registerTool(tool);

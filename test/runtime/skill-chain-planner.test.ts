@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
+  getSkillCostHint,
+  listSkillAllowedEffects,
+  listSkillFallbackTools,
+  listSkillOutputs,
+  listSkillPreferredTools,
   parseSkillDocument,
   planSkillChain,
+  resolveSkillEffectLevel,
   type SkillCategory,
   type SkillsIndexEntry,
 } from "@brewva/brewva-runtime";
@@ -10,18 +16,28 @@ import {
 function createEntry(
   input: Partial<SkillsIndexEntry> & Pick<SkillsIndexEntry, "name">,
 ): SkillsIndexEntry {
+  const effectLevel = input.effectLevel ?? "read_only";
+  const allowedEffects =
+    input.allowedEffects ??
+    (effectLevel === "mutation"
+      ? ["workspace_read", "workspace_write"]
+      : effectLevel === "execute"
+        ? ["workspace_read", "local_exec"]
+        : ["workspace_read"]);
   return {
     name: input.name,
     category: input.category ?? "core",
     description: input.description ?? `${input.name} skill`,
     outputs: input.outputs ?? [],
-    toolsRequired: input.toolsRequired ?? [],
+    preferredTools: input.preferredTools ?? [],
+    fallbackTools: input.fallbackTools ?? [],
+    allowedEffects,
     costHint: input.costHint ?? "medium",
     stability: input.stability ?? "stable",
     composableWith: input.composableWith ?? [],
     consumes: input.consumes ?? [],
     requires: input.requires ?? [],
-    effectLevel: input.effectLevel ?? "read_only",
+    effectLevel,
     dispatch: input.dispatch ?? {
       suggestThreshold: 10,
       autoThreshold: 16,
@@ -40,14 +56,16 @@ function loadEntry(relativePath: string, category: SkillCategory): SkillsIndexEn
     name: skill.name,
     category: skill.category,
     description: skill.description,
-    outputs: skill.contract.outputs ?? [],
-    toolsRequired: skill.contract.tools.required,
-    costHint: skill.contract.costHint ?? "medium",
+    outputs: listSkillOutputs(skill.contract),
+    preferredTools: listSkillPreferredTools(skill.contract),
+    fallbackTools: listSkillFallbackTools(skill.contract),
+    allowedEffects: listSkillAllowedEffects(skill.contract),
+    costHint: getSkillCostHint(skill.contract),
     stability: skill.contract.stability ?? "stable",
     composableWith: skill.contract.composableWith ?? [],
     consumes: skill.contract.consumes ?? [],
     requires: skill.contract.requires ?? [],
-    effectLevel: skill.contract.effectLevel ?? "read_only",
+    effectLevel: resolveSkillEffectLevel(skill.contract),
     dispatch: skill.contract.dispatch,
     routingScope: skill.contract.routing?.scope,
   };

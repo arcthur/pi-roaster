@@ -1,39 +1,61 @@
 ---
 name: goal-loop
-description: Use bounded multi-run continuity when progress must span repeated executions and convergence can be judged from explicit evidence.
+description: Use bounded multi-run continuity when progress must span repeated executions
+  and convergence can be judged from explicit evidence.
 stability: experimental
-effect_level: read_only
 dispatch:
   suggest_threshold: 12
   auto_threshold: 24
-tools:
-  required: [read]
-  optional: [schedule_intent, task_view_state, ledger_query, skill_chain_control, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 70
-  max_tokens: 140000
+intent:
+  outputs:
+    - loop_contract
+    - iteration_report
+    - convergence_report
+    - continuation_plan
+  output_contracts:
+    loop_contract:
+      kind: text
+      min_words: 3
+      min_length: 18
+    iteration_report:
+      kind: text
+      min_words: 3
+      min_length: 18
+    convergence_report:
+      kind: text
+      min_words: 2
+      min_length: 12
+    continuation_plan:
+      kind: json
+      min_items: 1
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+    - schedule_mutation
+resources:
+  default_lease:
+    max_tool_calls: 70
+    max_tokens: 140000
+  hard_ceiling:
+    max_tool_calls: 110
+    max_tokens: 200000
+execution_hints:
+  preferred_tools:
+    - read
+  fallback_tools:
+    - schedule_intent
+    - task_view_state
+    - ledger_query
+    - skill_chain_control
+    - skill_complete
 references:
   - references/convergence-patterns.md
   - references/handoff-patterns.md
-outputs: [loop_contract, iteration_report, convergence_report, continuation_plan]
-output_contracts:
-  loop_contract:
-    kind: text
-    min_words: 3
-    min_length: 18
-  iteration_report:
-    kind: text
-    min_words: 3
-    min_length: 18
-  convergence_report:
-    kind: text
-    min_words: 2
-    min_length: 12
-  continuation_plan:
-    kind: json
-    min_items: 1
-consumes: [design_spec, execution_plan, verification_evidence]
+consumes:
+  - design_spec
+  - execution_plan
+  - verification_evidence
 requires: []
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fork an existing v2 Brewva skill into an overlay root."""
+"""Fork an existing Brewva skill into an overlay root."""
 
 from __future__ import annotations
 
@@ -295,7 +295,7 @@ def resolve_source_entry(
     registry = load_registry_candidates(discover_skill_roots(cwd, configured_roots))
     candidates = registry.get(skill_name)
     if not candidates:
-        raise RuntimeError(f"Skill '{skill_name}' was not found in discovered v2 skill roots.")
+        raise RuntimeError(f"Skill '{skill_name}' was not found in discovered skill roots.")
     return choose_source_entry(candidates), configured_roots, disabled
 
 
@@ -379,7 +379,7 @@ def destination_is_active(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fork an existing v2 Brewva skill into project/overlay form."
+        description="Fork an existing Brewva skill into project/overlay form."
     )
     parser.add_argument("skill_name")
     parser.add_argument("--source", help="Explicit source skill path or SKILL.md file.")

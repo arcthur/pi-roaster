@@ -4,7 +4,7 @@ import { formatISO } from "date-fns";
 import type { BrewvaToolOptions } from "./types.js";
 import { textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 function formatTopRows<T>(
   rows: Array<[string, T]>,
@@ -17,7 +17,7 @@ function formatTopRows<T>(
 }
 
 export function createCostViewTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "cost_view",
     label: "Cost View",
     description: "Show session, skill, and tool cost breakdown with budget status.",

@@ -25,21 +25,30 @@ function createSkillDocument(input: {
     contract: {
       name: input.name,
       category: "core",
-      tools: {
-        required: ["read"],
-        optional: [],
-        denied: [],
+      intent: {
+        outputs: input.outputs ?? [],
       },
-      budget: {
-        maxToolCalls: 4,
-        maxTokens: 8000,
+      effects: {
+        allowedEffects: ["workspace_read"],
       },
-      outputs: input.outputs ?? [],
+      resources: {
+        defaultLease: {
+          maxToolCalls: 4,
+          maxTokens: 8000,
+        },
+        hardCeiling: {
+          maxToolCalls: 4,
+          maxTokens: 8000,
+        },
+      },
+      executionHints: {
+        preferredTools: ["read"],
+        fallbackTools: [],
+        costHint: "medium",
+      },
       requires: input.requires ?? [],
       composableWith: input.composableWith ?? [],
       stability: "stable",
-      costHint: "medium",
-      effectLevel: "read_only",
       dispatch: {
         suggestThreshold: 12,
         autoThreshold: 18,

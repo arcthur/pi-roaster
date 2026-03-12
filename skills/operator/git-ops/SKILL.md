@@ -1,35 +1,56 @@
 ---
 name: git-ops
-description: Handle commit shaping, history inspection, and non-destructive branch operations with explicit safety gates.
+description: Handle commit shaping, history inspection, and non-destructive branch
+  operations with explicit safety gates.
 stability: stable
-effect_level: execute
-tools:
-  required: [exec, read]
-  optional: [grep, ledger_query, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 80
-  max_tokens: 140000
+intent:
+  outputs:
+    - git_context
+    - commit_plan
+    - git_operation_report
+  output_contracts:
+    git_context:
+      kind: text
+      min_words: 3
+      min_length: 18
+    commit_plan:
+      kind: json
+      min_items: 1
+    git_operation_report:
+      kind: text
+      min_words: 3
+      min_length: 18
+effects:
+  allowed_effects:
+    - workspace_read
+    - local_exec
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 80
+    max_tokens: 140000
+  hard_ceiling:
+    max_tool_calls: 120
+    max_tokens: 200000
+execution_hints:
+  preferred_tools:
+    - exec
+    - read
+  fallback_tools:
+    - grep
+    - ledger_query
+    - skill_complete
 references:
   - references/conventional-commits.md
   - references/history-search-cheatsheet.md
   - references/rebase-workflow.md
 scripts:
   - scripts/detect-commit-style.sh
-outputs: [git_context, commit_plan, git_operation_report]
-output_contracts:
-  git_context:
-    kind: text
-    min_words: 3
-    min_length: 18
-  commit_plan:
-    kind: json
-    min_items: 1
-  git_operation_report:
-    kind: text
-    min_words: 3
-    min_length: 18
-consumes: [change_set, files_changed, verification_evidence, review_report]
+consumes:
+  - change_set
+  - files_changed
+  - verification_evidence
+  - review_report
 requires: []
 ---
 

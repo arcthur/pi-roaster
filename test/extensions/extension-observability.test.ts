@@ -792,14 +792,21 @@ describe("Extension integration: observability", () => {
 name: blocktool
 description: blocktool skill
 tags: [blocktool]
-tools:
-  required: [read]
-  optional: [edit]
-  denied: [write]
-budget:
-  max_tool_calls: 10
-  max_tokens: 10000
-outputs: []
+intent:
+  outputs: []
+effects:
+  allowed_effects: [workspace_read]
+  denied_effects: [workspace_write]
+resources:
+  default_lease:
+    max_tool_calls: 10
+    max_tokens: 10000
+  hard_ceiling:
+    max_tool_calls: 20
+    max_tokens: 20000
+execution_hints:
+  preferred_tools: [read]
+  fallback_tools: [edit]
 consumes: []
 requires: []
 ---
@@ -852,14 +859,20 @@ blocktool`,
 name: maxcalls
 description: maxcalls skill
 tags: [maxcalls]
-tools:
-  required: [read]
-  optional: [edit]
-  denied: [write]
-budget:
-  max_tool_calls: 1
-  max_tokens: 10000
-outputs: []
+intent:
+  outputs: []
+effects:
+  allowed_effects: [workspace_read, workspace_write]
+resources:
+  default_lease:
+    max_tool_calls: 1
+    max_tokens: 10000
+  hard_ceiling:
+    max_tool_calls: 2
+    max_tokens: 20000
+execution_hints:
+  preferred_tools: [read, edit]
+  fallback_tools: []
 consumes: []
 requires: []
 ---
@@ -873,7 +886,9 @@ maxcalls`,
     const runtime = new BrewvaRuntime({ cwd: workspace, config });
     const sessionId = "ext-max-tool-calls-1";
     expect(runtime.skills.activate(sessionId, "maxcalls").ok).toBe(true);
-    expect(runtime.skills.getActive(sessionId)?.contract.budget.maxToolCalls).toBe(1);
+    expect(
+      runtime.skills.getActive(sessionId)?.contract.resources?.defaultLease?.maxToolCalls,
+    ).toBe(1);
 
     const { api, handlers } = createMockExtensionAPI();
     registerEventStream(api, runtime);

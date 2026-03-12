@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a v2 Brewva skill directory into a .skill bundle."""
+"""Package a Brewva skill directory into a .skill bundle."""
 
 import sys
 import zipfile

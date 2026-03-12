@@ -4,6 +4,12 @@ import {
   type SkillChainPlannerResult,
   type SkillDocument,
   type SkillsIndexEntry,
+  getSkillCostHint,
+  listSkillAllowedEffects,
+  listSkillFallbackTools,
+  listSkillOutputs,
+  listSkillPreferredTools,
+  resolveSkillEffectLevel,
 } from "@brewva/brewva-runtime";
 
 type SkillRuntime = Pick<BrewvaRuntime, "skills">;
@@ -13,14 +19,16 @@ export function toSkillsIndexEntry(skill: SkillDocument): SkillsIndexEntry {
     name: skill.name,
     category: skill.category,
     description: skill.description,
-    outputs: [...(skill.contract.outputs ?? [])],
-    toolsRequired: [...skill.contract.tools.required],
-    costHint: skill.contract.costHint ?? "medium",
+    outputs: listSkillOutputs(skill.contract),
+    preferredTools: listSkillPreferredTools(skill.contract),
+    fallbackTools: listSkillFallbackTools(skill.contract),
+    allowedEffects: listSkillAllowedEffects(skill.contract),
+    costHint: getSkillCostHint(skill.contract),
     stability: skill.contract.stability ?? "stable",
     composableWith: [...(skill.contract.composableWith ?? [])],
     consumes: [...(skill.contract.consumes ?? [])],
     requires: [...(skill.contract.requires ?? [])],
-    effectLevel: skill.contract.effectLevel ?? "read_only",
+    effectLevel: resolveSkillEffectLevel(skill.contract),
     dispatch: skill.contract.dispatch,
     routingScope: skill.contract.routing?.scope,
   };

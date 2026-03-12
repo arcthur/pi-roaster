@@ -1,26 +1,45 @@
 ---
 name: telegram
-description: Design Telegram channel behavior and interactive payloads as one channel-native response workflow.
+description: Design Telegram channel behavior and interactive payloads as one channel-native
+  response workflow.
 stability: stable
-effect_level: read_only
-tools:
-  required: [read]
-  optional: [grep, look_at, skill_complete]
-  denied: [write, edit, exec, process]
-budget:
-  max_tool_calls: 60
-  max_tokens: 120000
-outputs: [telegram_response_plan, telegram_payload]
-output_contracts:
-  telegram_response_plan:
-    kind: text
-    min_words: 3
-    min_length: 18
-  telegram_payload:
-    kind: json
-    min_keys: 1
-    min_items: 1
-consumes: [structured_payload, review_report]
+intent:
+  outputs:
+    - telegram_response_plan
+    - telegram_payload
+  output_contracts:
+    telegram_response_plan:
+      kind: text
+      min_words: 3
+      min_length: 18
+    telegram_payload:
+      kind: json
+      min_keys: 1
+      min_items: 1
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+    - local_exec
+resources:
+  default_lease:
+    max_tool_calls: 60
+    max_tokens: 120000
+  hard_ceiling:
+    max_tool_calls: 90
+    max_tokens: 180000
+execution_hints:
+  preferred_tools:
+    - read
+  fallback_tools:
+    - grep
+    - look_at
+    - skill_complete
+consumes:
+  - structured_payload
+  - review_report
 requires: []
 ---
 

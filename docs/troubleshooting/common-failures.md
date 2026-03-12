@@ -12,7 +12,7 @@ inconsistent.
 
 ## `tool_call` Is Blocked
 
-- Cause: denied tool by active contract, allowlist enforcement, token/tool-call budget enforcement, or cost budget violation.
+- Cause: denied effects on the active contract, effect-authorization enforcement, token/tool-call budget enforcement, or cost budget violation.
 - Check: `brewva inspect --session <id>` for active skill, cost summary, and latest verification/task state.
 - Action: switch active skill, adjust `security.mode` (`permissive`/`standard`/`strict`) to change effective enforcement strategy, or resolve budget policy constraints.
 

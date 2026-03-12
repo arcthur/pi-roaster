@@ -1,3 +1,4 @@
+import { listSkillOutputs } from "../skills/facets.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import type {
   SkillCascadeChainCandidate,
@@ -38,7 +39,7 @@ function buildRegistryStep(
     id: `${prefix}:${skill.name}`,
     skill: skill.name,
     consumes: [...(skill.contract.requires ?? [])],
-    produces: [...(skill.contract.outputs ?? [])],
+    produces: listSkillOutputs(skill.contract),
   };
 }
 

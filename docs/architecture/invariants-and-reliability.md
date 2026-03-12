@@ -39,7 +39,7 @@ Relevant implementation:
 
 ## 4) Contract Enforcement Invariant
 
-- Tool execution must respect active skill tool policy and budget policy before execution.
+- Tool execution must respect active effect policy and effective resource ceilings before execution.
 - Skill completion must enforce required outputs and verification checks.
 
 Relevant implementation:
@@ -74,7 +74,7 @@ Relevant implementation:
 - Extension-enabled and `--no-addons` profiles must be behaviorally explicit:
   extension presentation hooks may differ, but core safety/evidence invariants
   must remain equivalent.
-- When extensions are disabled, runtime core chain still enforces tool policy,
+- When extensions are disabled, runtime core chain still enforces effect policy,
   critical compaction gate, tool-call accounting, patch tracking, and
   tool-result ledger persistence.
 - Core lifecycle and assistant-usage telemetry must still be persisted.

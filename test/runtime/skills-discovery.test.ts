@@ -16,14 +16,20 @@ function writeSkill(filePath: string, input: { name: string }): void {
       "---",
       `name: ${input.name}`,
       `description: ${input.name} skill`,
-      "tools:",
-      "  required: [read]",
-      "  optional: []",
-      "  denied: []",
-      "budget:",
-      "  max_tool_calls: 10",
-      "  max_tokens: 10000",
-      "outputs: []",
+      "intent:",
+      "  outputs: []",
+      "effects:",
+      "  allowed_effects: [workspace_read]",
+      "resources:",
+      "  default_lease:",
+      "    max_tool_calls: 10",
+      "    max_tokens: 10000",
+      "  hard_ceiling:",
+      "    max_tool_calls: 10",
+      "    max_tokens: 10000",
+      "execution_hints:",
+      "  preferred_tools: [read]",
+      "  fallback_tools: []",
       "consumes: []",
       "---",
       `# ${input.name}`,
@@ -59,7 +65,7 @@ function writeSkill(filePath: string, input: { name: string }): void {
 }
 
 describe("skill discovery and loading", () => {
-  test("loads project skills from cwd .brewva root using v2 category layout", () => {
+  test("loads project skills from cwd .brewva root using the current category layout", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-project-"));
     writeSkill(join(workspace, ".brewva/skills/core/commitcraft/SKILL.md"), {
       name: "commitcraft",
@@ -170,14 +176,13 @@ describe("skill discovery and loading", () => {
       overlayPath,
       [
         "---",
-        "tools:",
-        "  required: [read]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 5",
-        "  max_tokens: 8000",
-        "outputs: []",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 5",
+        "    max_tokens: 8000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
         "consumes: []",
         "requires: []",
         "---",
@@ -218,10 +223,10 @@ describe("skill discovery and loading", () => {
     expect(skill?.markdown).toContain("Project Context: project-rules");
     expect(skill?.overlayFiles).toContain(resolve(overlayPath));
     expect(skill?.sharedContextFiles).toContain(resolve(sharedContextPath));
-    expect(skill?.contract.budget.maxToolCalls).toBe(5);
+    expect(skill?.contract.resources?.defaultLease?.maxToolCalls).toBe(5);
   });
 
-  test("project overlays can extend the base tool contract with project-only tools", () => {
+  test("project overlays can specialize execution hints while tightening effect policy", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-overlay-tools-"));
     const overlayPath = join(workspace, ".brewva/skills/project/overlays/foo/SKILL.md");
     writeSkill(join(workspace, ".brewva/skills/core/foo/SKILL.md"), {
@@ -232,14 +237,18 @@ describe("skill discovery and loading", () => {
       overlayPath,
       [
         "---",
-        "tools:",
-        "  required: [read, tape_search]",
-        "  optional: [ledger_query]",
-        "  denied: [process]",
-        "budget:",
-        "  max_tool_calls: 5",
-        "  max_tokens: 8000",
-        "outputs: []",
+        "intent:",
+        "  outputs: []",
+        "effects:",
+        "  allowed_effects: [workspace_read, runtime_observe]",
+        "  denied_effects: [local_exec]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 5",
+        "    max_tokens: 8000",
+        "execution_hints:",
+        "  preferred_tools: [read, tape_search]",
+        "  fallback_tools: [ledger_query]",
         "consumes: []",
         "requires: []",
         "---",
@@ -277,9 +286,12 @@ describe("skill discovery and loading", () => {
     const runtime = new BrewvaRuntime({ cwd: workspace });
     const skill = runtime.skills.get("foo");
 
-    expect(skill?.contract.tools.required).toEqual(expect.arrayContaining(["read", "tape_search"]));
-    expect(skill?.contract.tools.optional).toContain("ledger_query");
-    expect(skill?.contract.tools.denied).toContain("process");
+    expect(skill?.contract.executionHints?.preferredTools).toEqual(
+      expect.arrayContaining(["read", "tape_search"]),
+    );
+    expect(skill?.contract.executionHints?.fallbackTools).toContain("ledger_query");
+    expect(skill?.contract.effects?.allowedEffects).toEqual(["workspace_read"]);
+    expect(skill?.contract.effects?.deniedEffects).toContain("local_exec");
   });
 
   test("multiple overlays apply in deterministic root order", () => {
@@ -299,13 +311,13 @@ describe("skill discovery and loading", () => {
         "---",
         "dispatch:",
         "  suggest_threshold: 12",
-        "tools:",
-        "  required: [read]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 7",
-        "  max_tokens: 9000",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 7",
+        "    max_tokens: 9000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
         "---",
         "# project overlay",
       ].join("\n"),
@@ -319,13 +331,15 @@ describe("skill discovery and loading", () => {
         "---",
         "dispatch:",
         "  suggest_threshold: 14",
-        "tools:",
-        "  required: [read, tape_search]",
-        "  optional: []",
-        "  denied: [process]",
-        "budget:",
-        "  max_tool_calls: 5",
-        "  max_tokens: 7000",
+        "effects:",
+        "  denied_effects: [local_exec]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 5",
+        "    max_tokens: 7000",
+        "execution_hints:",
+        "  preferred_tools: [read, tape_search]",
+        "  fallback_tools: []",
         "---",
         "# external overlay",
       ].join("\n"),
@@ -343,8 +357,8 @@ describe("skill discovery and loading", () => {
       resolve(externalOverlayPath),
     ]);
     expect(skill?.contract.dispatch?.suggestThreshold).toBe(14);
-    expect(skill?.contract.budget.maxToolCalls).toBe(5);
-    expect(skill?.contract.tools.required).toContain("tape_search");
-    expect(skill?.contract.tools.denied).toContain("process");
+    expect(skill?.contract.resources?.defaultLease?.maxToolCalls).toBe(5);
+    expect(skill?.contract.executionHints?.preferredTools).toContain("tape_search");
+    expect(skill?.contract.effects?.deniedEffects).toContain("local_exec");
   });
 });

@@ -287,11 +287,11 @@ function normalizeSecurityConfig(
     mode: normalizedSecurityMode,
     sanitizeContext: normalizeBoolean(securityInput.sanitizeContext, defaults.sanitizeContext),
     enforcement: {
-      allowedToolsMode: normalizeStrictStringEnum(
-        securityEnforcementInput.allowedToolsMode,
-        defaults.enforcement.allowedToolsMode,
+      effectAuthorizationMode: normalizeStrictStringEnum(
+        securityEnforcementInput.effectAuthorizationMode,
+        defaults.enforcement.effectAuthorizationMode,
         VALID_SECURITY_ENFORCEMENT_MODES,
-        "security.enforcement.allowedToolsMode",
+        "security.enforcement.effectAuthorizationMode",
       ),
       skillMaxTokensMode: normalizeStrictStringEnum(
         securityEnforcementInput.skillMaxTokensMode,

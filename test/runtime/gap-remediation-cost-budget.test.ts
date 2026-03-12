@@ -105,19 +105,25 @@ describe("Gap remediation: cost view and budget linkage", () => {
 name: implementation
 description: test implementation skill
 tags: [implementation]
-tools:
-  required: [read]
-  optional: [edit]
-  denied: [write]
-budget:
-  max_tool_calls: 20
-  max_tokens: 20000
-outputs: [change_set]
-output_contracts:
-  change_set:
-    kind: text
-    min_words: 3
-    min_length: 18
+intent:
+  outputs: [change_set]
+  output_contracts:
+    change_set:
+      kind: text
+      min_words: 3
+      min_length: 18
+effects:
+  allowed_effects: [workspace_read, workspace_write]
+resources:
+  default_lease:
+    max_tool_calls: 20
+    max_tokens: 20000
+  hard_ceiling:
+    max_tool_calls: 30
+    max_tokens: 30000
+execution_hints:
+  preferred_tools: [read, edit]
+  fallback_tools: []
 consumes: []
 requires: []
 ---

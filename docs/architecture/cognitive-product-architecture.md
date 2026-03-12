@@ -45,9 +45,13 @@ model-facing view through experience hooks.
 
 ## Core Principle
 
-The long-term product rule is:
+The product rule is:
 
 `Model sees narrative. Operator sees telemetry. Kernel sees receipts.`
+
+Implementation-grade principle:
+
+`Deliberation explores. Commitment authorizes effects.`
 
 Consequences:
 
@@ -55,6 +59,58 @@ Consequences:
 - operator telemetry does not become default model context
 - model-facing context is composed from admitted sources, not from raw runtime
   dashboards
+
+Implementation note:
+
+- the runtime now uses `intent`, `effects`, `resources`, and
+  `execution_hints` as the main skill contract split
+- visible tool surface and execution hints still shape exploration
+- kernel authority remains at effect, commit, verification, and replay
+  boundaries
+- a few runtime-owned control-plane exceptions remain explicit rather than
+  hidden
+
+## Exploration Lane And Commitment Lane
+
+The product architecture explicitly distinguishes two lanes.
+
+### `exploration lane`
+
+Responsibilities:
+
+- discover paths
+- probe different tool combinations
+- generate or revise plans
+- request additional context, a different commitment surface, or more budget
+  without self-authorizing new effects
+
+Allowed artifacts:
+
+- draft plans
+- broker traces
+- cognition artifacts
+- temporary `context_packet` material
+- lease requests
+
+These artifacts may make the model more effective, but they are not kernel
+authority by default.
+
+### `commitment lane`
+
+Responsibilities:
+
+- execute authorized effects
+- record receipts, ledger entries, and verification evidence
+- preserve replayable durability
+
+This lane must answer:
+
+- whether the effect is authorized
+- whether the commit satisfies the completion definition
+- whether failure can be explained and recovered from
+
+The point of separating the lanes is not to fragment the system. It is to avoid
+having the kernel prescribe thought paths as a side effect of enforcing safety.
 
 ## Cognitive Product Plane
 
@@ -81,7 +137,17 @@ authority:
     target live session
 
 This plane may read kernel state, but it does not mutate kernel state directly.
-All commitment changes still cross the proposal boundary.
+Deliberation artifacts still cross the proposal boundary. Budget negotiation
+may also cross through explicit receipt-bearing governance flows such as
+`resource_lease`.
+
+Over time, the cognitive plane should carry more “thick deliberation”
+capabilities, such as:
+
+- intermediate representations for path search
+- low-risk shadow planning
+- dialogue material for resource negotiation and commitment-boundary changes
+- execution hints targeted to the current objective rather than hard contracts
 
 Current module anchors:
 
@@ -120,6 +186,14 @@ That means the split stays:
   - compaction state machine
 - cognitive plane:
   - final model-facing composition
+
+Current direction:
+
+- context composition should prioritize exploration continuity for the model
+- constraint blocks should focus on effect boundaries, completion definitions,
+  and anomaly diagnostics
+- default narrative should not be overloaded with tool-path prescriptions that
+  force the model into a fixed script
 
 ## MemoryCurator Boundary
 
@@ -238,6 +312,12 @@ Current module anchors:
 `ProactivityEngine` remains control-plane only:
 
 - it may inspect cognition artifacts and trigger metadata
+
+This should also include:
+
+- negotiation for temporary resource leases
+- scheduling for exploration-lane convergence
+- creating more room for self-correction without expanding kernel authority
 - it may emit replayable wake and skip telemetry
 - it may not mutate kernel state or bypass proposal admission
 

@@ -1,15 +1,41 @@
 ---
 name: agent-browser
-description: Use browser automation to inspect pages, gather evidence, and validate flows that cannot be trusted from static code alone.
+description: Use browser automation to inspect pages, gather evidence, and validate
+  flows that cannot be trusted from static code alone.
 stability: stable
-effect_level: execute
-tools:
-  required: [read, exec]
-  optional: [look_at, grep, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 80
-  max_tokens: 140000
+intent:
+  outputs:
+    - browser_observations
+    - browser_artifacts
+  output_contracts:
+    browser_observations:
+      kind: text
+      min_words: 3
+      min_length: 18
+    browser_artifacts:
+      kind: json
+      min_keys: 1
+      min_items: 1
+effects:
+  allowed_effects:
+    - workspace_read
+    - local_exec
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 80
+    max_tokens: 140000
+  hard_ceiling:
+    max_tool_calls: 120
+    max_tokens: 200000
+execution_hints:
+  preferred_tools:
+    - read
+    - exec
+  fallback_tools:
+    - look_at
+    - grep
+    - skill_complete
 references:
   - references/diff-verification.md
   - references/eval-safe-mode.md
@@ -19,17 +45,9 @@ scripts:
   - templates/authenticated-session.sh
   - templates/capture-workflow.sh
   - templates/form-automation.sh
-outputs: [browser_observations, browser_artifacts]
-output_contracts:
-  browser_observations:
-    kind: text
-    min_words: 3
-    min_length: 18
-  browser_artifacts:
-    kind: json
-    min_keys: 1
-    min_items: 1
-consumes: [structured_payload, design_spec]
+consumes:
+  - structured_payload
+  - design_spec
 requires: []
 ---
 

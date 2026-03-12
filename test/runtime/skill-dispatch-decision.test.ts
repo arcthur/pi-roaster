@@ -4,18 +4,28 @@ import { resolveSkillDispatchDecision, type SkillsIndexEntry } from "@brewva/bre
 function createEntry(
   input: Partial<SkillsIndexEntry> & Pick<SkillsIndexEntry, "name">,
 ): SkillsIndexEntry {
+  const effectLevel = input.effectLevel ?? "read_only";
+  const allowedEffects =
+    input.allowedEffects ??
+    (effectLevel === "mutation"
+      ? ["workspace_read", "workspace_write"]
+      : effectLevel === "execute"
+        ? ["workspace_read", "local_exec"]
+        : ["workspace_read"]);
   return {
     name: input.name,
     category: input.category ?? "core",
     description: input.description ?? `${input.name} skill`,
     outputs: input.outputs ?? [],
-    toolsRequired: input.toolsRequired ?? [],
+    preferredTools: input.preferredTools ?? [],
+    fallbackTools: input.fallbackTools ?? [],
+    allowedEffects,
     costHint: input.costHint ?? "medium",
     stability: input.stability ?? "stable",
     composableWith: input.composableWith ?? [],
     consumes: input.consumes ?? [],
     requires: input.requires ?? [],
-    effectLevel: input.effectLevel ?? "read_only",
+    effectLevel,
     dispatch: input.dispatch,
     routingScope: input.routingScope ?? "core",
   };

@@ -8,6 +8,9 @@ export const OBSERVABILITY_ASSERTION_RECORDED_EVENT_TYPE =
 export const PROPOSAL_RECEIVED_EVENT_TYPE = "proposal_received" as const;
 export const PROPOSAL_DECIDED_EVENT_TYPE = "proposal_decided" as const;
 export const DECISION_RECEIPT_RECORDED_EVENT_TYPE = "decision_receipt_recorded" as const;
+export const RESOURCE_LEASE_GRANTED_EVENT_TYPE = "resource_lease_granted" as const;
+export const RESOURCE_LEASE_CANCELLED_EVENT_TYPE = "resource_lease_cancelled" as const;
+export const RESOURCE_LEASE_EXPIRED_EVENT_TYPE = "resource_lease_expired" as const;
 
 export const EXEC_ROUTED_EVENT_TYPE = "exec_routed" as const;
 export const EXEC_FALLBACK_HOST_EVENT_TYPE = "exec_fallback_host" as const;

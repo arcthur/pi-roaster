@@ -7,7 +7,7 @@ import { tokenizeSearchTerms } from "./shared/query.js";
 import type { BrewvaToolOptions } from "./types.js";
 import { inconclusiveTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const DEFAULT_RESULTS_PER_QUERY = 2;
 const DEFAULT_ARTIFACT_EVENTS = 120;
@@ -576,7 +576,7 @@ function clampOutput(text: string, maxChars: number): string {
 }
 
 export function createOutputSearchTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "output_search",
     label: "Output Search",
     description:

@@ -2,7 +2,7 @@ import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { runCommand } from "./utils/exec.js";
 import { failTextResult, textResult } from "./utils/result.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 function buildAstGrepUnavailableResult(
   action: "search" | "replace",
@@ -26,7 +26,7 @@ function buildAstGrepUnavailableResult(
 }
 
 export function createAstGrepTools(): ToolDefinition[] {
-  const astGrepSearch = defineTool({
+  const astGrepSearch = defineBrewvaTool({
     name: "ast_grep_search",
     label: "AST Grep Search",
     description: "Search code patterns via ast-grep semantic matching.",
@@ -54,7 +54,7 @@ export function createAstGrepTools(): ToolDefinition[] {
     },
   });
 
-  const astGrepReplace = defineTool({
+  const astGrepReplace = defineBrewvaTool({
     name: "ast_grep_replace",
     label: "AST Grep Replace",
     description: "Replace code patterns via ast-grep semantic matching.",

@@ -13,6 +13,7 @@ import { createObsSnapshotTool } from "./observability/obs-snapshot.js";
 import { createOutputSearchTool } from "./output-search.js";
 import { createProcessTool } from "./process.js";
 import { createReadSpansTool } from "./read-spans.js";
+import { createResourceLeaseTool } from "./resource-lease.js";
 import { createRollbackLastPatchTool } from "./rollback-last-patch.js";
 import { createScheduleIntentTool } from "./schedule-intent.js";
 import { createSessionCompactTool } from "./session-compact.js";
@@ -48,6 +49,7 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
     createScheduleIntentTool({ runtime: options.runtime }),
     ...createTapeTools({ runtime: options.runtime }),
     createSessionCompactTool({ runtime: options.runtime }),
+    createResourceLeaseTool({ runtime: options.runtime }),
     createRollbackLastPatchTool({ runtime: options.runtime }),
     createSkillLoadTool({ runtime: options.runtime }),
     createSkillCompleteTool({ runtime: options.runtime }),
@@ -58,7 +60,9 @@ export function buildBrewvaTools(options: BuildBrewvaToolsOptions): ToolDefiniti
 
 export { createLspTools } from "./lsp.js";
 export { createAstGrepTools } from "./ast-grep.js";
+export { createResourceLeaseTool } from "./resource-lease.js";
 export { createCognitionNoteTool } from "./cognition-note.js";
+export { defineBrewvaTool, getBrewvaToolMetadata } from "./utils/tool.js";
 // A2A tools require an orchestration adapter and are typically registered by channel extensions
 // (for example `createChannelA2AExtension` in `@brewva/brewva-cli`), not by the default bundle.
 export { createA2ATools } from "./a2a.js";
@@ -97,7 +101,11 @@ export {
   isManagedBrewvaToolName,
   type BrewvaToolSurface,
 } from "./surface.js";
-export type { BrewvaToolRuntime } from "./types.js";
+export type {
+  BrewvaManagedToolDefinition,
+  BrewvaToolMetadata,
+  BrewvaToolRuntime,
+} from "./types.js";
 export {
   getToolSessionId,
   readTextBatch,

@@ -5,11 +5,11 @@ import type {
 } from "../types.js";
 
 function toBaseSecurityPolicy(mode: BrewvaConfig["security"]["mode"]): EffectiveSecurityPolicy {
-  // tools.denied is a hard contract boundary, so we enforce it consistently across all security modes.
+  // Denied effects are a hard contract boundary, so they remain enforced across all modes.
   if (mode === "strict") {
     return {
-      enforceDeniedTools: true,
-      allowedToolsMode: "enforce",
+      enforceDeniedEffects: true,
+      effectAuthorizationMode: "enforce",
       skillMaxTokensMode: "enforce",
       skillMaxToolCallsMode: "enforce",
       skillMaxParallelMode: "enforce",
@@ -18,8 +18,8 @@ function toBaseSecurityPolicy(mode: BrewvaConfig["security"]["mode"]): Effective
 
   if (mode === "permissive") {
     return {
-      enforceDeniedTools: true,
-      allowedToolsMode: "off",
+      enforceDeniedEffects: true,
+      effectAuthorizationMode: "off",
       skillMaxTokensMode: "off",
       skillMaxToolCallsMode: "off",
       skillMaxParallelMode: "off",
@@ -27,8 +27,8 @@ function toBaseSecurityPolicy(mode: BrewvaConfig["security"]["mode"]): Effective
   }
 
   return {
-    enforceDeniedTools: true,
-    allowedToolsMode: "warn",
+    enforceDeniedEffects: true,
+    effectAuthorizationMode: "warn",
     skillMaxTokensMode: "warn",
     skillMaxToolCallsMode: "warn",
     skillMaxParallelMode: "warn",
@@ -46,8 +46,8 @@ function applyEnforcementPreference(
 }
 
 export interface EffectiveSecurityPolicy {
-  enforceDeniedTools: boolean;
-  allowedToolsMode: SecurityEnforcementMode;
+  enforceDeniedEffects: boolean;
+  effectAuthorizationMode: SecurityEnforcementMode;
   skillMaxTokensMode: SecurityEnforcementMode;
   skillMaxToolCallsMode: SecurityEnforcementMode;
   skillMaxParallelMode: SecurityEnforcementMode;
@@ -67,9 +67,9 @@ export function resolveSecurityPolicy(
   }
   return {
     ...base,
-    allowedToolsMode: applyEnforcementPreference(
-      base.allowedToolsMode,
-      enforcement.allowedToolsMode,
+    effectAuthorizationMode: applyEnforcementPreference(
+      base.effectAuthorizationMode,
+      enforcement.effectAuthorizationMode,
     ),
     skillMaxTokensMode: applyEnforcementPreference(
       base.skillMaxTokensMode,

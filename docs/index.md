@@ -35,6 +35,7 @@ This repository uses a layered documentation system:
 
 - System architecture: `docs/architecture/system-architecture.md`
 - Design axioms: `docs/architecture/design-axioms.md`
+- Exploration and effect governance: `docs/architecture/exploration-and-effect-governance.md`
 - Cognitive product architecture: `docs/architecture/cognitive-product-architecture.md`
 - Control and data flow: `docs/architecture/control-and-data-flow.md`
 - Invariants and reliability: `docs/architecture/invariants-and-reliability.md`
@@ -70,6 +71,7 @@ This repository uses a layered documentation system:
 
 - Research playbook: `docs/research/README.md`
 - Roadmap notes: `docs/research/roadmap-notes.md`
+- Effect governance RFC: `docs/research/rfc-effect-governance-and-contract-vnext.md`
 
 ## Source of Truth
 

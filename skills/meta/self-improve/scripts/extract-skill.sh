@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Brewva Skill Extraction Helper
-# Delegates to the v2 skill-authoring scaffold so learnings promote into the
+# Delegates to the current skill-authoring scaffold so learnings promote into the
 # current category layout instead of the removed tier model.
 
 set -euo pipefail
@@ -40,7 +40,7 @@ usage() {
     cat << EOF
 Usage: $(basename "$0") <skill-name> [options]
 
-Create a Brewva v2 skill scaffold from a learning entry.
+Create a Brewva skill scaffold from a learning entry.
 
 Arguments:
   skill-name     Name of the skill (lowercase, hyphens)
@@ -136,12 +136,12 @@ if [[ "$OUTPUT_DIR" =~ (^|/)\.\.(/|$) ]]; then
 fi
 
 if [ ! -f "$INIT_SCRIPT" ]; then
-    log_error "Missing v2 scaffold helper: $INIT_SCRIPT"
+    log_error "Missing scaffold helper: $INIT_SCRIPT"
     exit 1
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
-    log_error "python3 is required to run the v2 scaffold helper."
+    log_error "python3 is required to run the scaffold helper."
     exit 1
 fi
 

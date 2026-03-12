@@ -6,7 +6,7 @@ import { readSourceTextWithCache, registerTocSourceCacheRuntime } from "./toc-ca
 import type { BrewvaToolRuntime } from "./types.js";
 import { getToolSessionId } from "./utils/parallel-read.js";
 import { failTextResult, inconclusiveTextResult, textResult } from "./utils/result.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const MAX_SPANS = 16;
 const MAX_TOTAL_RETURN_LINES = 400;
@@ -48,7 +48,7 @@ function formatSpan(startLine: number, endLine: number): string {
 
 export function createReadSpansTool(options?: { runtime?: BrewvaToolRuntime }): ToolDefinition {
   registerTocSourceCacheRuntime(options?.runtime);
-  return defineTool({
+  return defineBrewvaTool({
     name: "read_spans",
     label: "Read Spans",
     description:

@@ -4,90 +4,215 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   BrewvaRuntime,
+  getSkillOutputContracts,
+  listSkillAllowedEffects,
+  listSkillOutputs,
   mergeOverlayContract,
   parseSkillDocument,
+  resolveSkillEffectLevel,
   tightenContract,
   type SkillContract,
+  type SkillContractOverride,
 } from "@brewva/brewva-runtime";
 
 function repoRoot(): string {
   return process.cwd();
 }
 
+function createContract(
+  input: Partial<SkillContract> & Pick<SkillContract, "name" | "category">,
+): SkillContract {
+  const defaultLease = input.resources?.defaultLease ?? {
+    maxToolCalls: 50,
+    maxTokens: 100000,
+  };
+  const hardCeiling = input.resources?.hardCeiling ?? defaultLease;
+  return {
+    name: input.name,
+    category: input.category,
+    routing: input.routing,
+    dispatch: input.dispatch,
+    intent: input.intent,
+    effects: input.effects ?? {
+      allowedEffects: ["workspace_read"],
+      deniedEffects: [],
+    },
+    resources: input.resources ?? {
+      defaultLease,
+      hardCeiling,
+    },
+    executionHints: input.executionHints ?? {
+      preferredTools: ["read"],
+      fallbackTools: [],
+      costHint: "medium",
+    },
+    composableWith: input.composableWith,
+    consumes: input.consumes,
+    requires: input.requires,
+    stability: input.stability,
+    description: input.description,
+  };
+}
+
 describe("skill contract tightening", () => {
-  test("cannot relax denied tools or budgets", () => {
-    const base: SkillContract = {
+  test("cannot relax denied effects or resource ceilings", () => {
+    const base = createContract({
       name: "implementation",
       category: "core",
       routing: { scope: "core" },
-      tools: {
-        required: ["read"],
-        optional: ["edit"],
-        denied: ["write"],
+      effects: {
+        allowedEffects: ["workspace_read", "workspace_write"],
+        deniedEffects: ["local_exec"],
       },
-      budget: {
-        maxToolCalls: 50,
-        maxTokens: 100000,
+      resources: {
+        defaultLease: { maxToolCalls: 50, maxTokens: 100000 },
+        hardCeiling: { maxToolCalls: 50, maxTokens: 100000 },
       },
-    };
-
-    const merged = tightenContract(base, {
-      tools: {
-        required: [],
-        optional: ["write", "edit"],
-        denied: ["exec"],
-      },
-      budget: {
-        maxToolCalls: 10,
-        maxTokens: 50000,
+      executionHints: {
+        preferredTools: ["read", "edit"],
+        fallbackTools: ["grep"],
+        costHint: "medium",
       },
     });
 
-    expect(merged.tools.optional).toContain("edit");
-    expect(merged.tools.optional).not.toContain("write");
-    expect(merged.tools.denied).toEqual(expect.arrayContaining(["write", "exec"]));
-    expect(merged.budget.maxToolCalls).toBe(10);
-    expect(merged.budget.maxTokens).toBe(50000);
+    const merged = tightenContract(base, {
+      effects: {
+        allowedEffects: ["workspace_read"],
+        deniedEffects: ["external_network"],
+      },
+      resources: {
+        defaultLease: { maxToolCalls: 10, maxTokens: 50000 },
+      },
+      executionHints: {
+        preferredTools: ["read"],
+        fallbackTools: ["grep", "write"],
+      },
+    });
+
+    expect(merged.executionHints?.preferredTools).toEqual(["read"]);
+    expect(merged.executionHints?.fallbackTools).toContain("grep");
+    expect(merged.executionHints?.fallbackTools).not.toContain("write");
+    expect(merged.effects?.allowedEffects).toEqual(["workspace_read"]);
+    expect(merged.effects?.deniedEffects).toEqual(
+      expect.arrayContaining(["local_exec", "external_network"]),
+    );
+    expect(merged.resources?.defaultLease).toEqual({ maxToolCalls: 10, maxTokens: 50000 });
     expect(merged.routing).toEqual({ scope: "core" });
   });
 
-  test("project overlays can add project-required tools without relaxing denials", () => {
-    const base: SkillContract = {
+  test("project overlays add execution hints and denied effects without replacing output contracts", () => {
+    const base = createContract({
       name: "debugging",
       category: "core",
       routing: { scope: "core" },
-      tools: {
-        required: ["read", "exec"],
-        optional: ["grep"],
-        denied: ["write"],
+      intent: {
+        outputs: ["root_cause"],
+        outputContracts: {
+          root_cause: {
+            kind: "text",
+            minWords: 3,
+            minLength: 18,
+          },
+        },
       },
-      budget: {
-        maxToolCalls: 50,
-        maxTokens: 100000,
+      effects: {
+        allowedEffects: ["workspace_read", "local_exec"],
+        deniedEffects: ["workspace_write"],
       },
-      outputs: [],
-      outputContracts: {},
-    };
-
-    const merged = mergeOverlayContract(base, {
-      tools: {
-        required: ["tape_search"],
-        optional: ["cost_view"],
-        denied: ["process"],
-      },
-      budget: {
-        maxToolCalls: 10,
+      executionHints: {
+        preferredTools: ["read", "exec"],
+        fallbackTools: ["grep"],
+        costHint: "medium",
       },
     });
 
-    expect(merged.tools.required).toEqual(expect.arrayContaining(["read", "exec", "tape_search"]));
-    expect(merged.tools.optional).toEqual(expect.arrayContaining(["grep", "cost_view"]));
-    expect(merged.tools.denied).toEqual(expect.arrayContaining(["write", "process"]));
-    expect(merged.budget.maxToolCalls).toBe(10);
+    const merged = mergeOverlayContract(base, {
+      effects: {
+        allowedEffects: ["workspace_read", "local_exec", "workspace_write"],
+        deniedEffects: ["external_network"],
+      },
+      executionHints: {
+        preferredTools: ["tape_search"],
+        fallbackTools: ["cost_view"],
+      },
+    });
+
+    expect(merged.executionHints?.preferredTools).toEqual(
+      expect.arrayContaining(["read", "exec", "tape_search"]),
+    );
+    expect(merged.executionHints?.fallbackTools).toEqual(
+      expect.arrayContaining(["grep", "cost_view"]),
+    );
+    expect(merged.effects?.deniedEffects).toEqual(
+      expect.arrayContaining(["workspace_write", "external_network"]),
+    );
+    expect(merged.effects?.allowedEffects).toEqual(["workspace_read", "local_exec"]);
+    expect(listSkillOutputs(merged)).toEqual(["root_cause"]);
+    expect(Object.keys(getSkillOutputContracts(merged))).toEqual(["root_cause"]);
   });
 
-  test("shared merge policies keep dispatch, routing, effect level, and maxParallel aligned", () => {
-    const base: SkillContract = {
+  test("preserves completion evidence kinds when overrides only tighten verification level", () => {
+    const base = createContract({
+      name: "review",
+      category: "core",
+      routing: { scope: "core" },
+      intent: {
+        outputs: ["review_report"],
+        outputContracts: {
+          review_report: {
+            kind: "text",
+            minWords: 3,
+            minLength: 18,
+          },
+        },
+        completionDefinition: {
+          verificationLevel: "standard",
+          requiredEvidenceKinds: ["ledger", "verification"],
+        },
+      },
+    });
+
+    const tightened = tightenContract(base, {
+      intent: {
+        completionDefinition: {
+          verificationLevel: "quick",
+        },
+      },
+    });
+    const overlaid = mergeOverlayContract(base, {
+      intent: {
+        completionDefinition: {
+          verificationLevel: "strict",
+        },
+      },
+    });
+
+    expect(tightened.intent?.completionDefinition).toEqual({
+      verificationLevel: "quick",
+      requiredEvidenceKinds: ["ledger", "verification"],
+    });
+    expect(overlaid.intent?.completionDefinition).toEqual({
+      verificationLevel: "strict",
+      requiredEvidenceKinds: ["ledger", "verification"],
+    });
+  });
+
+  test("explicit empty allowed effects remain fully sandboxed instead of falling back to read-only", () => {
+    const contract = createContract({
+      name: "narrator",
+      category: "core",
+      effects: {
+        allowedEffects: [],
+        deniedEffects: [],
+      },
+    });
+
+    expect(listSkillAllowedEffects(contract)).toEqual([]);
+    expect(resolveSkillEffectLevel(contract)).toBe("read_only");
+  });
+
+  test("shared merge policies keep dispatch, routing, effect tightening, and maxParallel aligned", () => {
+    const base = createContract({
       name: "implementation",
       category: "core",
       routing: { scope: "core" },
@@ -95,51 +220,53 @@ describe("skill contract tightening", () => {
         suggestThreshold: 10,
         autoThreshold: 20,
       },
-      tools: {
-        required: ["read"],
-        optional: ["exec"],
-        denied: [],
+      effects: {
+        allowedEffects: ["workspace_read"],
       },
-      budget: {
-        maxToolCalls: 50,
-        maxTokens: 100000,
+      resources: {
+        defaultLease: { maxToolCalls: 50, maxTokens: 100000, maxParallel: 5 },
+        hardCeiling: { maxToolCalls: 50, maxTokens: 100000, maxParallel: 5 },
       },
-      maxParallel: 5,
-      effectLevel: "read_only",
-    };
+    });
 
-    const override = {
-      budget: {
-        maxToolCalls: 12,
-        maxTokens: 20000,
+    const override: SkillContractOverride = {
+      resources: {
+        defaultLease: { maxToolCalls: 12, maxTokens: 20000, maxParallel: 3 },
       },
       dispatch: {
         suggestThreshold: 14,
         autoThreshold: 18,
       },
-      maxParallel: 3,
-      effectLevel: "execute" as const,
+      effects: {
+        allowedEffects: ["workspace_read", "local_exec"],
+      },
     };
 
     const tightened = tightenContract(base, override);
     const merged = mergeOverlayContract(
       {
         ...base,
-        outputs: [],
-        outputContracts: {},
+        intent: {
+          outputs: [],
+          outputContracts: {},
+        },
       },
       override,
     );
 
     for (const result of [tightened, merged]) {
-      expect(result.budget).toEqual({ maxToolCalls: 12, maxTokens: 20000 });
+      expect(result.resources?.defaultLease).toEqual({
+        maxToolCalls: 12,
+        maxTokens: 20000,
+        maxParallel: 3,
+      });
       expect(result.dispatch).toEqual({
         suggestThreshold: 14,
         autoThreshold: 20,
       });
       expect(result.routing).toEqual({ scope: "core" });
-      expect(result.maxParallel).toBe(3);
-      expect(result.effectLevel).toBe("execute");
+      expect(result.resources?.defaultLease?.maxParallel).toBe(3);
+      expect(resolveSkillEffectLevel(result)).toBe("read_only");
     }
   });
 });
@@ -156,14 +283,20 @@ describe("skill document parsing", () => {
         "name: review",
         "description: review skill",
         "tier: base",
-        "tools:",
-        "  required: [read]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 10",
-        "  max_tokens: 10000",
-        "outputs: []",
+        "intent:",
+        "  outputs: []",
+        "effects:",
+        "  allowed_effects: [workspace_read]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 10",
+        "    max_tokens: 10000",
+        "  hard_ceiling:",
+        "    max_tool_calls: 20",
+        "    max_tokens: 20000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
         "consumes: []",
         "---",
         "# review",
@@ -185,14 +318,20 @@ describe("skill document parsing", () => {
         "name: review",
         "description: review skill",
         "category: core",
-        "tools:",
-        "  required: [read]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 10",
-        "  max_tokens: 10000",
-        "outputs: []",
+        "intent:",
+        "  outputs: []",
+        "effects:",
+        "  allowed_effects: [workspace_read]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 10",
+        "    max_tokens: 10000",
+        "  hard_ceiling:",
+        "    max_tool_calls: 20",
+        "    max_tokens: 20000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
         "consumes: []",
         "---",
         "# review",
@@ -201,6 +340,71 @@ describe("skill document parsing", () => {
     );
 
     expect(() => parseSkillDocument(filePath, "core")).toThrow("category");
+  });
+
+  test("fails fast when non-overlay skills omit hard_ceiling", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-hard-ceiling-required-"));
+    const filePath = join(workspace, "skills", "core", "review", "SKILL.md");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(
+      filePath,
+      [
+        "---",
+        "name: review",
+        "description: review skill",
+        "intent:",
+        "  outputs: []",
+        "effects:",
+        "  allowed_effects: [workspace_read]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 10",
+        "    max_tokens: 10000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
+        "consumes: []",
+        "---",
+        "# review",
+      ].join("\n"),
+      "utf8",
+    );
+
+    expect(() => parseSkillDocument(filePath, "core")).toThrow("resources.hard_ceiling");
+  });
+
+  test("fails fast when hard_ceiling is lower than default_lease", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-hard-ceiling-lower-"));
+    const filePath = join(workspace, "skills", "core", "review", "SKILL.md");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(
+      filePath,
+      [
+        "---",
+        "name: review",
+        "description: review skill",
+        "intent:",
+        "  outputs: []",
+        "effects:",
+        "  allowed_effects: [workspace_read]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 10",
+        "    max_tokens: 10000",
+        "  hard_ceiling:",
+        "    max_tool_calls: 8",
+        "    max_tokens: 9000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
+        "consumes: []",
+        "---",
+        "# review",
+      ].join("\n"),
+      "utf8",
+    );
+
+    expect(() => parseSkillDocument(filePath, "core")).toThrow("resources.hard_ceiling");
   });
 
   test("rejects removed continuity routing metadata", () => {
@@ -215,14 +419,20 @@ describe("skill document parsing", () => {
         "description: goal loop skill",
         "routing:",
         "  continuity_required: true",
-        "tools:",
-        "  required: [read]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 10",
-        "  max_tokens: 10000",
-        "outputs: []",
+        "intent:",
+        "  outputs: []",
+        "effects:",
+        "  allowed_effects: [workspace_read]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 10",
+        "    max_tokens: 10000",
+        "  hard_ceiling:",
+        "    max_tool_calls: 20",
+        "    max_tokens: 20000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
         "consumes: []",
         "---",
         "# goal-loop",
@@ -252,13 +462,15 @@ describe("skill document parsing", () => {
       filePath,
       [
         "---",
-        "tools:",
-        "  required: [read, edit]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 10",
-        "  max_tokens: 10000",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 10",
+        "    max_tokens: 10000",
+        "  hard_ceiling:",
+        "    max_tool_calls: 20",
+        "    max_tokens: 20000",
+        "execution_hints:",
+        "  preferred_tools: [read, edit]",
         "---",
         "# overlay",
       ].join("\n"),
@@ -266,40 +478,34 @@ describe("skill document parsing", () => {
     );
 
     const parsed = parseSkillDocument(filePath, "overlay");
-    expect(parsed.contract.outputs).toBeUndefined();
+    expect(parsed.contract.intent?.outputs).toBeUndefined();
     expect(parsed.contract.consumes).toBeUndefined();
     expect(parsed.contract.composableWith).toBeUndefined();
 
     const merged = mergeOverlayContract(
-      {
+      createContract({
         name: "implementation",
         category: "core",
         routing: { scope: "core" },
-        tools: {
-          required: ["read"],
-          optional: ["skill_complete"],
-          denied: [],
-        },
-        budget: {
-          maxToolCalls: 50,
-          maxTokens: 100000,
-        },
-        outputs: ["change_set"],
-        outputContracts: {
-          change_set: {
-            kind: "text",
-            minWords: 3,
-            minLength: 18,
+        intent: {
+          outputs: ["change_set"],
+          outputContracts: {
+            change_set: {
+              kind: "text",
+              minWords: 3,
+              minLength: 18,
+            },
           },
         },
+        requires: ["root_cause"],
         consumes: ["root_cause"],
         composableWith: ["debugging"],
-      },
+      }),
       parsed.contract,
     );
 
-    expect(merged.outputs).toEqual(["change_set"]);
-    expect(merged.outputContracts).toEqual({
+    expect(listSkillOutputs(merged)).toEqual(["change_set"]);
+    expect(getSkillOutputContracts(merged)).toEqual({
       change_set: {
         kind: "text",
         minWords: 3,
@@ -320,14 +526,20 @@ describe("skill document parsing", () => {
         "---",
         "name: review",
         "description: review skill",
-        "tools:",
-        "  required: [read]",
-        "  optional: []",
-        "  denied: []",
-        "budget:",
-        "  max_tool_calls: 10",
-        "  max_tokens: 10000",
-        "outputs: [review_report]",
+        "intent:",
+        "  outputs: [review_report]",
+        "effects:",
+        "  allowed_effects: [workspace_read]",
+        "resources:",
+        "  default_lease:",
+        "    max_tool_calls: 10",
+        "    max_tokens: 10000",
+        "  hard_ceiling:",
+        "    max_tool_calls: 20",
+        "    max_tokens: 20000",
+        "execution_hints:",
+        "  preferred_tools: [read]",
+        "  fallback_tools: []",
         "consumes: []",
         "---",
         "# review",
@@ -339,37 +551,32 @@ describe("skill document parsing", () => {
   });
 
   test("rejects overlays that attempt to replace a base output contract", () => {
-    const base: SkillContract = {
+    const base = createContract({
       name: "review",
       category: "core",
       routing: { scope: "core" },
-      tools: {
-        required: ["read"],
-        optional: [],
-        denied: [],
-      },
-      budget: {
-        maxToolCalls: 50,
-        maxTokens: 100000,
-      },
-      outputs: ["review_report"],
-      outputContracts: {
-        review_report: {
-          kind: "text",
-          minWords: 3,
-          minLength: 18,
-        },
-      },
-    };
-
-    expect(() =>
-      mergeOverlayContract(base, {
+      intent: {
         outputs: ["review_report"],
         outputContracts: {
           review_report: {
             kind: "text",
-            minWords: 2,
-            minLength: 12,
+            minWords: 3,
+            minLength: 18,
+          },
+        },
+      },
+    });
+
+    expect(() =>
+      mergeOverlayContract(base, {
+        intent: {
+          outputs: ["review_report"],
+          outputContracts: {
+            review_report: {
+              kind: "text",
+              minWords: 2,
+              minLength: 12,
+            },
           },
         },
       }),
@@ -377,37 +584,32 @@ describe("skill document parsing", () => {
   });
 
   test("accepts equivalent json output contracts even when object key order differs", () => {
-    const base: SkillContract = {
+    const base = createContract({
       name: "review",
       category: "core",
       routing: { scope: "core" },
-      tools: {
-        required: ["read"],
-        optional: [],
-        denied: [],
-      },
-      budget: {
-        maxToolCalls: 50,
-        maxTokens: 100000,
-      },
-      outputs: ["review_report"],
-      outputContracts: {
-        review_report: {
-          kind: "json",
-          minKeys: 1,
-          minItems: 1,
-        },
-      },
-    };
-
-    expect(() =>
-      mergeOverlayContract(base, {
+      intent: {
         outputs: ["review_report"],
         outputContracts: {
           review_report: {
-            minItems: 1,
             kind: "json",
             minKeys: 1,
+            minItems: 1,
+          },
+        },
+      },
+    });
+
+    expect(() =>
+      mergeOverlayContract(base, {
+        intent: {
+          outputs: ["review_report"],
+          outputContracts: {
+            review_report: {
+              minItems: 1,
+              kind: "json",
+              minKeys: 1,
+            },
           },
         },
       }),
@@ -449,13 +651,13 @@ describe("repository catalog contracts", () => {
   test("review remains read_only and standalone by contract", () => {
     const review = parseSkillDocument(join(repoRoot(), "skills/core/review/SKILL.md"), "core");
 
-    expect(review.contract.effectLevel).toBe("read_only");
+    expect(resolveSkillEffectLevel(review.contract)).toBe("read_only");
     expect(review.contract.requires).toEqual([]);
     expect(review.contract.routing?.scope).toBe("core");
-    expect(review.contract.outputs).toEqual(
+    expect(listSkillOutputs(review.contract)).toEqual(
       expect.arrayContaining(["review_report", "review_findings", "merge_decision"]),
     );
-    expect(Object.keys(review.contract.outputContracts ?? {}).toSorted()).toEqual([
+    expect(Object.keys(getSkillOutputContracts(review.contract)).toSorted()).toEqual([
       "merge_decision",
       "review_findings",
       "review_report",
@@ -468,11 +670,11 @@ describe("repository catalog contracts", () => {
       .list()
       .filter((skill) => skill.category !== "overlay")
       .flatMap((skill) => {
-        const outputs = skill.contract.outputs ?? [];
+        const outputs = listSkillOutputs(skill.contract);
         if (outputs.length === 0) {
           return [];
         }
-        const contracts = skill.contract.outputContracts ?? {};
+        const contracts = getSkillOutputContracts(skill.contract);
         const uncovered = outputs.filter(
           (name) => !Object.prototype.hasOwnProperty.call(contracts, name),
         );

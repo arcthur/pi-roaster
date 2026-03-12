@@ -71,10 +71,17 @@ describe("tool surface extension", () => {
             ? {
                 name,
                 contract: {
-                  tools: {
-                    required: ["read", "grep", "exec"],
-                    optional: ["skill_complete"],
-                    denied: [],
+                  effects: {
+                    allowedEffects: ["workspace_read", "runtime_observe", "local_exec"],
+                    deniedEffects: [],
+                  },
+                  resources: {
+                    defaultLease: { maxToolCalls: 10, maxTokens: 10000 },
+                    hardCeiling: { maxToolCalls: 20, maxTokens: 20000 },
+                  },
+                  executionHints: {
+                    preferredTools: ["exec"],
+                    fallbackTools: [],
                   },
                 },
               }
@@ -258,10 +265,17 @@ describe("tool surface extension", () => {
         getActive: () => ({
           name: "repository-analysis",
           contract: {
-            tools: {
-              required: ["read"],
-              optional: [],
-              denied: [],
+            effects: {
+              allowedEffects: ["workspace_read", "runtime_observe"],
+              deniedEffects: [],
+            },
+            resources: {
+              defaultLease: { maxToolCalls: 10, maxTokens: 10000 },
+              hardCeiling: { maxToolCalls: 20, maxTokens: 20000 },
+            },
+            executionHints: {
+              preferredTools: ["read"],
+              fallbackTools: [],
             },
           },
         }),
@@ -272,10 +286,17 @@ describe("tool surface extension", () => {
             ? {
                 name,
                 contract: {
-                  tools: {
-                    required: ["read"],
-                    optional: [],
-                    denied: [],
+                  effects: {
+                    allowedEffects: ["workspace_read", "runtime_observe"],
+                    deniedEffects: [],
+                  },
+                  resources: {
+                    defaultLease: { maxToolCalls: 10, maxTokens: 10000 },
+                    hardCeiling: { maxToolCalls: 20, maxTokens: 20000 },
+                  },
+                  executionHints: {
+                    preferredTools: ["read"],
+                    fallbackTools: [],
                   },
                 },
               }
@@ -336,10 +357,17 @@ describe("tool surface extension", () => {
             ? {
                 name,
                 contract: {
-                  tools: {
-                    required: ["exec"],
-                    optional: ["skill_complete"],
-                    denied: [],
+                  effects: {
+                    allowedEffects: ["workspace_read", "runtime_observe", "local_exec"],
+                    deniedEffects: [],
+                  },
+                  resources: {
+                    defaultLease: { maxToolCalls: 10, maxTokens: 10000 },
+                    hardCeiling: { maxToolCalls: 20, maxTokens: 20000 },
+                  },
+                  executionHints: {
+                    preferredTools: ["exec"],
+                    fallbackTools: [],
                   },
                 },
               }
@@ -380,5 +408,99 @@ describe("tool surface extension", () => {
     expect(extensionApi.activeTools).toContain("skill_load");
     expect(extensionApi.activeTools).toContain("skill_complete");
     expect(extensionApi.activeTools).toContain("obs_query");
+  });
+
+  test("effect-authorized managed skill tools stay visible even when not listed in execution hints", async () => {
+    const extensionApi = createMockExtensionAPI();
+    registerTools(extensionApi.api, [
+      "read",
+      "edit",
+      "write",
+      "session_compact",
+      "skill_load",
+      "toc_document",
+      "lsp_symbols",
+      "process",
+    ]);
+
+    const runtime = {
+      config: {
+        skills: {
+          routing: {
+            profile: "standard",
+            scopes: ["core", "domain"],
+          },
+        },
+      },
+      skills: {
+        getActive: () => ({
+          name: "repository-analysis",
+          contract: {
+            effects: {
+              allowedEffects: ["workspace_read", "runtime_observe"],
+              deniedEffects: [],
+            },
+            resources: {
+              defaultLease: { maxToolCalls: 10, maxTokens: 10000 },
+              hardCeiling: { maxToolCalls: 20, maxTokens: 20000 },
+            },
+            executionHints: {
+              preferredTools: ["read"],
+              fallbackTools: [],
+            },
+          },
+        }),
+        getPendingDispatch: () => undefined,
+        getCascadeIntent: () => undefined,
+        get: (name: string) =>
+          name === "repository-analysis"
+            ? {
+                name,
+                contract: {
+                  effects: {
+                    allowedEffects: ["workspace_read", "runtime_observe"],
+                    deniedEffects: [],
+                  },
+                  resources: {
+                    defaultLease: { maxToolCalls: 10, maxTokens: 10000 },
+                    hardCeiling: { maxToolCalls: 20, maxTokens: 20000 },
+                  },
+                  executionHints: {
+                    preferredTools: ["read"],
+                    fallbackTools: [],
+                  },
+                },
+              }
+            : undefined,
+      },
+      task: {
+        getState: () => ({
+          spec: { text: "investigate" },
+          status: { phase: "implement" },
+        }),
+      },
+      events: {
+        record: () => undefined,
+      },
+    };
+
+    registerToolSurface(extensionApi.api, runtime as any);
+    await invokeHandlerAsync(
+      extensionApi.handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "review the current repository state",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "tool-surface-authorized-read-tools",
+        },
+      },
+    );
+
+    expect(extensionApi.activeTools).toContain("toc_document");
+    expect(extensionApi.activeTools).toContain("lsp_symbols");
+    expect(extensionApi.activeTools).not.toContain("process");
   });
 });

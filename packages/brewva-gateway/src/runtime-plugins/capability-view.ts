@@ -41,6 +41,7 @@ export interface BuildCapabilityViewResult {
 
 const GOVERNANCE_TOOL_NAMES = new Set<string>([
   "session_compact",
+  "resource_lease",
   "tape_handoff",
   "tape_info",
   "tape_search",

@@ -7,6 +7,7 @@ import {
   BrewvaRuntime,
   TAPE_CHECKPOINT_EVENT_TYPE,
   buildTapeCheckpointPayload,
+  resolveSkillDefaultLease,
 } from "@brewva/brewva-runtime";
 
 describe("tape checkpoint automation", () => {
@@ -105,14 +106,20 @@ describe("tape checkpoint automation", () => {
       `---
 name: budgetcraft
 description: budget test skill
-tools:
-  required: [read]
-  optional: [look_at]
-  denied: []
-budget:
-  max_tool_calls: 1
-  max_tokens: 10000
-outputs: []
+intent:
+  outputs: []
+effects:
+  allowed_effects: [workspace_read]
+resources:
+  default_lease:
+    max_tool_calls: 1
+    max_tokens: 10000
+  hard_ceiling:
+    max_tool_calls: 2
+    max_tokens: 20000
+execution_hints:
+  preferred_tools: [read]
+  fallback_tools: [look_at]
 consumes: []
 requires: []
 ---
@@ -130,7 +137,7 @@ requires: []
     runtime.context.onTurnStart(sessionId, 1);
     const activated = runtime.skills.activate(sessionId, "budgetcraft");
     expect(activated.ok).toBe(true);
-    const maxToolCalls = activated.skill?.contract.budget.maxToolCalls ?? 0;
+    const maxToolCalls = resolveSkillDefaultLease(activated.skill?.contract)?.maxToolCalls ?? 0;
     const consumed = Math.max(1, maxToolCalls);
     for (let index = 0; index < consumed; index += 1) {
       runtime.tools.markCall(sessionId, "look_at");

@@ -1,7 +1,7 @@
 # Reference: Glossary
 
-- Skill: an executable capability unit loaded from `skills/**/SKILL.md`
-- Contract: a skill policy defining tool permissions, budgets, and required outputs
+- Skill: an executable semantic unit loaded from `skills/**/SKILL.md`
+- Contract: a skill policy defining intent outputs, effect boundaries, and resource ceilings
 - Ledger: append-only evidence stream for tool outcomes
 - Verification Gate: completion policy that checks required evidence
 - Checkpoint: machine-generated tape baseline event used to accelerate replay

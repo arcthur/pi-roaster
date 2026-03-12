@@ -1,3 +1,4 @@
+import { getSkillOutputContracts, listSkillOutputs } from "../skills/facets.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { parseTaskSpec } from "../task/spec.js";
 import type {
@@ -330,8 +331,8 @@ export class SkillLifecycleService {
       return { ok: true, missing: [], invalid: [] };
     }
 
-    const expected = skill.contract.outputs ?? [];
-    const outputContracts = skill.contract.outputContracts ?? {};
+    const expected = listSkillOutputs(skill.contract);
+    const outputContracts = getSkillOutputContracts(skill.contract);
     const missing = expected.filter((name) => !isSatisfied(outputs[name]));
     const invalid = expected.flatMap((name) => {
       if (missing.includes(name)) {

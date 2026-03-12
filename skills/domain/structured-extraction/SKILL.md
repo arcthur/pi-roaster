@@ -1,31 +1,49 @@
 ---
 name: structured-extraction
-description: Convert noisy text or semi-structured input into validated structured output with repair-minded discipline.
+description: Convert noisy text or semi-structured input into validated structured
+  output with repair-minded discipline.
 stability: stable
-effect_level: execute
-tools:
-  required: [read, exec]
-  optional: [grep, skill_complete]
-  denied: [write, edit]
-budget:
-  max_tool_calls: 70
-  max_tokens: 140000
+intent:
+  outputs:
+    - structured_payload
+    - extraction_report
+  output_contracts:
+    structured_payload:
+      kind: json
+      min_keys: 1
+      min_items: 1
+    extraction_report:
+      kind: text
+      min_words: 3
+      min_length: 18
+effects:
+  allowed_effects:
+    - workspace_read
+    - local_exec
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+resources:
+  default_lease:
+    max_tool_calls: 70
+    max_tokens: 140000
+  hard_ceiling:
+    max_tool_calls: 110
+    max_tokens: 200000
+execution_hints:
+  preferred_tools:
+    - read
+    - exec
+  fallback_tools:
+    - grep
+    - skill_complete
 references:
   - references/contract-validation.md
   - references/projection-patterns.md
   - references/repair-loop-protocol.md
   - templates/extract-api-response.md
-outputs: [structured_payload, extraction_report]
-output_contracts:
-  structured_payload:
-    kind: json
-    min_keys: 1
-    min_items: 1
-  extraction_report:
-    kind: text
-    min_words: 3
-    min_length: 18
-consumes: [browser_observations]
+consumes:
+  - browser_observations
 requires: []
 ---
 

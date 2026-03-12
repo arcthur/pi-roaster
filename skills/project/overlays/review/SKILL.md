@@ -1,24 +1,38 @@
 ---
+intent:
+  outputs:
+    - review_report
+    - review_findings
+    - merge_decision
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 70
+    max_tokens: 140000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - lsp_diagnostics
+    - lsp_symbols
+    - lsp_find_references
+    - ast_grep_search
+    - ledger_query
+    - skill_complete
 references:
-  [skills/project/shared/package-boundaries.md, skills/project/shared/migration-priority-matrix.md]
-scripts: [skills/project/scripts/check-skill-dod.sh]
-tools:
-  required: [read, grep]
-  optional:
-    [
-      lsp_diagnostics,
-      lsp_symbols,
-      lsp_find_references,
-      ast_grep_search,
-      ledger_query,
-      skill_complete,
-    ]
-  denied: []
-budget:
-  max_tool_calls: 70
-  max_tokens: 140000
-outputs: [review_report, review_findings, merge_decision]
-consumes: [change_set, design_spec, verification_evidence, impact_map]
+  - skills/project/shared/package-boundaries.md
+  - skills/project/shared/migration-priority-matrix.md
+scripts:
+  - skills/project/scripts/check-skill-dod.sh
+consumes:
+  - change_set
+  - design_spec
+  - verification_evidence
+  - impact_map
 ---
 
 # Brewva Review Overlay

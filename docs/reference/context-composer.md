@@ -26,7 +26,7 @@ decides how already-admitted context should be shown to the model.
 - `sessionId`
 - current compaction-gate state
 - pending compaction reason, if any
-- capability view for the current turn
+- capability-view tool-surface summary for the current turn
 - admitted context entries from `runtime.context.buildInjection(...)`
 - acceptance status for that injected context
 
@@ -52,9 +52,9 @@ The composer returns an ordered list of blocks:
 - `diagnostic`
   - concise operational diagnostics only when explicitly requested or when
     compaction pressure requires additional explanation
-  - tape telemetry appears only for explicit diagnostic capability requests such
-    as `$tape_info`, `$tape_search`, `$obs_query`, `$obs_slo_assert`, or
-    `$obs_snapshot`
+  - tape telemetry appears only for explicit diagnostic tool requests surfaced
+    through the capability view, such as `$tape_info`, `$tape_search`,
+    `$obs_query`, `$obs_slo_assert`, or `$obs_snapshot`
 
 Each block carries:
 

@@ -22,7 +22,7 @@ import { formatISO } from "date-fns";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 type CognitionNoteAction = "record" | "supersede" | "list";
 type CognitionNoteKind = "reference" | "procedure" | "episode";
@@ -230,7 +230,7 @@ async function hasExistingOperatorTeachingArtifact(input: {
 }
 
 export function createCognitionNoteTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "cognition_note",
     label: "Cognition Note",
     description:

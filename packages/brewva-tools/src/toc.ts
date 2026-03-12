@@ -13,7 +13,7 @@ import {
 import type { BrewvaToolRuntime } from "./types.js";
 import { getToolSessionId } from "./utils/parallel-read.js";
 import { failTextResult, inconclusiveTextResult, textResult } from "./utils/result.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const TOC_EVENT_TYPE = "tool_toc_query";
 const JS_TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -1047,7 +1047,7 @@ export function createTocTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     sessionCache.delete(resolveTocSessionKey(sessionId));
   });
 
-  const tocDocument = defineTool({
+  const tocDocument = defineBrewvaTool({
     name: "toc_document",
     label: "TOC Document",
     description:
@@ -1145,7 +1145,7 @@ export function createTocTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     },
   });
 
-  const tocSearch = defineTool({
+  const tocSearch = defineBrewvaTool({
     name: "toc_search",
     label: "TOC Search",
     description:

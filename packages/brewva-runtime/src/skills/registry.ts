@@ -25,6 +25,14 @@ import {
   parseSkillDocument,
   tightenContract,
 } from "./contract.js";
+import {
+  getSkillCostHint,
+  listSkillAllowedEffects,
+  listSkillFallbackTools,
+  listSkillOutputs,
+  listSkillPreferredTools,
+  resolveSkillEffectLevel,
+} from "./facets.js";
 const LOADABLE_SKILL_CATEGORIES: SkillCategory[] = [
   "core",
   "domain",
@@ -372,14 +380,16 @@ export class SkillRegistry {
         name: skill.name,
         category: skill.category,
         description: skill.description,
-        outputs: skill.contract.outputs ?? [],
-        toolsRequired: skill.contract.tools.required,
-        costHint: skill.contract.costHint ?? "medium",
+        outputs: listSkillOutputs(skill.contract),
+        preferredTools: listSkillPreferredTools(skill.contract),
+        fallbackTools: listSkillFallbackTools(skill.contract),
+        allowedEffects: listSkillAllowedEffects(skill.contract),
+        costHint: getSkillCostHint(skill.contract),
         stability: skill.contract.stability ?? "stable",
         composableWith: skill.contract.composableWith ?? [],
         consumes: skill.contract.consumes ?? [],
         requires: skill.contract.requires ?? [],
-        effectLevel: skill.contract.effectLevel ?? "read_only",
+        effectLevel: resolveSkillEffectLevel(skill.contract),
         dispatch: {
           suggestThreshold: skill.contract.dispatch?.suggestThreshold ?? 10,
           autoThreshold: skill.contract.dispatch?.autoThreshold ?? 16,

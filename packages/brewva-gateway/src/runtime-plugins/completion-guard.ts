@@ -1,4 +1,4 @@
-import type { BrewvaRuntime } from "@brewva/brewva-runtime";
+import { listSkillOutputs, type BrewvaRuntime } from "@brewva/brewva-runtime";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 const MAX_NUDGES_PER_PROMPT = 2;
@@ -62,7 +62,7 @@ export function createCompletionGuardLifecycle(
       pi.sendMessage(
         {
           customType: "brewva-guard",
-          content: formatGuardMessage(active.name, active.contract.outputs ?? []),
+          content: formatGuardMessage(active.name, listSkillOutputs(active.contract)),
           display: true,
           details: { sessionId, skill: active.name, count },
         },

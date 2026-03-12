@@ -8,6 +8,7 @@ import { resolveToolResultVerdict } from "../utils/tool-result.js";
 import type { ContextService } from "./context.js";
 import type { FileChangeService } from "./file-change.js";
 import type { LedgerService } from "./ledger.js";
+import type { ResourceLeaseService } from "./resource-lease.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 import type { SkillLifecycleService } from "./skill-lifecycle.js";
 import type { StallDetectorService } from "./stall-detector.js";
@@ -48,6 +49,7 @@ export interface ToolGateServiceOptions {
   getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
   recordEvent: RuntimeKernelContext["recordEvent"];
   alwaysAllowedTools: string[];
+  resourceLeaseService: Pick<ResourceLeaseService, "getEffectiveBudget">;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
   contextService: Pick<ContextService, "checkContextCompactionGate" | "observeContextUsage">;
   fileChangeService: Pick<
@@ -71,6 +73,7 @@ export class ToolGateService {
   private readonly alwaysAllowedToolSet: Set<string>;
   private readonly getActiveSkill: (sessionId: string) => SkillDocument | undefined;
   private readonly getCurrentTurn: (sessionId: string) => number;
+  private readonly getEffectiveBudget: ResourceLeaseService["getEffectiveBudget"];
   private readonly recordEvent: (input: {
     sessionId: string;
     type: string;
@@ -138,6 +141,8 @@ export class ToolGateService {
     );
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
     this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
+    this.getEffectiveBudget = (sessionId, contract, skillName) =>
+      options.resourceLeaseService.getEffectiveBudget(sessionId, contract, skillName);
     this.recordEvent = (input) => options.recordEvent(input);
     this.checkContextCompactionGate = (sessionId, toolName, usage) =>
       options.contextService.checkContextCompactionGate(sessionId, toolName, usage);
@@ -193,8 +198,8 @@ export class ToolGateService {
     }
 
     const access = evaluateSkillToolAccess(skill?.contract, toolName, {
-      enforceDeniedTools: this.securityPolicy.enforceDeniedTools,
-      allowedToolsMode: this.securityPolicy.allowedToolsMode,
+      enforceDeniedEffects: this.securityPolicy.enforceDeniedEffects,
+      effectAuthorizationMode: this.securityPolicy.effectAuthorizationMode,
       alwaysAllowedTools: this.alwaysAllowedTools,
     });
 
@@ -210,7 +215,7 @@ export class ToolGateService {
           payload: {
             skill: skill.name,
             toolName: normalizedToolName,
-            mode: this.securityPolicy.allowedToolsMode,
+            mode: this.securityPolicy.effectAuthorizationMode,
             reason: access.warning,
           },
         });
@@ -253,44 +258,48 @@ export class ToolGateService {
       return access;
     }
 
+    const effectiveBudget = this.getEffectiveBudget(sessionId, skill.contract, skill.name);
+
     if (
       this.securityPolicy.skillMaxTokensMode !== "off" &&
       !this.alwaysAllowedToolSet.has(normalizedToolName)
     ) {
-      const maxTokens = skill.contract.budget.maxTokens;
-      const usedTokens = this.costTracker.getSkillTotalTokens(sessionId, skill.name);
-      if (usedTokens >= maxTokens) {
-        const reason = `Skill '${skill.name}' exceeded maxTokens=${maxTokens} (used=${usedTokens}).`;
-        if (this.securityPolicy.skillMaxTokensMode === "warn") {
-          const key = `maxTokens:${skill.name}`;
-          const seen = state.skillBudgetWarnings;
-          if (!seen.has(key)) {
-            seen.add(key);
+      const maxTokens = effectiveBudget?.maxTokens;
+      if (typeof maxTokens === "number") {
+        const usedTokens = this.costTracker.getSkillTotalTokens(sessionId, skill.name);
+        if (usedTokens >= maxTokens) {
+          const reason = `Skill '${skill.name}' exceeded maxTokens=${maxTokens} (used=${usedTokens}).`;
+          if (this.securityPolicy.skillMaxTokensMode === "warn") {
+            const key = `maxTokens:${skill.name}`;
+            const seen = state.skillBudgetWarnings;
+            if (!seen.has(key)) {
+              seen.add(key);
+              this.recordEvent({
+                sessionId,
+                type: "skill_budget_warning",
+                turn: this.getCurrentTurn(sessionId),
+                payload: {
+                  skill: skill.name,
+                  usedTokens,
+                  maxTokens,
+                  budget: "tokens",
+                  mode: this.securityPolicy.skillMaxTokensMode,
+                },
+              });
+            }
+          } else if (this.securityPolicy.skillMaxTokensMode === "enforce") {
             this.recordEvent({
               sessionId,
-              type: "skill_budget_warning",
+              type: "tool_call_blocked",
               turn: this.getCurrentTurn(sessionId),
               payload: {
+                toolName: normalizedToolName,
                 skill: skill.name,
-                usedTokens,
-                maxTokens,
-                budget: "tokens",
-                mode: this.securityPolicy.skillMaxTokensMode,
+                reason,
               },
             });
+            return { allowed: false, reason };
           }
-        } else if (this.securityPolicy.skillMaxTokensMode === "enforce") {
-          this.recordEvent({
-            sessionId,
-            type: "tool_call_blocked",
-            turn: this.getCurrentTurn(sessionId),
-            payload: {
-              toolName: normalizedToolName,
-              skill: skill.name,
-              reason,
-            },
-          });
-          return { allowed: false, reason };
         }
       }
     }
@@ -299,40 +308,42 @@ export class ToolGateService {
       this.securityPolicy.skillMaxToolCallsMode !== "off" &&
       !this.alwaysAllowedToolSet.has(normalizedToolName)
     ) {
-      const maxToolCalls = skill.contract.budget.maxToolCalls;
-      const usedCalls = state.toolCalls;
-      if (usedCalls >= maxToolCalls) {
-        const reason = `Skill '${skill.name}' exceeded maxToolCalls=${maxToolCalls} (used=${usedCalls}).`;
-        if (this.securityPolicy.skillMaxToolCallsMode === "warn") {
-          const key = `maxToolCalls:${skill.name}`;
-          const seen = state.skillBudgetWarnings;
-          if (!seen.has(key)) {
-            seen.add(key);
+      const maxToolCalls = effectiveBudget?.maxToolCalls;
+      if (typeof maxToolCalls === "number") {
+        const usedCalls = state.toolCalls;
+        if (usedCalls >= maxToolCalls) {
+          const reason = `Skill '${skill.name}' exceeded maxToolCalls=${maxToolCalls} (used=${usedCalls}).`;
+          if (this.securityPolicy.skillMaxToolCallsMode === "warn") {
+            const key = `maxToolCalls:${skill.name}`;
+            const seen = state.skillBudgetWarnings;
+            if (!seen.has(key)) {
+              seen.add(key);
+              this.recordEvent({
+                sessionId,
+                type: "skill_budget_warning",
+                turn: this.getCurrentTurn(sessionId),
+                payload: {
+                  skill: skill.name,
+                  usedToolCalls: usedCalls,
+                  maxToolCalls,
+                  budget: "tool_calls",
+                  mode: this.securityPolicy.skillMaxToolCallsMode,
+                },
+              });
+            }
+          } else if (this.securityPolicy.skillMaxToolCallsMode === "enforce") {
             this.recordEvent({
               sessionId,
-              type: "skill_budget_warning",
+              type: "tool_call_blocked",
               turn: this.getCurrentTurn(sessionId),
               payload: {
+                toolName: normalizedToolName,
                 skill: skill.name,
-                usedToolCalls: usedCalls,
-                maxToolCalls,
-                budget: "tool_calls",
-                mode: this.securityPolicy.skillMaxToolCallsMode,
+                reason,
               },
             });
+            return { allowed: false, reason };
           }
-        } else if (this.securityPolicy.skillMaxToolCallsMode === "enforce") {
-          this.recordEvent({
-            sessionId,
-            type: "tool_call_blocked",
-            turn: this.getCurrentTurn(sessionId),
-            payload: {
-              toolName: normalizedToolName,
-              skill: skill.name,
-              reason,
-            },
-          });
-          return { allowed: false, reason };
         }
       }
     }
@@ -352,8 +363,8 @@ export class ToolGateService {
     }
 
     const access = evaluateSkillToolAccess(skill?.contract, toolName, {
-      enforceDeniedTools: this.securityPolicy.enforceDeniedTools,
-      allowedToolsMode: this.securityPolicy.allowedToolsMode,
+      enforceDeniedEffects: this.securityPolicy.enforceDeniedEffects,
+      effectAuthorizationMode: this.securityPolicy.effectAuthorizationMode,
       alwaysAllowedTools: this.alwaysAllowedTools,
     });
 
@@ -376,19 +387,23 @@ export class ToolGateService {
       };
     }
 
+    const effectiveBudget = this.getEffectiveBudget(sessionId, skill.contract, skill.name);
+
     if (
       this.securityPolicy.skillMaxTokensMode !== "off" &&
       !this.alwaysAllowedToolSet.has(normalizedToolName)
     ) {
-      const maxTokens = skill.contract.budget.maxTokens;
-      const usedTokens = this.costTracker.getSkillTotalTokens(sessionId, skill.name);
-      if (usedTokens >= maxTokens) {
-        const reason = `Skill '${skill.name}' exceeded maxTokens=${maxTokens} (used=${usedTokens}).`;
-        if (this.securityPolicy.skillMaxTokensMode === "enforce") {
-          return { allowed: false, reason };
-        }
-        if (this.securityPolicy.skillMaxTokensMode === "warn") {
-          return { allowed: true, warning: reason };
+      const maxTokens = effectiveBudget?.maxTokens;
+      if (typeof maxTokens === "number") {
+        const usedTokens = this.costTracker.getSkillTotalTokens(sessionId, skill.name);
+        if (usedTokens >= maxTokens) {
+          const reason = `Skill '${skill.name}' exceeded maxTokens=${maxTokens} (used=${usedTokens}).`;
+          if (this.securityPolicy.skillMaxTokensMode === "enforce") {
+            return { allowed: false, reason };
+          }
+          if (this.securityPolicy.skillMaxTokensMode === "warn") {
+            return { allowed: true, warning: reason };
+          }
         }
       }
     }
@@ -397,15 +412,17 @@ export class ToolGateService {
       this.securityPolicy.skillMaxToolCallsMode !== "off" &&
       !this.alwaysAllowedToolSet.has(normalizedToolName)
     ) {
-      const maxToolCalls = skill.contract.budget.maxToolCalls;
-      const usedCalls = state.toolCalls;
-      if (usedCalls >= maxToolCalls) {
-        const reason = `Skill '${skill.name}' exceeded maxToolCalls=${maxToolCalls} (used=${usedCalls}).`;
-        if (this.securityPolicy.skillMaxToolCallsMode === "enforce") {
-          return { allowed: false, reason };
-        }
-        if (this.securityPolicy.skillMaxToolCallsMode === "warn") {
-          return { allowed: true, warning: reason };
+      const maxToolCalls = effectiveBudget?.maxToolCalls;
+      if (typeof maxToolCalls === "number") {
+        const usedCalls = state.toolCalls;
+        if (usedCalls >= maxToolCalls) {
+          const reason = `Skill '${skill.name}' exceeded maxToolCalls=${maxToolCalls} (used=${usedCalls}).`;
+          if (this.securityPolicy.skillMaxToolCallsMode === "enforce") {
+            return { allowed: false, reason };
+          }
+          if (this.securityPolicy.skillMaxToolCallsMode === "warn") {
+            return { allowed: true, warning: reason };
+          }
         }
       }
     }

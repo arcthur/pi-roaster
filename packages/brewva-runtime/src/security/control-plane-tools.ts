@@ -1,9 +1,10 @@
-// Control-plane tools bypass skill contract allowlists and budget enforcement.
+// Control-plane tools bypass normal skill effect authorization and budget enforcement.
 // They must remain available to recover from partial failures and to complete lifecycle actions.
 export const CONTROL_PLANE_TOOLS = [
   "skill_complete",
   "skill_chain_control",
   "skill_load",
+  "resource_lease",
   "ledger_query",
   "cost_view",
   "tape_handoff",

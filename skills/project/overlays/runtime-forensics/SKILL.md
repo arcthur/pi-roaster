@@ -1,13 +1,31 @@
 ---
-references: [skills/project/shared/runtime-artifacts.md]
-tools:
-  required: [read, grep]
-  optional: [exec, ledger_query, tape_info, tape_search, cost_view, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 70
-  max_tokens: 140000
-outputs: [runtime_trace, session_summary, artifact_findings]
+intent:
+  outputs:
+    - runtime_trace
+    - session_summary
+    - artifact_findings
+effects:
+  allowed_effects:
+    - workspace_read
+    - local_exec
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 70
+    max_tokens: 140000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - exec
+    - ledger_query
+    - tape_info
+    - tape_search
+    - cost_view
+    - skill_complete
+references:
+  - skills/project/shared/runtime-artifacts.md
 consumes: []
 ---
 

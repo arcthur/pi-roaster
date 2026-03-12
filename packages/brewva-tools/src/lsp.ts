@@ -20,7 +20,7 @@ import {
   withParallelReadSlot,
 } from "./utils/parallel-read.js";
 import { failTextResult, inconclusiveTextResult, textResult, withVerdict } from "./utils/result.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const CODE_EXTENSIONS = new Set([
   ".ts",
@@ -415,7 +415,7 @@ function applyRename(
 }
 
 export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolDefinition[] {
-  const lspGotoDefinition = defineTool({
+  const lspGotoDefinition = defineBrewvaTool({
     name: "lsp_goto_definition",
     label: "LSP Go To Definition",
     description:
@@ -450,7 +450,7 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     },
   });
 
-  const lspFindReferences = defineTool({
+  const lspFindReferences = defineBrewvaTool({
     name: "lsp_find_references",
     label: "LSP Find References",
     description: "Heuristic-based (regex/file scan), not real LSP. Find likely symbol references.",
@@ -490,7 +490,7 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     },
   });
 
-  const lspSymbols = defineTool({
+  const lspSymbols = defineBrewvaTool({
     name: "lsp_symbols",
     label: "LSP Symbols",
     description:
@@ -546,7 +546,7 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     },
   });
 
-  const lspDiagnostics = defineTool({
+  const lspDiagnostics = defineBrewvaTool({
     name: "lsp_diagnostics",
     label: "LSP Diagnostics",
     description: "Runs TypeScript compiler (tsc). Not a real LSP server connection.",
@@ -589,7 +589,7 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     },
   });
 
-  const lspPrepareRename = defineTool({
+  const lspPrepareRename = defineBrewvaTool({
     name: "lsp_prepare_rename",
     label: "LSP Prepare Rename",
     description: "Heuristic-based. Checks rename availability via workspace scan (not real LSP).",
@@ -623,7 +623,7 @@ export function createLspTools(options?: { runtime?: BrewvaToolRuntime }): ToolD
     },
   });
 
-  const lspRename = defineTool({
+  const lspRename = defineBrewvaTool({
     name: "lsp_rename",
     label: "LSP Rename",
     description: "Heuristic-based global replacement (unsafe). Not real LSP rename.",

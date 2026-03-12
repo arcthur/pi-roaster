@@ -1,15 +1,36 @@
 ---
+intent:
+  outputs:
+    - root_cause
+    - fix_strategy
+    - failure_evidence
+effects:
+  allowed_effects:
+    - workspace_read
+    - local_exec
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 90
+    max_tokens: 160000
+execution_hints:
+  preferred_tools:
+    - read
+    - exec
+    - grep
+  fallback_tools:
+    - ledger_query
+    - tape_search
+    - cost_view
+    - skill_complete
 references:
-  [skills/project/shared/package-boundaries.md, skills/project/shared/runtime-artifacts.md]
-tools:
-  required: [read, exec, grep]
-  optional: [ledger_query, tape_search, cost_view, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 90
-  max_tokens: 160000
-outputs: [root_cause, fix_strategy, failure_evidence]
-consumes: [repository_snapshot, impact_map, verification_evidence, runtime_trace]
+  - skills/project/shared/package-boundaries.md
+  - skills/project/shared/runtime-artifacts.md
+consumes:
+  - repository_snapshot
+  - impact_map
+  - verification_evidence
+  - runtime_trace
 ---
 
 # Brewva Debugging Overlay

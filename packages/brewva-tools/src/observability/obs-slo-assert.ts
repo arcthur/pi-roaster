@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "../types.js";
 import { inconclusiveTextResult, textResult } from "../utils/result.js";
 import { getSessionId } from "../utils/session.js";
-import { defineTool } from "../utils/tool.js";
+import { defineBrewvaTool } from "../utils/tool.js";
 import {
   OBS_AGGREGATION_SCHEMA,
   OBS_OPERATOR_SCHEMA,
@@ -51,7 +51,7 @@ function buildBlockedText(input: { recentSingleQueryCalls: number }): string {
 }
 
 export function createObsSloAssertTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "obs_slo_assert",
     label: "Observability SLO Assert",
     description:

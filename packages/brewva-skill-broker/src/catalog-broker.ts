@@ -94,8 +94,20 @@ function assertCatalogEntry(entry: unknown): asserts entry is SkillsIndexEntry {
     throw new Error("catalog_invalid");
   }
   if (
-    !Array.isArray(candidate.toolsRequired) ||
-    !candidate.toolsRequired.every((value) => typeof value === "string")
+    !Array.isArray(candidate.preferredTools) ||
+    !candidate.preferredTools.every((value) => typeof value === "string")
+  ) {
+    throw new Error("catalog_invalid");
+  }
+  if (
+    !Array.isArray(candidate.fallbackTools) ||
+    !candidate.fallbackTools.every((value) => typeof value === "string")
+  ) {
+    throw new Error("catalog_invalid");
+  }
+  if (
+    !Array.isArray(candidate.allowedEffects) ||
+    !candidate.allowedEffects.every((value) => typeof value === "string")
   ) {
     throw new Error("catalog_invalid");
   }
@@ -412,7 +424,9 @@ function assessCandidate(
   });
   score += scoreTerms({
     promptTokens,
-    terms: entry.toolsRequired.flatMap((toolName) => extractScoringTerms(toolName)),
+    terms: [...new Set([...entry.preferredTools, ...entry.fallbackTools])].flatMap((toolName) =>
+      extractScoringTerms(toolName),
+    ),
     signal: "tool_token",
     delta: 2,
     cap: 4,
@@ -471,7 +485,9 @@ function buildJudgeCandidate(candidate: ScoredCandidate): SkillBrokerJudgeCandid
     consumes: candidate.entry.consumes,
     requires: candidate.entry.requires,
     effectLevel: candidate.entry.effectLevel,
-    toolsRequired: candidate.entry.toolsRequired,
+    preferredTools: candidate.entry.preferredTools,
+    fallbackTools: candidate.entry.fallbackTools,
+    allowedEffects: candidate.entry.allowedEffects,
     score: candidate.selection.score,
     stageOneScore: candidate.stageOneScore,
     previewScore: candidate.previewScore,

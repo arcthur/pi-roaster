@@ -41,6 +41,7 @@ import { FileChangeService } from "./services/file-change.js";
 import { LedgerService } from "./services/ledger.js";
 import { ParallelService } from "./services/parallel.js";
 import { ProposalAdmissionService } from "./services/proposal-admission.js";
+import { ResourceLeaseService } from "./services/resource-lease.js";
 import { ScheduleIntentService } from "./services/schedule-intent.js";
 import { SessionLifecycleService } from "./services/session-lifecycle.js";
 import { RuntimeSessionStateStore } from "./services/session-state.js";
@@ -63,6 +64,11 @@ import type {
   ContextPressureStatus,
   ContextCompactionGateStatus,
   ContextBudgetUsage,
+  ResourceLeaseCancelResult,
+  ResourceLeaseQuery,
+  ResourceLeaseRecord,
+  ResourceLeaseRequest,
+  ResourceLeaseResult,
   EvidenceLedgerRow,
   EvidenceQuery,
   ParallelAcquireResult,
@@ -152,6 +158,7 @@ type RuntimeServiceDependencies = {
   taskService: TaskService;
   truthService: TruthService;
   ledgerService: LedgerService;
+  resourceLeaseService: ResourceLeaseService;
   parallelService: ParallelService;
   costService: CostService;
   verificationService: VerificationService;
@@ -324,6 +331,13 @@ export class BrewvaRuntime {
       options?: { timeoutMs?: number },
     ): Promise<ParallelAcquireResult>;
     releaseParallelSlot(sessionId: string, runId: string): void;
+    requestResourceLease(sessionId: string, request: ResourceLeaseRequest): ResourceLeaseResult;
+    listResourceLeases(sessionId: string, query?: ResourceLeaseQuery): ResourceLeaseRecord[];
+    cancelResourceLease(
+      sessionId: string,
+      leaseId: string,
+      reason?: string,
+    ): ResourceLeaseCancelResult;
     markCall(sessionId: string, toolName: string): void;
     trackCallStart(input: {
       sessionId: string;
@@ -510,6 +524,7 @@ export class BrewvaRuntime {
   private readonly costService: CostService;
   private readonly eventPipeline: EventPipelineService;
   private readonly fileChangeService: FileChangeService;
+  private readonly resourceLeaseService: ResourceLeaseService;
   private readonly ledgerService: LedgerService;
   private readonly parallelService: ParallelService;
   private readonly proposalAdmissionService: ProposalAdmissionService;
@@ -556,6 +571,7 @@ export class BrewvaRuntime {
     this.taskService = serviceDependencies.taskService;
     this.truthService = serviceDependencies.truthService;
     this.ledgerService = serviceDependencies.ledgerService;
+    this.resourceLeaseService = serviceDependencies.resourceLeaseService;
     this.parallelService = serviceDependencies.parallelService;
     this.costService = serviceDependencies.costService;
     this.verificationService = serviceDependencies.verificationService;
@@ -741,6 +757,12 @@ export class BrewvaRuntime {
       recordEvent: (input) => this.kernel.recordEvent(input),
       skillLifecycleService,
     });
+    const resourceLeaseService = new ResourceLeaseService({
+      sessionState: this.sessionState,
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
+      skillLifecycleService,
+    });
     const parallelService = new ParallelService({
       securityConfig: this.config.security,
       parallel: this.parallel,
@@ -748,6 +770,7 @@ export class BrewvaRuntime {
       sessionState: this.sessionState,
       getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
       recordEvent: (input) => this.kernel.recordEvent(input),
+      resourceLeaseService,
       skillLifecycleService,
     });
     const costService = new CostService({
@@ -907,6 +930,7 @@ export class BrewvaRuntime {
       getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
       recordEvent: (input) => this.kernel.recordEvent(input),
       alwaysAllowedTools: CONTROL_PLANE_TOOLS,
+      resourceLeaseService,
       skillLifecycleService,
       contextService,
       fileChangeService,
@@ -921,6 +945,7 @@ export class BrewvaRuntime {
       taskService,
       truthService,
       ledgerService,
+      resourceLeaseService,
       parallelService,
       costService,
       verificationService,
@@ -1077,6 +1102,12 @@ export class BrewvaRuntime {
           this.parallelService.acquireParallelSlotAsync(sessionId, runId, options),
         releaseParallelSlot: (sessionId, runId) =>
           this.parallelService.releaseParallelSlot(sessionId, runId),
+        requestResourceLease: (sessionId, request) =>
+          this.resourceLeaseService.requestLease(sessionId, request),
+        listResourceLeases: (sessionId, query) =>
+          this.resourceLeaseService.listLeases(sessionId, query),
+        cancelResourceLease: (sessionId, leaseId, reason) =>
+          this.resourceLeaseService.cancelLease(sessionId, leaseId, reason),
         markCall: (sessionId, toolName) => this.fileChangeService.markToolCall(sessionId, toolName),
         trackCallStart: (input) => this.fileChangeService.trackToolCallStart(input),
         trackCallEnd: (input) => this.fileChangeService.trackToolCallEnd(input),

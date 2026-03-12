@@ -9,7 +9,29 @@ function writeSkill(filePath: string, input: { name: string; description: string
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(
     filePath,
-    `---\nname: ${input.name}\ndescription: ${input.description}\ntools:\n  required: [read]\n  optional: []\n  denied: []\nbudget:\n  max_tool_calls: 20\n  max_tokens: 20000\noutputs: []\nconsumes: []\n---\n# ${input.name}\n`,
+    [
+      "---",
+      `name: ${input.name}`,
+      `description: ${input.description}`,
+      "intent:",
+      "  outputs: []",
+      "effects:",
+      "  allowed_effects: [workspace_read]",
+      "resources:",
+      "  default_lease:",
+      "    max_tool_calls: 20",
+      "    max_tokens: 20000",
+      "  hard_ceiling:",
+      "    max_tool_calls: 30",
+      "    max_tokens: 30000",
+      "execution_hints:",
+      "  preferred_tools: [read]",
+      "  fallback_tools: []",
+      "consumes: []",
+      "---",
+      `# ${input.name}`,
+      "",
+    ].join("\n"),
     "utf8",
   );
 }
@@ -45,7 +67,7 @@ describe("skill-authoring fork script", () => {
   const repoRoot = resolve(import.meta.dir, "../..");
   const scriptPath = join(repoRoot, "skills/meta/skill-authoring/scripts/fork_skill.py");
 
-  test("forks a global v2 skill into a project overlay and becomes effective", () => {
+  test("forks a global skill into a project overlay and becomes effective", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-skill-fork-project-"));
     const xdgRoot = mkdtempSync(join(tmpdir(), "brewva-skill-fork-xdg-"));
     const previousXdg = process.env.XDG_CONFIG_HOME;

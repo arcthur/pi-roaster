@@ -4,7 +4,7 @@ import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 type GrepCase = "smart" | "ignore" | "sensitive";
 
@@ -172,7 +172,7 @@ function normalizeSearchPath(input: {
 }
 
 export function createGrepTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "grep",
     label: "Grep",
     description: "Search code using ripgrep (rg) with bounded output.",

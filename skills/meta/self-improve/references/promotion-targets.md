@@ -47,9 +47,9 @@ A learning qualifies for promotion when **any** of these hold:
 
 When promoting to a new skill, the extracted skill must satisfy Brewva DoD:
 
-- Use the v2 category layout (`core`, `domain`, `operator`, `meta`, or `project/overlays`)
+- Use the current category layout (`core`, `domain`, `operator`, `meta`, or `project/overlays`)
 - Do not add `tier` or `category` frontmatter; category is directory-derived
-- YAML frontmatter with `name`, `description`, `stability`, `effect_level`, `tools`, `budget`, `outputs`, `consumes`, and `requires`
+- YAML frontmatter with `name`, `description`, `stability`, `intent`, `effects`, `resources`, `execution_hints`, `consumes`, and `requires`
 - Sections: Objective, Trigger, Workflow, Stop Conditions, Anti-Patterns, Examples
 - Pass `skills/project/scripts/check-skill-dod.sh`
 

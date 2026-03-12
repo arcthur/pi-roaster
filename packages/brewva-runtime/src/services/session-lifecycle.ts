@@ -2,6 +2,9 @@ import type { ContextBudgetManager } from "../context/budget.js";
 import type { ContextInjectionCollector } from "../context/injection.js";
 import type { SessionCostTracker } from "../cost/tracker.js";
 import {
+  RESOURCE_LEASE_CANCELLED_EVENT_TYPE,
+  RESOURCE_LEASE_EXPIRED_EVENT_TYPE,
+  RESOURCE_LEASE_GRANTED_EVENT_TYPE,
   TOOL_RESULT_RECORDED_EVENT_TYPE,
   VERIFICATION_STATE_RESET_EVENT_TYPE,
   VERIFICATION_WRITE_MARKED_EVENT_TYPE,
@@ -16,6 +19,7 @@ import type { FileChangeTracker } from "../state/file-change-tracker.js";
 import { TAPE_CHECKPOINT_EVENT_TYPE, coerceTapeCheckpointPayload } from "../tape/events.js";
 import type { TurnReplayEngine } from "../tape/replay-engine.js";
 import type {
+  ResourceLeaseRecord,
   BrewvaEventRecord,
   SessionHydrationIssue,
   SessionHydrationState,
@@ -206,6 +210,7 @@ export class SessionLifecycleService {
     const toolContractWarnings = new Set(state.toolContractWarnings);
     const skillBudgetWarnings = new Set(state.skillBudgetWarnings);
     const skillParallelWarnings = new Set(state.skillParallelWarnings);
+    const resourceLeases = new Map<string, ResourceLeaseRecord>();
     const skillOutputs = new Map<string, SkillOutputRecord>();
     let pendingDispatch = state.pendingDispatch;
     let skillChainIntent = state.skillChainIntent;
@@ -297,6 +302,47 @@ export class SessionLifecycleService {
           continue;
         }
 
+        if (event.type === RESOURCE_LEASE_GRANTED_EVENT_TYPE) {
+          const lease = this.readResourceLease(payload);
+          if (lease) {
+            resourceLeases.set(lease.id, lease);
+          }
+          continue;
+        }
+
+        if (event.type === RESOURCE_LEASE_CANCELLED_EVENT_TYPE) {
+          const leaseId =
+            payload && typeof payload.leaseId === "string" && payload.leaseId.trim().length > 0
+              ? payload.leaseId.trim()
+              : null;
+          if (leaseId) {
+            const existing = resourceLeases.get(leaseId);
+            if (existing) {
+              existing.status = "cancelled";
+              existing.cancelledAt = this.readNonNegativeNumber(payload?.cancelledAt) ?? undefined;
+              existing.cancelledReason =
+                typeof payload?.cancelledReason === "string"
+                  ? payload.cancelledReason
+                  : existing.cancelledReason;
+            }
+          }
+          continue;
+        }
+
+        if (event.type === RESOURCE_LEASE_EXPIRED_EVENT_TYPE) {
+          const leaseId =
+            payload && typeof payload.leaseId === "string" && payload.leaseId.trim().length > 0
+              ? payload.leaseId.trim()
+              : null;
+          if (leaseId) {
+            const existing = resourceLeases.get(leaseId);
+            if (existing) {
+              existing.status = "expired";
+            }
+          }
+          continue;
+        }
+
         if (event.type === "tool_contract_warning") {
           const skillName = this.readSkillName(payload);
           const normalizedTool = this.readToolName(payload);
@@ -384,6 +430,7 @@ export class SessionLifecycleService {
     state.toolContractWarnings = toolContractWarnings;
     state.skillBudgetWarnings = skillBudgetWarnings;
     state.skillParallelWarnings = skillParallelWarnings;
+    state.resourceLeases = resourceLeases;
     state.pendingDispatch =
       pendingDispatch && pendingDispatch.mode !== "none" ? pendingDispatch : undefined;
     state.skillOutputs = skillOutputs;
@@ -467,6 +514,55 @@ export class SessionLifecycleService {
       return null;
     }
     return outputs as Record<string, unknown>;
+  }
+
+  private readResourceLease(payload: Record<string, unknown> | null): ResourceLeaseRecord | null {
+    if (!payload) return null;
+    const id =
+      typeof payload.id === "string" && payload.id.trim().length > 0 ? payload.id.trim() : "";
+    const sessionId =
+      typeof payload.sessionId === "string" && payload.sessionId.trim().length > 0
+        ? payload.sessionId.trim()
+        : "";
+    const reason =
+      typeof payload.reason === "string" && payload.reason.trim().length > 0
+        ? payload.reason.trim()
+        : "";
+    const skillName =
+      typeof payload.skillName === "string" && payload.skillName.trim().length > 0
+        ? payload.skillName.trim()
+        : "";
+    if (!id || !sessionId || !skillName || !reason) {
+      return null;
+    }
+    const budgetPayload =
+      payload.budget && typeof payload.budget === "object" && !Array.isArray(payload.budget)
+        ? (payload.budget as Record<string, unknown>)
+        : {};
+    const status =
+      payload.status === "active" || payload.status === "expired" || payload.status === "cancelled"
+        ? payload.status
+        : "active";
+    return {
+      id,
+      sessionId,
+      skillName,
+      reason,
+      budget: {
+        maxToolCalls: this.readNonNegativeNumber(budgetPayload.maxToolCalls) ?? undefined,
+        maxTokens: this.readNonNegativeNumber(budgetPayload.maxTokens) ?? undefined,
+        maxParallel: this.readNonNegativeNumber(budgetPayload.maxParallel) ?? undefined,
+      },
+      createdAt: this.readNonNegativeNumber(payload.createdAt) ?? 0,
+      expiresAt: this.readNonNegativeNumber(payload.expiresAt) ?? undefined,
+      expiresAfterTurn: this.readNonNegativeNumber(payload.expiresAfterTurn) ?? undefined,
+      status,
+      cancelledAt: this.readNonNegativeNumber(payload.cancelledAt) ?? undefined,
+      cancelledReason:
+        typeof payload.cancelledReason === "string" && payload.cancelledReason.trim().length > 0
+          ? payload.cancelledReason.trim()
+          : undefined,
+    };
   }
 
   private readPendingDispatch(

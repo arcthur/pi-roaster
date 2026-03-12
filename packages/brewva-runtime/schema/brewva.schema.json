@@ -305,7 +305,7 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "allowedToolsMode": {
+                "effectAuthorizationMode": {
                   "$ref": "#/definitions/SecurityEnforcementPreference"
                 },
                 "skillMaxParallelMode": {
@@ -319,7 +319,7 @@
                 }
               },
               "required": [
-                "allowedToolsMode",
+                "effectAuthorizationMode",
                 "skillMaxTokensMode",
                 "skillMaxToolCallsMode",
                 "skillMaxParallelMode"
@@ -533,20 +533,107 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "description": {
-          "type": "string"
-        },
-        "budget": {
+        "intent": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "maxTokens": {
-              "type": "number"
+            "outputs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
-            "maxToolCalls": {
-              "type": "number"
+            "outputContracts": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/SkillOutputContract"
+              }
+            },
+            "completionDefinition": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "verificationLevel": {
+                  "$ref": "#/definitions/VerificationLevel"
+                },
+                "requiredEvidenceKinds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
+        },
+        "effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowedEffects": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ToolEffectClass"
+              }
+            },
+            "deniedEffects": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ToolEffectClass"
+              }
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "defaultLease": {
+              "$ref": "#/definitions/SkillResourceBudget"
+            },
+            "hardCeiling": {
+              "$ref": "#/definitions/SkillResourceBudget"
+            }
+          }
+        },
+        "executionHints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "preferredTools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "fallbackTools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "suggestedChains": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "costHint": {
+              "$ref": "#/definitions/SkillCostHint"
+            }
+          }
+        },
+        "description": {
+          "type": "string"
         },
         "category": {
           "$ref": "#/definitions/SkillCategory"
@@ -569,26 +656,8 @@
         "dispatch": {
           "$ref": "#/definitions/SkillDispatchPolicy"
         },
-        "effectLevel": {
-          "$ref": "#/definitions/SkillEffectLevel"
-        },
-        "maxParallel": {
-          "type": "number"
-        },
         "name": {
           "type": "string"
-        },
-        "outputContracts": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/SkillOutputContract"
-          }
-        },
-        "outputs": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         },
         "requires": {
           "type": "array",
@@ -608,30 +677,6 @@
         "stability": {
           "type": "string",
           "enum": ["experimental", "stable", "deprecated"]
-        },
-        "tools": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "required": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "denied": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "optional": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
         }
       }
     },
@@ -659,6 +704,21 @@
     "SkillEffectLevel": {
       "type": "string",
       "enum": ["read_only", "execute", "mutation"]
+    },
+    "SkillResourceBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxTokens": {
+          "type": "number"
+        },
+        "maxToolCalls": {
+          "type": "number"
+        },
+        "maxParallel": {
+          "type": "number"
+        }
+      }
     },
     "SkillOutputContract": {
       "anyOf": [
@@ -730,6 +790,19 @@
     "SkillRoutingScope": {
       "type": "string",
       "enum": ["core", "domain", "operator", "meta"]
+    },
+    "ToolEffectClass": {
+      "type": "string",
+      "enum": [
+        "workspace_read",
+        "workspace_write",
+        "local_exec",
+        "runtime_observe",
+        "external_network",
+        "external_side_effect",
+        "schedule_mutation",
+        "memory_write"
+      ]
     },
     "VerificationLevel": {
       "type": "string",

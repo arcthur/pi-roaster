@@ -43,9 +43,10 @@ Configuration files are patch overlays: omitted fields inherit defaults/lower-pr
 `skills.cascade.enabledSources` controls which sources are allowed to produce chain intents.
 `skills.cascade.sourcePriority` only controls arbitration order among enabled sources.
 
-`skills.overrides` are runtime config tightenings only. They can reduce budgets,
-tighten dispatch thresholds, and deny tools, but they do not add new tool access. Use
-project overlays for project-specific tool/resource extension.
+`skills.overrides` are runtime config tightenings only. They can reduce
+budgets, tighten dispatch thresholds, and narrow effect authorization, but they
+do not add new authority. Use project overlays for project-specific execution
+hints and shared-context extension.
 
 There is no longer a public `skills.selector.*` config surface. Candidate
 generation, broker judging, and chain planning belong to the deliberation ring,
@@ -104,7 +105,7 @@ Project-specific shared context and overlays are discovered from:
 
 - `security.mode`: `standard`
 - `security.sanitizeContext`: `true`
-- `security.enforcement.allowedToolsMode`: `inherit`
+- `security.enforcement.effectAuthorizationMode`: `inherit`
 - `security.enforcement.skillMaxTokensMode`: `inherit`
 - `security.enforcement.skillMaxToolCallsMode`: `inherit`
 - `security.enforcement.skillMaxParallelMode`: `inherit`
@@ -199,18 +200,26 @@ Telegram channel skill policy is now built-in and no longer configurable via
 `security.mode` is a strategy-level control:
 
 - `permissive`
-  - Enforce denied tools
-  - Disable allowlist/per-skill budget enforcement (`off`)
+  - Enforce denied effects
+  - Disable effect-authorization/per-skill budget enforcement (`off`)
 - `standard` (default)
-  - Enforce denied tools
-  - Keep allowlist/per-skill budget checks in warning mode (`warn`)
+  - Enforce denied effects
+  - Keep effect-authorization/per-skill budget checks in warning mode (`warn`)
 - `strict`
-  - Enforce denied tools and all policy checks (`enforce`)
+  - Enforce denied effects and all policy checks (`enforce`)
+
+If a tool lacks governance metadata entirely, runtime currently warns instead
+of hard-blocking it. Effect authorization can only be enforced for tools whose
+effect descriptors are known.
 
 `security.sanitizeContext` controls pattern-based text sanitization before skill selection and
 context injection. Structural boundary wrapping remains enabled even when this flag is `false`.
 
-Runtime reserves a small set of control-plane tools (for example `skill_complete`, `session_compact`, and tape/ledger inspection tools) that bypass skill allowlists and per-skill budget enforcement to avoid deadlocks during recovery. These tools may still be blocked by the critical context compaction gate.
+Runtime reserves a small set of control-plane tools (for example `skill_complete`,
+`session_compact`, `resource_lease`, and tape/ledger inspection tools) that
+bypass normal skill effect authorization and per-skill budget enforcement to
+avoid deadlocks during recovery. These tools may still be blocked by the
+critical context compaction gate.
 
 `security.execution` controls command isolation for `exec`:
 

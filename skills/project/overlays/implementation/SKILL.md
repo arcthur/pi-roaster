@@ -1,15 +1,38 @@
 ---
+intent:
+  outputs:
+    - change_set
+    - files_changed
+    - verification_evidence
+effects:
+  allowed_effects:
+    - workspace_read
+    - workspace_write
+    - local_exec
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 90
+    max_tokens: 160000
+execution_hints:
+  preferred_tools:
+    - read
+    - edit
+  fallback_tools:
+    - grep
+    - exec
+    - lsp_diagnostics
+    - ledger_query
+    - skill_complete
 references:
-  [skills/project/shared/package-boundaries.md, skills/project/shared/migration-priority-matrix.md]
-tools:
-  required: [read, edit]
-  optional: [grep, exec, lsp_diagnostics, ledger_query, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 90
-  max_tokens: 160000
-outputs: [change_set, files_changed, verification_evidence]
-consumes: [design_spec, execution_plan, execution_mode_hint, root_cause, fix_strategy]
+  - skills/project/shared/package-boundaries.md
+  - skills/project/shared/migration-priority-matrix.md
+consumes:
+  - design_spec
+  - execution_plan
+  - execution_mode_hint
+  - root_cause
+  - fix_strategy
 ---
 
 # Brewva Implementation Overlay

@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BrewvaRuntime, DEFAULT_BREWVA_CONFIG, type BrewvaConfig } from "@brewva/brewva-runtime";
+import {
+  BrewvaRuntime,
+  DEFAULT_BREWVA_CONFIG,
+  getSkillOutputContracts,
+  listSkillOutputs,
+  type BrewvaConfig,
+} from "@brewva/brewva-runtime";
 
 function createWorkspace(name: string): string {
   const workspace = mkdtempSync(join(tmpdir(), `brewva-skill-cascade-${name}-`));
@@ -64,8 +70,8 @@ function startExplicitChain(runtime: BrewvaRuntime, sessionId: string, steps: st
 
 function buildSkillOutputs(runtime: BrewvaRuntime, skillName: string): Record<string, unknown> {
   const skill = runtime.skills.get(skillName);
-  const outputs = skill?.contract.outputs ?? [];
-  const outputContracts = skill?.contract.outputContracts ?? {};
+  const outputs = listSkillOutputs(skill?.contract);
+  const outputContracts = getSkillOutputContracts(skill?.contract);
   const fixtures: Record<string, unknown> = {
     repository_snapshot: "Repository snapshot covering runtime, tools, CLI, and gateway ownership.",
     impact_map: "Primary impact lands in routing, skill lifecycle, and orchestration boundaries.",
@@ -98,7 +104,7 @@ function buildSkillOutputs(runtime: BrewvaRuntime, skillName: string): Record<st
   };
 
   return Object.fromEntries(
-    outputs.map((output) => {
+    outputs.map((output: string) => {
       const contract = outputContracts[output];
       if (!contract) {
         return [output, fixtures[output] ?? `${output} artifact generated for ${skillName}`];

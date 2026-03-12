@@ -14,7 +14,8 @@ function writeCatalog(
       outputs?: string[];
       consumes?: string[];
       requires?: string[];
-      toolsRequired?: string[];
+      preferredTools?: string[];
+      fallbackTools?: string[];
     }>;
   },
 ): string {
@@ -31,7 +32,9 @@ function writeCatalog(
           category: "domain",
           description: entry.description,
           outputs: entry.outputs ?? [],
-          toolsRequired: entry.toolsRequired ?? ["read"],
+          preferredTools: entry.preferredTools ?? ["read"],
+          fallbackTools: entry.fallbackTools ?? [],
+          allowedEffects: ["workspace_read"],
           costHint: "medium",
           stability: "stable",
           composableWith: [],
@@ -91,8 +94,9 @@ describe("catalog skill broker", () => {
         contract: {
           name: "generic-reviewer",
           category: "domain",
-          tools: { required: ["read"], optional: [], denied: [] },
-          budget: { maxToolCalls: 10, maxTokens: 1000 },
+          effects: { allowedEffects: ["workspace_read"] },
+          resources: { defaultLease: { maxToolCalls: 10, maxTokens: 1000 } },
+          executionHints: { preferredTools: ["read"], fallbackTools: [] },
         },
         resources: { references: [], scripts: [], heuristics: [], invariants: [] },
         sharedContextFiles: [],
@@ -119,8 +123,9 @@ describe("catalog skill broker", () => {
         contract: {
           name: "generic-planner",
           category: "domain",
-          tools: { required: ["read"], optional: [], denied: [] },
-          budget: { maxToolCalls: 10, maxTokens: 1000 },
+          effects: { allowedEffects: ["workspace_read"] },
+          resources: { defaultLease: { maxToolCalls: 10, maxTokens: 1000 } },
+          executionHints: { preferredTools: ["read"], fallbackTools: [] },
         },
         resources: { references: [], scripts: [], heuristics: [], invariants: [] },
         sharedContextFiles: [],

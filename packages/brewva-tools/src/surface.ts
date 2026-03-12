@@ -1,11 +1,17 @@
-export type BrewvaToolSurface = "base" | "skill" | "operator";
+import type { BrewvaToolSurface } from "./types.js";
+
+export type { BrewvaToolSurface } from "./types.js";
 
 export const BREWVA_TOOL_SURFACE_BY_NAME = {
+  agent_broadcast: "operator",
+  agent_list: "operator",
+  agent_send: "operator",
   grep: "base",
   read_spans: "base",
   look_at: "base",
   toc_search: "base",
   session_compact: "base",
+  resource_lease: "base",
   exec: "base",
   toc_document: "skill",
   skill_load: "skill",

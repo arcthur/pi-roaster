@@ -1,43 +1,64 @@
 ---
 name: review
-description: Assess change risk, plan conformance, and merge safety with findings-first output and explicit residual risk.
+description: Assess change risk, plan conformance, and merge safety with findings-first
+  output and explicit residual risk.
 stability: stable
-effect_level: read_only
 dispatch:
   suggest_threshold: 10
   auto_threshold: 18
-tools:
-  required: [read, grep]
-  optional:
-    [
-      lsp_diagnostics,
-      lsp_symbols,
-      lsp_find_references,
-      ast_grep_search,
-      ledger_query,
-      skill_complete,
-    ]
-  denied: [write, edit, exec, process]
-budget:
-  max_tool_calls: 80
-  max_tokens: 160000
+intent:
+  outputs:
+    - review_report
+    - review_findings
+    - merge_decision
+  output_contracts:
+    review_report:
+      kind: text
+      min_words: 3
+      min_length: 18
+    review_findings:
+      kind: json
+      min_items: 1
+    merge_decision:
+      kind: enum
+      values:
+        - ready
+        - needs_changes
+        - blocked
+effects:
+  allowed_effects:
+    - workspace_read
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+    - local_exec
+resources:
+  default_lease:
+    max_tool_calls: 80
+    max_tokens: 160000
+  hard_ceiling:
+    max_tool_calls: 120
+    max_tokens: 220000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - lsp_diagnostics
+    - lsp_symbols
+    - lsp_find_references
+    - ast_grep_search
+    - ledger_query
+    - skill_complete
 references:
   - references/boundary-failure.md
   - references/contract-drift.md
   - references/security-concurrency.md
-outputs: [review_report, review_findings, merge_decision]
-output_contracts:
-  review_report:
-    kind: text
-    min_words: 3
-    min_length: 18
-  review_findings:
-    kind: json
-    min_items: 1
-  merge_decision:
-    kind: enum
-    values: [ready, needs_changes, blocked]
-consumes: [change_set, design_spec, verification_evidence, impact_map]
+consumes:
+  - change_set
+  - design_spec
+  - verification_evidence
+  - impact_map
 requires: []
 ---
 

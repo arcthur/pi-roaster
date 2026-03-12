@@ -1,9 +1,19 @@
-import type { BrewvaRuntime, SkillDocument } from "@brewva/brewva-runtime";
+import {
+  getToolGovernanceDescriptor,
+  listSkillAllowedEffects,
+  listSkillDeniedEffects,
+  listSkillFallbackTools,
+  listSkillPreferredTools,
+  type BrewvaRuntime,
+  type SkillDocument,
+} from "@brewva/brewva-runtime";
 import {
   BASE_BREWVA_TOOL_NAMES,
+  getBrewvaToolMetadata,
   getBrewvaToolSurface,
   MANAGED_BREWVA_TOOL_NAMES,
   OPERATOR_BREWVA_TOOL_NAMES,
+  SKILL_BREWVA_TOOL_NAMES,
   isManagedBrewvaToolName,
 } from "@brewva/brewva-tools";
 import type { ExtensionAPI, ToolDefinition, ToolInfo } from "@mariozechner/pi-coding-agent";
@@ -58,14 +68,37 @@ function resolveSurfaceSkills(runtime: BrewvaRuntime, sessionId: string): SkillD
     .filter((skill): skill is SkillDocument => skill !== undefined);
 }
 
-function collectSkillToolNames(skills: SkillDocument[]): string[] {
+function resolveManagedToolGovernanceDescriptor(
+  toolName: string,
+  dynamicToolDefinitions?: ReadonlyMap<string, ToolDefinition>,
+) {
+  const dynamicMetadata = getBrewvaToolMetadata(dynamicToolDefinitions?.get(toolName));
+  return dynamicMetadata?.governance ?? getToolGovernanceDescriptor(toolName);
+}
+
+function collectSkillToolNames(
+  skills: SkillDocument[],
+  dynamicToolDefinitions?: ReadonlyMap<string, ToolDefinition>,
+): string[] {
   const names = new Set<string>();
   for (const skill of skills) {
-    for (const toolName of skill.contract.tools.required) {
+    for (const toolName of listSkillPreferredTools(skill.contract)) {
       names.add(normalizeToolName(toolName));
     }
-    for (const toolName of skill.contract.tools.optional) {
+    for (const toolName of listSkillFallbackTools(skill.contract)) {
       names.add(normalizeToolName(toolName));
+    }
+    const allowedEffects = new Set(listSkillAllowedEffects(skill.contract));
+    const deniedEffects = new Set(listSkillDeniedEffects(skill.contract));
+    for (const toolName of SKILL_BREWVA_TOOL_NAMES) {
+      const descriptor = resolveManagedToolGovernanceDescriptor(toolName, dynamicToolDefinitions);
+      if (!descriptor) continue;
+      if (descriptor.effects.some((effect) => deniedEffects.has(effect))) {
+        continue;
+      }
+      if (descriptor.effects.every((effect) => allowedEffects.has(effect))) {
+        names.add(normalizeToolName(toolName));
+      }
     }
   }
   return [...names];
@@ -119,6 +152,7 @@ function resolveManagedToolNamesForTurn(input: {
   runtime: BrewvaRuntime;
   sessionId: string;
   prompt: string;
+  dynamicToolDefinitions?: ReadonlyMap<string, ToolDefinition>;
 }): {
   requestedManagedToolNames: string[];
   skillManagedToolNames: string[];
@@ -130,9 +164,10 @@ function resolveManagedToolNamesForTurn(input: {
     MANAGED_TOOL_NAME_SET.has(toolName),
   );
   const surfaceSkills = resolveSurfaceSkills(input.runtime, input.sessionId);
-  const skillManagedToolNames = collectSkillToolNames(surfaceSkills).filter((toolName) =>
-    MANAGED_TOOL_NAME_SET.has(toolName),
-  );
+  const skillManagedToolNames = collectSkillToolNames(
+    surfaceSkills,
+    input.dynamicToolDefinitions,
+  ).filter((toolName) => MANAGED_TOOL_NAME_SET.has(toolName));
   const lifecycleManagedToolNames: string[] = [];
 
   if (surfaceSkills.length > 0) {
@@ -168,6 +203,7 @@ function resolveActiveToolNames(input: {
   prompt: string;
   allTools: ToolInfo[];
   activeToolNames: string[];
+  dynamicToolDefinitions?: ReadonlyMap<string, ToolDefinition>;
 }): {
   activeToolNames: string[];
   managedActiveCount: number;
@@ -218,7 +254,7 @@ function resolveActiveToolNames(input: {
   }
 
   const surfaceSkills = resolveSurfaceSkills(input.runtime, input.sessionId);
-  for (const toolName of collectSkillToolNames(surfaceSkills)) {
+  for (const toolName of collectSkillToolNames(surfaceSkills, input.dynamicToolDefinitions)) {
     if (knownToolNames.has(toolName)) {
       active.add(toolName);
     }
@@ -315,6 +351,7 @@ function registerMissingManagedTools(input: {
     runtime: input.runtime,
     sessionId: input.sessionId,
     prompt: input.prompt,
+    dynamicToolDefinitions: input.dynamicToolDefinitions,
   });
   const namesToEnsure = [
     ...dynamic.requestedManagedToolNames,
@@ -381,6 +418,7 @@ export function createToolSurfaceLifecycle(
         prompt,
         allTools: refreshedTools,
         activeToolNames: activeToolsGetter.call(pi),
+        dynamicToolDefinitions: options.dynamicToolDefinitions,
       });
       setActiveTools.call(pi, resolved.activeToolNames);
 

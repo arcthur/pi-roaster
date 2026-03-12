@@ -1,28 +1,50 @@
 ---
 name: runtime-forensics
-description: Inspect Brewva runtime artifacts, event streams, ledgers, and projection outputs to explain what happened during execution.
+description: Inspect Brewva runtime artifacts, event streams, ledgers, and projection
+  outputs to explain what happened during execution.
 stability: stable
-effect_level: execute
-tools:
-  required: [read, grep]
-  optional: [exec, ledger_query, tape_info, tape_search, cost_view, skill_complete]
-  denied: [write, edit]
-budget:
-  max_tool_calls: 80
-  max_tokens: 160000
-outputs: [runtime_trace, session_summary, artifact_findings]
-output_contracts:
-  runtime_trace:
-    kind: text
-    min_words: 3
-    min_length: 18
-  session_summary:
-    kind: text
-    min_words: 3
-    min_length: 18
-  artifact_findings:
-    kind: json
-    min_items: 1
+intent:
+  outputs:
+    - runtime_trace
+    - session_summary
+    - artifact_findings
+  output_contracts:
+    runtime_trace:
+      kind: text
+      min_words: 3
+      min_length: 18
+    session_summary:
+      kind: text
+      min_words: 3
+      min_length: 18
+    artifact_findings:
+      kind: json
+      min_items: 1
+effects:
+  allowed_effects:
+    - workspace_read
+    - local_exec
+    - runtime_observe
+  denied_effects:
+    - workspace_write
+resources:
+  default_lease:
+    max_tool_calls: 80
+    max_tokens: 160000
+  hard_ceiling:
+    max_tool_calls: 120
+    max_tokens: 220000
+execution_hints:
+  preferred_tools:
+    - read
+    - grep
+  fallback_tools:
+    - exec
+    - ledger_query
+    - tape_info
+    - tape_search
+    - cost_view
+    - skill_complete
 consumes: []
 requires: []
 ---

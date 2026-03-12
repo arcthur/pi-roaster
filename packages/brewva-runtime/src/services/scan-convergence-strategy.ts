@@ -17,6 +17,9 @@ function staticRule(strategy: ScanConvergenceToolStrategy): ScanConvergenceToolR
 }
 
 export const SCAN_CONVERGENCE_TOOL_RULES_BY_NAME = {
+  agent_broadcast: staticRule("progress"),
+  agent_list: staticRule("evidence_reuse"),
+  agent_send: staticRule("progress"),
   read: staticRule("raw_scan"),
   grep: staticRule("raw_scan"),
   read_spans: staticRule("low_signal"),
@@ -38,6 +41,7 @@ export const SCAN_CONVERGENCE_TOOL_RULES_BY_NAME = {
   obs_query: staticRule("evidence_reuse"),
   obs_slo_assert: staticRule("evidence_reuse"),
   obs_snapshot: staticRule("evidence_reuse"),
+  resource_lease: staticRule("neutral"),
   session_compact: staticRule("neutral"),
   skill_load: staticRule("progress"),
   tape_handoff: staticRule("progress"),

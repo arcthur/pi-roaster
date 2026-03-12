@@ -103,6 +103,7 @@ Default tool bundle (registered by `buildBrewvaTools()`):
 - `tape_handoff`
 - `tape_info`
 - `tape_search`
+- `resource_lease`
 - `session_compact`
 - `rollback_last_patch`
 - `cognition_note`
@@ -122,6 +123,18 @@ Optional A2A tools (registered by channel orchestration extensions when an A2A a
 - `agent_broadcast`
 - `agent_list`
 
+Managed Brewva tools now expose governance metadata on the definition object
+itself:
+
+- `brewva.surface`
+- `brewva.governance`
+
+For built-in managed tools this is a canonical view over the runtime's exact
+managed-tool policy, not a second authored copy. The default gateway/extension
+path imports that metadata only when runtime does not already have an exact
+descriptor for the tool, so tool disclosure and runtime effect governance can
+share one policy source instead of drifting into parallel registries.
+
 ## Tool Surface Layers
 
 The static registry is larger than the per-turn visible tool surface.
@@ -130,18 +143,21 @@ Current extension composition resolves three layers before `before_agent_start`:
 
 - `base tools`
   - built-in core tools plus Brewva base governance tools
-- `active-skill tools`
-  - tools named in the current active, pending-dispatch, or cascade-step skill
-    contracts
+- `skill-informed tools`
+  - preferred/fallback hints plus effect-authorized managed skill tools derived
+    from the current active, pending-dispatch, or cascade-step skill contracts
 - `operator tools`
   - operator-facing observability and control tools shown only for operator/full
-    routing profiles by default or explicit `$tool_name` capability requests
+    routing profiles by default or explicit `$tool_name` tool-surface requests
+    in the capability view
 
 Default product behavior:
 
-- the capability block shows only the tools that are visible now
+- the capability view block shows only the tools that are visible now
 - hidden managed Brewva tools can be surfaced for one turn by explicitly
   requesting `$tool_name`
+- explicit `$tool_name` requests change disclosure for the current turn only;
+  they do not grant authority on their own
 - current skill/pending dispatch/cascade commitment still exposes its normal
   task-specific tool surface without needing `$tool_name`
 - routing scopes that include `operator` or `meta` keep operator tools visible
@@ -149,9 +165,21 @@ Default product behavior:
 
 This is enforced through active-tool selection, not by mutating kernel policy:
 
-- runtime/skill contracts determine the desired surface
+- runtime/skill contracts determine the exploration-oriented surface
 - extensions narrow the visible tool list for the current turn
-- runtime gates still remain the fail-closed backstop for actual execution
+- runtime gates remain the fail-closed backstop for actual execution
+
+Third-party or custom tools should register governance descriptors explicitly
+through `registerToolGovernanceDescriptor(...)` if they need effect
+authorization to participate in strict policy enforcement. Tools without
+governance metadata remain usable, but runtime emits a warning because it cannot
+enforce effect authorization for them yet.
+
+Explicit exception:
+
+- a small runtime-owned set of control-plane tools stays available for recovery,
+  compaction, scheduling, and lease negotiation even when effect gating would
+  otherwise hide them
 
 `tool_surface_resolved` records the resolved visible surface for audit/ops
 telemetry.
@@ -166,6 +194,34 @@ Notes:
 - `cognition_note` is an operator teaching tool. It writes append-only
   external cognition artifacts (`reference`, `procedure`, `episode`) under
   `.brewva/cognition/*` and never mutates kernel truth/task state directly.
+
+### `resource_lease`
+
+Requests, lists, or cancels temporary budget expansions for the active skill.
+
+Parameters:
+
+- `action` (`request` | `list` | `cancel`, required)
+- `reason` (string, required for `request`)
+- `leaseId` (string, required for `cancel`)
+- `maxToolCalls` (number, optional)
+- `maxTokens` (number, optional)
+- `maxParallel` (number, optional)
+- `ttlMs` (number, optional)
+- `ttlTurns` (number, optional)
+- `includeInactive` (boolean, optional, `list` only)
+- `skillName` (string, optional, `list` only)
+
+Behavior:
+
+- leases are budget-only; they do not grant new effect authorization
+- lease requests require an active skill and are scoped to that skill
+- granted budget is clamped by the skill hard ceiling before the lease is recorded
+- requests fail when the active skill has no remaining headroom between
+  `default_lease` and `hard_ceiling`
+- granted, cancelled, and expired leases are replayable session events
+- `resource_lease` is a narrow governance-owned direct-commit flow; it records
+  budget receipts without widening effect authority
 
 ### `cognition_note`
 

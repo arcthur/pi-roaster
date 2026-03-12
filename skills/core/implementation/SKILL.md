@@ -1,29 +1,56 @@
 ---
 name: implementation
-description: "Execute code changes using the right mode for the local situation: direct patch, test-first, or coordinated rollout."
+description: "Execute code changes using the right mode for the local situation: direct
+  patch, test-first, or coordinated rollout."
 stability: stable
-effect_level: mutation
-tools:
-  required: [read, edit]
-  optional: [grep, exec, lsp_diagnostics, ledger_query, skill_complete]
-  denied: []
-budget:
-  max_tool_calls: 100
-  max_tokens: 180000
-composable_with: [debugging, runtime-forensics]
-outputs: [change_set, files_changed, verification_evidence]
-output_contracts:
-  change_set:
-    kind: text
-    min_words: 3
-    min_length: 18
-  files_changed:
-    kind: json
-    min_items: 1
-  verification_evidence:
-    kind: json
-    min_items: 1
-consumes: [design_spec, execution_plan, execution_mode_hint, root_cause, fix_strategy]
+intent:
+  outputs:
+    - change_set
+    - files_changed
+    - verification_evidence
+  output_contracts:
+    change_set:
+      kind: text
+      min_words: 3
+      min_length: 18
+    files_changed:
+      kind: json
+      min_items: 1
+    verification_evidence:
+      kind: json
+      min_items: 1
+effects:
+  allowed_effects:
+    - workspace_read
+    - workspace_write
+    - local_exec
+    - runtime_observe
+resources:
+  default_lease:
+    max_tool_calls: 100
+    max_tokens: 180000
+  hard_ceiling:
+    max_tool_calls: 140
+    max_tokens: 240000
+execution_hints:
+  preferred_tools:
+    - read
+    - edit
+  fallback_tools:
+    - grep
+    - exec
+    - lsp_diagnostics
+    - ledger_query
+    - skill_complete
+composable_with:
+  - debugging
+  - runtime-forensics
+consumes:
+  - design_spec
+  - execution_plan
+  - execution_mode_hint
+  - root_cause
+  - fix_strategy
 requires: []
 ---
 

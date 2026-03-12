@@ -9,7 +9,7 @@ import { addMilliseconds, formatISO } from "date-fns";
 import type { BrewvaToolOptions } from "./types.js";
 import { failTextResult, textResult } from "./utils/result.js";
 import { getSessionId } from "./utils/session.js";
-import { defineTool } from "./utils/tool.js";
+import { defineBrewvaTool } from "./utils/tool.js";
 
 const ScheduleActionSchema = Type.Union([
   Type.Literal("create"),
@@ -198,7 +198,7 @@ function resolveSchedulePatch(params: {
 }
 
 export function createScheduleIntentTool(options: BrewvaToolOptions): ToolDefinition {
-  return defineTool({
+  return defineBrewvaTool({
     name: "schedule_intent",
     label: "Schedule Intent",
     description:

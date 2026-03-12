@@ -86,9 +86,24 @@ Reference: `docs/reference/proposal-boundary.md`.
 - `markCall(sessionId, toolName)`
 - `trackCallStart(input)`
 - `trackCallEnd(input)`
+- `requestResourceLease(sessionId, request)`
+- `listResourceLeases(sessionId, query?)`
+- `cancelResourceLease(sessionId, leaseId, reason?)`
 - `rollbackLastPatchSet(sessionId)`
 - `resolveUndoSessionId(preferredSessionId?)`
 - `recordResult(input)`
+
+Resource lease semantics:
+
+- leases are budget-only and active-skill-scoped
+- `requestResourceLease(...)` may record a receipt-bearing budget expansion
+- leases do not widen effect authorization
+
+Tool-governance note:
+
+- tools with governance descriptors participate in effect authorization
+- tools without governance metadata emit warnings and remain usable until they
+  are classified, so custom tool integrations do not hard-break in strict mode
 
 ### `runtime.task.*`
 

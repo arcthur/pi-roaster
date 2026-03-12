@@ -1,14 +1,30 @@
-import type { SkillContract, ToolAccessResult } from "../types.js";
+import { getToolGovernanceDescriptor } from "../governance/tool-governance.js";
+import { listSkillAllowedEffects, listSkillDeniedEffects } from "../skills/facets.js";
+import type { SkillContract, ToolAccessResult, ToolEffectClass } from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
 
 export interface ToolPolicyOptions {
-  enforceDeniedTools: boolean;
-  allowedToolsMode: "off" | "warn" | "enforce";
+  enforceDeniedEffects: boolean;
+  effectAuthorizationMode: "off" | "warn" | "enforce";
   alwaysAllowedTools?: string[];
 }
 
 function normalizeToolList(tools: string[]): string[] {
   return tools.map((tool) => normalizeToolName(tool)).filter((tool) => tool.length > 0);
+}
+
+function setFromEffects(effects: ToolEffectClass[] | undefined): Set<ToolEffectClass> {
+  return new Set((effects ?? []).filter((effect) => typeof effect === "string"));
+}
+
+function difference<T>(left: Iterable<T>, right: Set<T>): T[] {
+  const missing: T[] = [];
+  for (const value of left) {
+    if (!right.has(value)) {
+      missing.push(value);
+    }
+  }
+  return missing;
 }
 
 export function checkToolAccess(
@@ -26,38 +42,33 @@ export function checkToolAccess(
     return { allowed: true };
   }
 
-  const denied = new Set(normalizeToolList(contract.tools.denied));
-  const effectiveDenied = options.enforceDeniedTools ? denied : new Set<string>();
-  if (options.enforceDeniedTools && effectiveDenied.has(normalized)) {
+  const descriptor = getToolGovernanceDescriptor(normalized);
+  if (!descriptor) {
+    const warning = `Tool '${normalized}' is missing effect governance metadata; effect authorization cannot be enforced for it yet.`;
+    return { allowed: true, warning };
+  }
+
+  const deniedEffects = setFromEffects(listSkillDeniedEffects(contract));
+  const violatedDeniedEffects = descriptor.effects.filter((effect) => deniedEffects.has(effect));
+  if (options.enforceDeniedEffects && violatedDeniedEffects.length > 0) {
     return {
       allowed: false,
-      reason: `Tool '${normalized}' is denied by skill '${contract.name}'.`,
+      reason: `Tool '${normalized}' performs denied effects for skill '${contract.name}': ${violatedDeniedEffects.join(", ")}.`,
     };
   }
 
-  if (options.allowedToolsMode === "off") {
+  if (options.effectAuthorizationMode === "off") {
     return { allowed: true };
   }
 
-  const required = normalizeToolList(contract.tools.required);
-  const optional = normalizeToolList(contract.tools.optional);
-  const allowlist = new Set(
-    [...required, ...optional].filter((tool) => !effectiveDenied.has(tool)),
-  );
-
-  // Treat an empty allowlist as "no allowlist" to avoid accidental total block.
-  if (allowlist.size === 0) {
-    return { allowed: true };
+  const allowedEffects = setFromEffects(listSkillAllowedEffects(contract));
+  const unauthorizedEffects = difference(descriptor.effects, allowedEffects);
+  if (unauthorizedEffects.length > 0) {
+    const reason = `Tool '${normalized}' requires unauthorized effects for skill '${contract.name}': ${unauthorizedEffects.join(", ")}.`;
+    if (options.effectAuthorizationMode === "warn") {
+      return { allowed: true, warning: reason };
+    }
+    return { allowed: false, reason };
   }
-
-  if (allowlist.has(normalized)) {
-    return { allowed: true };
-  }
-
-  const reason = `Tool '${normalized}' is not allowed by skill '${contract.name}' (allowedToolsMode=${options.allowedToolsMode}).`;
-  if (options.allowedToolsMode === "warn") {
-    return { allowed: true, warning: reason };
-  }
-
-  return { allowed: false, reason };
+  return { allowed: true };
 }

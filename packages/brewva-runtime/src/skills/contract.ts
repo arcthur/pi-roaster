@@ -1,16 +1,21 @@
 import { readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { CONTROL_PLANE_TOOLS } from "../security/control-plane-tools.js";
 import type {
   SkillCategory,
+  SkillCompletionDefinition,
   SkillContract,
   SkillContractOverride,
   SkillDocument,
-  SkillEffectLevel,
+  SkillEffectsContract,
+  SkillExecutionHints,
+  SkillIntentContract,
   SkillOutputContract,
+  SkillResourceBudget,
+  SkillResourcePolicy,
   SkillResourceSet,
   SkillRoutingPolicy,
+  ToolEffectClass,
 } from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
 
@@ -121,21 +126,38 @@ function readNullableStringArrayField(
   return requireStringArrayField(data, key, filePath);
 }
 
-function requireNumericField(
+function readOptionalRecordField(
   data: Record<string, unknown>,
-  keys: readonly string[],
+  key: string,
   filePath: string,
-  label: string,
-): number {
-  for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(data, key)) continue;
-    const value = data[key];
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      failSkillContract(filePath, `frontmatter field '${key}' must be a finite number.`);
-    }
-    return value;
+): Record<string, unknown> | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, key)) {
+    return undefined;
   }
-  failSkillContract(filePath, `missing required frontmatter field '${label}'.`);
+  return requireRecordField(data, key, filePath);
+}
+
+function readOptionalEnumStringArrayField<T extends string>(
+  data: Record<string, unknown>,
+  key: string,
+  filePath: string,
+  allowedValues: readonly T[],
+  fieldPath: string,
+): T[] | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, key)) {
+    return undefined;
+  }
+  const rawValues = requireStringArrayField(data, key, filePath);
+  const allowed = new Set<string>(allowedValues);
+  return rawValues.map((value, index) => {
+    if (!allowed.has(value)) {
+      failSkillContract(
+        filePath,
+        `${fieldPath}.${key}[${index}] must be one of: ${allowedValues.join(", ")}.`,
+      );
+    }
+    return value as T;
+  });
 }
 
 function normalizeToolListStrict(values: string[], filePath: string, fieldPath: string): string[] {
@@ -289,6 +311,349 @@ function normalizeOutputContracts(
     failSkillContract(filePath, "output_contracts cannot be declared when outputs is empty.");
   }
   return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
+const TOOL_EFFECT_CLASSES: ToolEffectClass[] = [
+  "workspace_read",
+  "workspace_write",
+  "local_exec",
+  "runtime_observe",
+  "external_network",
+  "external_side_effect",
+  "schedule_mutation",
+  "memory_write",
+];
+
+function normalizeIntentContract(
+  data: Record<string, unknown>,
+  category: SkillCategory,
+  filePath: string,
+): SkillIntentContract | undefined {
+  if (Object.prototype.hasOwnProperty.call(data, "outputs")) {
+    failSkillContract(filePath, "outputs is not supported. Use intent.outputs.");
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "output_contracts")) {
+    failSkillContract(filePath, "output_contracts is not supported. Use intent.output_contracts.");
+  }
+  const intent = readOptionalRecordField(data, "intent", filePath);
+  if (!intent) {
+    if (category === "overlay") {
+      return undefined;
+    }
+    failSkillContract(filePath, "missing required frontmatter field 'intent'.");
+  }
+
+  const outputs =
+    category === "overlay"
+      ? readNullableStringArrayField(intent, "outputs", filePath)
+      : requireStringArrayField(intent, "outputs", filePath);
+  const outputContracts = normalizeOutputContracts(intent, outputs, category, filePath);
+
+  const completionDefinition = readOptionalRecordField(intent, "completion_definition", filePath);
+  const verificationLevel = completionDefinition?.verification_level;
+  if (
+    verificationLevel !== undefined &&
+    verificationLevel !== "quick" &&
+    verificationLevel !== "standard" &&
+    verificationLevel !== "strict"
+  ) {
+    failSkillContract(
+      filePath,
+      "intent.completion_definition.verification_level must be one of: quick | standard | strict.",
+    );
+  }
+  const requiredEvidenceKinds = completionDefinition
+    ? readNullableStringArrayField(completionDefinition, "required_evidence_kinds", filePath)
+    : undefined;
+  const normalizedCompletionDefinition: SkillCompletionDefinition | undefined =
+    completionDefinition && (verificationLevel !== undefined || requiredEvidenceKinds !== undefined)
+      ? {
+          verificationLevel,
+          requiredEvidenceKinds,
+        }
+      : undefined;
+
+  return {
+    outputs,
+    outputContracts,
+    completionDefinition: normalizedCompletionDefinition,
+  };
+}
+
+function normalizeEffectsContract(
+  data: Record<string, unknown>,
+  category: SkillCategory,
+  filePath: string,
+): SkillEffectsContract | undefined {
+  if (Object.prototype.hasOwnProperty.call(data, "effectLevel")) {
+    failSkillContract(filePath, "effectLevel is not supported. Use effects.allowed_effects.");
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "effect_level")) {
+    failSkillContract(filePath, "effect_level is not supported. Use effects.allowed_effects.");
+  }
+  const effects = readOptionalRecordField(data, "effects", filePath);
+  if (!effects) {
+    if (category === "overlay") {
+      return undefined;
+    }
+    failSkillContract(filePath, "missing required frontmatter field 'effects'.");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(effects, "effect_level")) {
+    failSkillContract(
+      filePath,
+      "effects.effect_level is not supported. Declare effects.allowed_effects and let the summary derive automatically.",
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(effects, "approval_required")) {
+    failSkillContract(
+      filePath,
+      "effects.approval_required has been removed. Govern effect authorization through effects.allowed_effects and denied_effects.",
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(effects, "rollback_required")) {
+    failSkillContract(
+      filePath,
+      "effects.rollback_required has been removed. Rollback capability is no longer authored in the stable contract surface.",
+    );
+  }
+
+  const allowedEffects = readOptionalEnumStringArrayField(
+    effects,
+    "allowed_effects",
+    filePath,
+    TOOL_EFFECT_CLASSES,
+    "effects",
+  );
+  if (category !== "overlay" && allowedEffects === undefined) {
+    failSkillContract(filePath, "effects.allowed_effects is required.");
+  }
+
+  return {
+    allowedEffects: allowedEffects ? [...new Set(allowedEffects)] : undefined,
+    deniedEffects: [
+      ...new Set(
+        readOptionalEnumStringArrayField(
+          effects,
+          "denied_effects",
+          filePath,
+          TOOL_EFFECT_CLASSES,
+          "effects",
+        ) ?? [],
+      ),
+    ],
+  };
+}
+
+function normalizeResourceBudget(
+  data: Record<string, unknown> | undefined,
+  filePath: string,
+  fieldPath: string,
+): SkillResourceBudget | undefined {
+  if (!data) {
+    return undefined;
+  }
+  const maxToolCalls = readOptionalPositiveIntegerField(
+    data,
+    "max_tool_calls",
+    filePath,
+    fieldPath,
+  );
+  const maxTokens = readOptionalPositiveIntegerField(data, "max_tokens", filePath, fieldPath);
+  if (typeof maxTokens === "number" && maxTokens < 1000) {
+    failSkillContract(filePath, `${fieldPath}.max_tokens must be >= 1000.`);
+  }
+  const maxParallel = readOptionalPositiveIntegerField(data, "max_parallel", filePath, fieldPath);
+  if (maxToolCalls === undefined && maxTokens === undefined && maxParallel === undefined) {
+    return undefined;
+  }
+  return {
+    maxToolCalls,
+    maxTokens,
+    maxParallel,
+  };
+}
+
+function ensureHardCeilingNotBelowDefault(
+  defaultLease: SkillResourceBudget | undefined,
+  hardCeiling: SkillResourceBudget | undefined,
+  filePath: string,
+): void {
+  if (!defaultLease || !hardCeiling) {
+    return;
+  }
+  const checks: Array<[keyof SkillResourceBudget, string]> = [
+    ["maxToolCalls", "max_tool_calls"],
+    ["maxTokens", "max_tokens"],
+    ["maxParallel", "max_parallel"],
+  ];
+  for (const [key, label] of checks) {
+    const defaultValue = defaultLease[key];
+    const hardValue = hardCeiling[key];
+    if (
+      typeof defaultValue === "number" &&
+      typeof hardValue === "number" &&
+      hardValue < defaultValue
+    ) {
+      failSkillContract(
+        filePath,
+        `resources.hard_ceiling.${label} must be >= resources.default_lease.${label}.`,
+      );
+    }
+  }
+}
+
+function ensureMergedResourcePolicyBounds(
+  skillName: string,
+  resources: SkillResourcePolicy | undefined,
+): SkillResourcePolicy | undefined {
+  if (!resources) {
+    return resources;
+  }
+  const checks: Array<[keyof SkillResourceBudget, string]> = [
+    ["maxToolCalls", "maxToolCalls"],
+    ["maxTokens", "maxTokens"],
+    ["maxParallel", "maxParallel"],
+  ];
+  for (const [key, label] of checks) {
+    const defaultValue = resources.defaultLease?.[key];
+    const hardValue = resources.hardCeiling?.[key];
+    if (
+      typeof defaultValue === "number" &&
+      typeof hardValue === "number" &&
+      hardValue < defaultValue
+    ) {
+      throw new Error(
+        `[skill_contract] ${skillName}: merged resources.hardCeiling.${label} must be >= resources.defaultLease.${label}.`,
+      );
+    }
+  }
+  return resources;
+}
+
+function normalizeResourcePolicy(
+  data: Record<string, unknown>,
+  category: SkillCategory,
+  filePath: string,
+): SkillResourcePolicy | undefined {
+  if (Object.prototype.hasOwnProperty.call(data, "budget")) {
+    failSkillContract(filePath, "budget is not supported. Use resources.default_lease.");
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "max_parallel")) {
+    failSkillContract(
+      filePath,
+      "max_parallel is not supported. Use resources.default_lease.max_parallel.",
+    );
+  }
+  const resources = readOptionalRecordField(data, "resources", filePath);
+  if (!resources) {
+    if (category === "overlay") {
+      return undefined;
+    }
+    failSkillContract(filePath, "missing required frontmatter field 'resources'.");
+  }
+
+  const defaultLease = normalizeResourceBudget(
+    readOptionalRecordField(resources, "default_lease", filePath),
+    filePath,
+    "resources.default_lease",
+  );
+  const hardCeiling = normalizeResourceBudget(
+    readOptionalRecordField(resources, "hard_ceiling", filePath),
+    filePath,
+    "resources.hard_ceiling",
+  );
+
+  if (category !== "overlay" && !defaultLease) {
+    failSkillContract(filePath, "resources.default_lease is required.");
+  }
+  if (category !== "overlay" && !hardCeiling) {
+    failSkillContract(filePath, "resources.hard_ceiling is required.");
+  }
+  ensureHardCeilingNotBelowDefault(defaultLease, hardCeiling, filePath);
+
+  return {
+    defaultLease,
+    hardCeiling,
+  };
+}
+
+function parseSuggestedChains(
+  value: unknown,
+  filePath: string,
+): SkillExecutionHints["suggestedChains"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    failSkillContract(filePath, "execution_hints.suggested_chains must be an array.");
+  }
+  const parsed = value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      failSkillContract(filePath, `execution_hints.suggested_chains[${index}] must be an object.`);
+    }
+    const steps = requireStringArrayField(entry, "steps", filePath);
+    return {
+      steps: normalizeToolListStrict(
+        steps,
+        filePath,
+        `execution_hints.suggested_chains[${index}].steps`,
+      ),
+    };
+  });
+  return parsed.length > 0 ? parsed : undefined;
+}
+
+function normalizeExecutionHints(
+  data: Record<string, unknown>,
+  category: SkillCategory,
+  filePath: string,
+): SkillExecutionHints | undefined {
+  if (Object.prototype.hasOwnProperty.call(data, "tools")) {
+    failSkillContract(
+      filePath,
+      "tools is not supported. Use execution_hints.preferred_tools/fallback_tools.",
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "cost_hint")) {
+    failSkillContract(filePath, "cost_hint is not supported. Use execution_hints.cost_hint.");
+  }
+  const hints = readOptionalRecordField(data, "execution_hints", filePath);
+  if (!hints) {
+    if (category === "overlay") {
+      return undefined;
+    }
+    failSkillContract(filePath, "missing required frontmatter field 'execution_hints'.");
+  }
+
+  const preferredTools =
+    category === "overlay"
+      ? readNullableStringArrayField(hints, "preferred_tools", filePath)
+      : requireStringArrayField(hints, "preferred_tools", filePath);
+  const fallbackTools =
+    category === "overlay"
+      ? readNullableStringArrayField(hints, "fallback_tools", filePath)
+      : requireStringArrayField(hints, "fallback_tools", filePath);
+  const costHint = (() => {
+    if (!Object.prototype.hasOwnProperty.call(hints, "cost_hint")) {
+      return category === "overlay" ? undefined : "medium";
+    }
+    if (hints.cost_hint === "low" || hints.cost_hint === "medium" || hints.cost_hint === "high") {
+      return hints.cost_hint;
+    }
+    failSkillContract(filePath, "execution_hints.cost_hint must be one of: low | medium | high.");
+  })();
+
+  return {
+    preferredTools: preferredTools
+      ? normalizeToolListStrict(preferredTools, filePath, "execution_hints.preferred_tools")
+      : undefined,
+    fallbackTools: fallbackTools
+      ? normalizeToolListStrict(fallbackTools, filePath, "execution_hints.fallback_tools")
+      : undefined,
+    suggestedChains: parseSuggestedChains(hints.suggested_chains, filePath),
+    costHint,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -516,45 +881,120 @@ function normalizeResourceSet(data: Record<string, unknown>, filePath: string): 
   };
 }
 
-const EFFECT_LEVEL_RANK: Record<SkillEffectLevel, number> = {
-  read_only: 0,
-  execute: 1,
-  mutation: 2,
-};
-
 const DEFAULT_DISPATCH_POLICY: NonNullable<SkillContract["dispatch"]> = {
   suggestThreshold: 10,
   autoThreshold: 16,
 };
 
-function mergeBudgetCaps(
-  base: SkillContract["budget"],
-  patch: SkillContractOverride["budget"] | undefined,
-): SkillContract["budget"] {
+function mergeResourceBudgetCaps(
+  base: SkillResourceBudget | undefined,
+  patch: Partial<SkillResourceBudget> | undefined,
+): SkillResourceBudget | undefined {
+  if (!base && !patch) {
+    return undefined;
+  }
   return {
     maxToolCalls:
       typeof patch?.maxToolCalls === "number"
-        ? Math.min(base.maxToolCalls, patch.maxToolCalls)
-        : base.maxToolCalls,
+        ? Math.min(base?.maxToolCalls ?? patch.maxToolCalls, patch.maxToolCalls)
+        : base?.maxToolCalls,
     maxTokens:
       typeof patch?.maxTokens === "number"
-        ? Math.min(base.maxTokens, patch.maxTokens)
-        : base.maxTokens,
+        ? Math.min(base?.maxTokens ?? patch.maxTokens, patch.maxTokens)
+        : base?.maxTokens,
+    maxParallel:
+      typeof patch?.maxParallel === "number"
+        ? Math.min(base?.maxParallel ?? patch.maxParallel, patch.maxParallel)
+        : base?.maxParallel,
   };
 }
 
-function mergeMaxParallel(base: number | undefined, patch: number | undefined): number | undefined {
-  return typeof patch === "number" ? Math.min(base ?? patch, patch) : base;
+function mergeIntentContract(
+  base: SkillIntentContract | undefined,
+  patch: SkillContractOverride["intent"] | undefined,
+  filePath: string,
+): SkillIntentContract | undefined {
+  if (!base && !patch) {
+    return undefined;
+  }
+  const outputs = patch?.outputs ?? base?.outputs;
+  const outputContracts = patch?.outputContracts
+    ? mergeOutputContracts(base?.outputContracts, patch.outputContracts, outputs ?? [], filePath)
+    : base?.outputContracts;
+  return {
+    outputs,
+    outputContracts,
+    completionDefinition: mergeCompletionDefinition(
+      base?.completionDefinition,
+      patch?.completionDefinition,
+    ),
+  };
 }
 
-function mergeEffectLevel(
-  base: SkillEffectLevel | undefined,
-  patch: SkillEffectLevel | undefined,
-): SkillEffectLevel {
-  const normalizedBase = base ?? "read_only";
-  return patch && EFFECT_LEVEL_RANK[patch] > EFFECT_LEVEL_RANK[normalizedBase]
-    ? patch
-    : normalizedBase;
+function mergeCompletionDefinition(
+  base: SkillCompletionDefinition | undefined,
+  patch: SkillCompletionDefinition | undefined,
+): SkillCompletionDefinition | undefined {
+  if (!base && !patch) {
+    return undefined;
+  }
+  const merged: SkillCompletionDefinition = {
+    verificationLevel: patch?.verificationLevel ?? base?.verificationLevel,
+    requiredEvidenceKinds: patch?.requiredEvidenceKinds ?? base?.requiredEvidenceKinds,
+  };
+  if (merged.verificationLevel === undefined && merged.requiredEvidenceKinds === undefined) {
+    return undefined;
+  }
+  return merged;
+}
+
+function mergeEffectsContract(
+  base: SkillEffectsContract | undefined,
+  patch: SkillContractOverride["effects"] | undefined,
+): SkillEffectsContract | undefined {
+  if (!base && !patch) {
+    return undefined;
+  }
+  return {
+    allowedEffects:
+      patch?.allowedEffects !== undefined
+        ? base?.allowedEffects
+          ? [
+              ...new Set(
+                base.allowedEffects.filter((effect) => patch.allowedEffects?.includes(effect)),
+              ),
+            ]
+          : [...patch.allowedEffects]
+        : base?.allowedEffects,
+    deniedEffects: [...new Set([...(base?.deniedEffects ?? []), ...(patch?.deniedEffects ?? [])])],
+  };
+}
+
+function mergeExecutionHints(
+  base: SkillExecutionHints | undefined,
+  patch: SkillContractOverride["executionHints"] | undefined,
+): SkillExecutionHints | undefined {
+  if (!base && !patch) {
+    return undefined;
+  }
+  const preferredBase = new Set(base?.preferredTools ?? []);
+  const fallbackBase = new Set(base?.fallbackTools ?? []);
+  const preferredTools = patch?.preferredTools
+    ? preferredBase.size > 0
+      ? [...preferredBase].filter((tool) => patch.preferredTools?.includes(tool))
+      : [...patch.preferredTools]
+    : [...preferredBase];
+  const fallbackTools = patch?.fallbackTools
+    ? fallbackBase.size > 0
+      ? [...fallbackBase].filter((tool) => patch.fallbackTools?.includes(tool))
+      : [...patch.fallbackTools]
+    : [...fallbackBase];
+  return {
+    preferredTools,
+    fallbackTools,
+    suggestedChains: patch?.suggestedChains ?? base?.suggestedChains,
+    costHint: patch?.costHint ?? base?.costHint,
+  };
 }
 
 function mergeDispatchPolicy(
@@ -589,93 +1029,12 @@ function mergeRoutingPolicy(
   };
 }
 
-function resolveDefaultEffectLevel(input: {
-  required: string[];
-  optional: string[];
-  denied: string[];
-}): SkillEffectLevel {
-  const denied = new Set(input.denied);
-  const allowed = [...input.required, ...input.optional].filter((tool) => !denied.has(tool));
-  if (allowed.some((tool) => tool === "edit" || tool === "write")) {
-    return "mutation";
-  }
-  if (allowed.some((tool) => tool === "exec" || tool === "process")) {
-    return "execute";
-  }
-  return "read_only";
-}
-
-function normalizeEffectLevel(
-  data: Record<string, unknown>,
-  filePath: string,
-  fallback: SkillEffectLevel,
-): SkillEffectLevel {
-  if (Object.prototype.hasOwnProperty.call(data, "effectLevel")) {
-    failSkillContract(filePath, "effectLevel is not supported. Use effect_level.");
-  }
-  if (!Object.prototype.hasOwnProperty.call(data, "effect_level")) {
-    return fallback;
-  }
-  const value = data.effect_level;
-  if (value === "read_only" || value === "execute" || value === "mutation") {
-    return value;
-  }
-  failSkillContract(filePath, "effect_level must be one of: read_only | execute | mutation.");
-}
-
 function normalizeContract(
   name: string,
   category: SkillCategory,
   data: Record<string, unknown>,
   filePath: string,
 ): SkillContract {
-  const tools = requireRecordField(data, "tools", filePath);
-  const budget = requireRecordField(data, "budget", filePath);
-  if (Object.prototype.hasOwnProperty.call(budget, "maxToolCalls")) {
-    failSkillContract(filePath, "budget.maxToolCalls is not supported. Use budget.max_tool_calls.");
-  }
-  if (Object.prototype.hasOwnProperty.call(budget, "maxTokens")) {
-    failSkillContract(filePath, "budget.maxTokens is not supported. Use budget.max_tokens.");
-  }
-
-  const required = normalizeToolListStrict(
-    requireStringArrayField(tools, "required", filePath),
-    filePath,
-    "tools.required",
-  );
-  const optional = normalizeToolListStrict(
-    requireStringArrayField(tools, "optional", filePath),
-    filePath,
-    "tools.optional",
-  );
-  const controlPlaneToolSet = new Set(
-    CONTROL_PLANE_TOOLS.map((tool) => normalizeToolName(tool)).filter((tool) => tool.length > 0),
-  );
-  const denied = normalizeToolListStrict(
-    requireStringArrayField(tools, "denied", filePath),
-    filePath,
-    "tools.denied",
-  ).filter((tool) => !controlPlaneToolSet.has(tool));
-
-  const maxToolCalls = Math.trunc(
-    requireNumericField(budget, ["max_tool_calls"], filePath, "budget.max_tool_calls"),
-  );
-  if (maxToolCalls < 1) {
-    failSkillContract(filePath, "budget.max_tool_calls must be >= 1.");
-  }
-
-  const maxTokens = Math.trunc(
-    requireNumericField(budget, ["max_tokens"], filePath, "budget.max_tokens"),
-  );
-  if (maxTokens < 1000) {
-    failSkillContract(filePath, "budget.max_tokens must be >= 1000.");
-  }
-
-  const outputs =
-    category === "overlay"
-      ? readNullableStringArrayField(data, "outputs", filePath)
-      : requireStringArrayField(data, "outputs", filePath);
-  const outputContracts = normalizeOutputContracts(data, outputs, category, filePath);
   if (Object.prototype.hasOwnProperty.call(data, "composableWith")) {
     failSkillContract(
       filePath,
@@ -692,11 +1051,6 @@ function normalizeContract(
       ? readNullableStringArrayField(data, "consumes", filePath)
       : requireStringArrayField(data, "consumes", filePath);
   const requires = readOptionalStringArrayField(data, "requires", filePath);
-  const effectLevel = normalizeEffectLevel(
-    data,
-    filePath,
-    resolveDefaultEffectLevel({ required, optional, denied }),
-  );
   const dispatch = normalizeDispatchPolicy(data, filePath);
   const routing = normalizeRoutingPolicy(category, data, filePath);
 
@@ -706,30 +1060,17 @@ function normalizeContract(
     description: typeof data.description === "string" ? data.description : undefined,
     dispatch,
     routing,
-    tools: {
-      required,
-      optional,
-      denied,
-    },
-    budget: {
-      maxToolCalls: Math.max(1, Math.trunc(maxToolCalls)),
-      maxTokens: Math.max(1000, Math.trunc(maxTokens)),
-    },
-    outputs,
-    outputContracts,
+    intent: normalizeIntentContract(data, category, filePath),
+    effects: normalizeEffectsContract(data, category, filePath),
+    resources: normalizeResourcePolicy(data, category, filePath),
+    executionHints: normalizeExecutionHints(data, category, filePath),
     composableWith,
     consumes,
     requires,
-    maxParallel:
-      typeof data.max_parallel === "number"
-        ? Math.max(1, Math.trunc(data.max_parallel))
-        : undefined,
     stability:
       data.stability === "experimental" || data.stability === "deprecated"
         ? data.stability
         : "stable",
-    costHint: data.cost_hint === "high" || data.cost_hint === "low" ? data.cost_hint : "medium",
-    effectLevel,
   };
 }
 
@@ -737,70 +1078,30 @@ export function tightenContract(
   base: SkillContract,
   override: SkillContractOverride,
 ): SkillContract {
-  if (override.outputContracts && Object.keys(override.outputContracts).length > 0) {
-    throw new Error(
-      "[skill_contract] config overrides cannot replace or extend output contracts. Update the skill frontmatter instead.",
-    );
-  }
-  const baseDenied = new Set([...base.tools.denied].map((tool) => normalizeToolName(tool)));
-  const baseAllowed = new Set(
-    [...base.tools.required, ...base.tools.optional]
-      .map((tool) => normalizeToolName(tool))
-      .filter((tool) => tool.length > 0)
-      .filter((tool) => !baseDenied.has(tool)),
-  );
-
-  const denied = new Set(baseDenied);
-  for (const tool of override.tools?.denied ?? []) {
-    const normalized = normalizeToolName(tool);
-    if (normalized) denied.add(normalized);
-  }
-
-  const required = new Set(
-    [...base.tools.required].map((tool) => normalizeToolName(tool)).filter(Boolean),
-  );
-  for (const tool of override.tools?.required ?? []) {
-    const normalized = normalizeToolName(tool);
-    if (!normalized) continue;
-    if (baseAllowed.has(normalized)) {
-      required.add(normalized);
-    }
-  }
-
-  const optionalSource = override.tools?.optional ?? base.tools.optional;
-  const optional = new Set<string>();
-  for (const tool of optionalSource) {
-    const normalized = normalizeToolName(tool);
-    if (!normalized) continue;
-    if (!baseAllowed.has(normalized)) continue;
-    if (denied.has(normalized)) continue;
-    if (required.has(normalized)) continue;
-    optional.add(normalized);
-  }
-
-  const budget = mergeBudgetCaps(base.budget, override.budget);
-  const maxParallel = mergeMaxParallel(base.maxParallel, override.maxParallel);
-  const effectLevel = mergeEffectLevel(base.effectLevel, override.effectLevel);
   const dispatch = mergeDispatchPolicy(base.dispatch, override.dispatch);
   const routing = mergeRoutingPolicy(base.routing, override.routing);
+  const resources = ensureMergedResourcePolicyBounds(base.name, {
+    defaultLease: mergeResourceBudgetCaps(
+      base.resources?.defaultLease,
+      override.resources?.defaultLease,
+    ),
+    hardCeiling: mergeResourceBudgetCaps(
+      base.resources?.hardCeiling,
+      override.resources?.hardCeiling,
+    ),
+  });
 
   return {
     ...base,
     dispatch,
     routing,
-    outputs: override.outputs ?? base.outputs,
-    outputContracts: base.outputContracts,
+    intent: mergeIntentContract(base.intent, override.intent, base.name),
+    effects: mergeEffectsContract(base.effects, override.effects),
+    resources,
+    executionHints: mergeExecutionHints(base.executionHints, override.executionHints),
     composableWith: override.composableWith ?? base.composableWith,
     consumes: override.consumes ?? base.consumes,
     requires: [...new Set([...(base.requires ?? []), ...(override.requires ?? [])])],
-    maxParallel,
-    effectLevel,
-    tools: {
-      required: [...required],
-      optional: [...optional],
-      denied: [...denied],
-    },
-    budget,
   };
 }
 
@@ -808,57 +1109,64 @@ export function mergeOverlayContract(
   base: SkillContract,
   overlay: SkillContractOverride,
 ): SkillContract {
-  const denied = new Set(
-    [...base.tools.denied, ...(overlay.tools?.denied ?? [])]
-      .map((tool) => normalizeToolName(tool))
-      .filter((tool) => tool.length > 0),
-  );
-  const required = new Set(
-    [...base.tools.required, ...(overlay.tools?.required ?? [])]
-      .map((tool) => normalizeToolName(tool))
-      .filter((tool) => tool.length > 0)
-      .filter((tool) => !denied.has(tool)),
-  );
-  const optional = new Set(
-    [...base.tools.optional, ...(overlay.tools?.optional ?? [])]
-      .map((tool) => normalizeToolName(tool))
-      .filter((tool) => tool.length > 0)
-      .filter((tool) => !denied.has(tool))
-      .filter((tool) => !required.has(tool)),
-  );
-
-  const budget = mergeBudgetCaps(base.budget, overlay.budget);
-  const maxParallel = mergeMaxParallel(base.maxParallel, overlay.maxParallel);
-  const mergedOutputs = [...new Set([...(base.outputs ?? []), ...(overlay.outputs ?? [])])];
+  const dispatch = mergeDispatchPolicy(base.dispatch, overlay.dispatch);
+  const routing = mergeRoutingPolicy(base.routing, overlay.routing);
+  const mergedOutputs = [
+    ...new Set([...(base.intent?.outputs ?? []), ...(overlay.intent?.outputs ?? [])]),
+  ];
   const outputContracts = mergeOutputContracts(
-    base.outputContracts,
-    overlay.outputContracts,
+    base.intent?.outputContracts,
+    overlay.intent?.outputContracts,
     mergedOutputs,
     base.name,
   );
-  const effectLevel = mergeEffectLevel(base.effectLevel, overlay.effectLevel);
-  const dispatch = mergeDispatchPolicy(base.dispatch, overlay.dispatch);
-  const routing = mergeRoutingPolicy(base.routing, overlay.routing);
+  const resources = ensureMergedResourcePolicyBounds(base.name, {
+    defaultLease: mergeResourceBudgetCaps(
+      base.resources?.defaultLease,
+      overlay.resources?.defaultLease,
+    ),
+    hardCeiling: mergeResourceBudgetCaps(
+      base.resources?.hardCeiling,
+      overlay.resources?.hardCeiling,
+    ),
+  });
 
   return {
     ...base,
     dispatch,
     routing,
-    outputs: mergedOutputs,
-    outputContracts,
+    intent: {
+      outputs: mergedOutputs,
+      outputContracts,
+      completionDefinition: mergeCompletionDefinition(
+        base.intent?.completionDefinition,
+        overlay.intent?.completionDefinition,
+      ),
+    },
+    effects: mergeEffectsContract(base.effects, overlay.effects),
+    resources,
+    executionHints: {
+      preferredTools: [
+        ...new Set([
+          ...(base.executionHints?.preferredTools ?? []),
+          ...(overlay.executionHints?.preferredTools ?? []),
+        ]),
+      ],
+      fallbackTools: [
+        ...new Set([
+          ...(base.executionHints?.fallbackTools ?? []),
+          ...(overlay.executionHints?.fallbackTools ?? []),
+        ]),
+      ],
+      suggestedChains:
+        overlay.executionHints?.suggestedChains ?? base.executionHints?.suggestedChains,
+      costHint: overlay.executionHints?.costHint ?? base.executionHints?.costHint,
+    },
     composableWith: [
       ...new Set([...(base.composableWith ?? []), ...(overlay.composableWith ?? [])]),
     ],
     consumes: [...new Set([...(base.consumes ?? []), ...(overlay.consumes ?? [])])],
     requires: [...new Set([...(base.requires ?? []), ...(overlay.requires ?? [])])],
-    maxParallel,
-    effectLevel,
-    tools: {
-      required: [...required],
-      optional: [...optional],
-      denied: [...denied],
-    },
-    budget,
   };
 }
 

@@ -12,6 +12,18 @@ Constitution:
 
 `Intelligence proposes. Kernel commits. Tape remembers.`
 
+Implementation-grade constitutional reading:
+
+`Intelligence explores. Kernel authorizes effects. Tape remembers commitments.`
+
+This does not replace the constitution. It clarifies the same boundary at the
+granularity now used by the runtime:
+
+- `proposes / explores` belongs to deliberation and control-plane layers
+- `commits / authorizes effects` belongs to kernel authority
+- `Tape remembers commitments` means the tape records committed outcomes rather
+  than every intermediate reasoning path
+
 Design priority:
 
 1. evidence and replayability
@@ -23,6 +35,7 @@ Further reading:
 
 - `docs/architecture/design-axioms.md`
 - `docs/architecture/cognitive-product-architecture.md`
+- `docs/architecture/exploration-and-effect-governance.md`
 - `docs/reference/proposal-boundary.md`
 
 ## Three Rings
@@ -35,6 +48,8 @@ Boundary rule:
 
 - outer intelligence may propose
 - kernel may accept, reject, or defer
+- explicit governance-owned direct-commit flows may exist, but they must stay
+  narrow and receipt-bearing
 - every committed decision produces a receipt
 - tape is commitment memory, not a best-effort log
 
@@ -78,6 +93,9 @@ Important distinctions:
 ### Boundary Layer
 
 - `ToolGateService`: execution authorization + policy checks
+  - Current authority is effect authorization plus effective resource ceilings
+  - A small set of runtime-owned control-plane tools remains explicitly exempted
+    for recovery and negotiation; those exceptions are narrow and auditable
 - `SessionCostTracker` + `CostService`: cost boundary and budget actions
 - `ContextBudgetManager` + compaction gate: context boundary
 
@@ -138,13 +156,23 @@ Tool visibility is part of governance, not just packaging.
 The runtime/extension stack now treats tool surface as three layers:
 
 - `base tools`: always-on core tools and low-level session controls
-- `active-skill tools`: tools required or optionally allowed by the current
-  active/pending/cascade skill contracts
+- `skill-informed tools`: preferred/fallback hints plus effect-authorized
+  managed skill tools derived from the current active/pending/cascade contracts
 - `operator tools`: observability and operator-facing controls exposed only for
-  operator profiles by default, or per-turn explicit capability requests
+  operator profiles by default, or per-turn explicit `$tool_name` disclosure
+  requests
 
 This keeps the visible action surface aligned with the current commitment
 context instead of exposing the entire static tool bundle on every turn.
+
+Current rule:
+
+- the visible tool surface helps the model understand available paths
+- governance authority sits on effect classes and resource ceilings, not on
+  tool-path
+  prescription
+- tool surface may influence deliberation, but it does not define kernel
+  authority by itself
 
 ## Governance Port
 
@@ -168,21 +196,37 @@ Cross-session cognition sediment follows the same rule:
 - control-plane or extension code writes non-authoritative artifacts under
   `.brewva/cognition/*`
 - `MemoryCurator` may rehydrate selected artifacts into `context_packet` proposals
-- kernel commitment still happens only at the proposal boundary
+- cognitive artifacts still cross through the proposal boundary
+- budget expansion uses a separate receipt-bearing governance path via
+  `resource_lease`
 
 When that path is enabled:
 
 - selection and planning happen before kernel commitment
 - proposals cross the boundary through `runtime.proposals.submit(...)`
+- `resource_lease` may record direct budget commitments without granting new
+  effect authorization
+- managed Brewva tool definitions now expose first-class `brewva.governance`
+  metadata as a canonical view over the exact managed-tool policy, and the
+  default gateway path imports it only for tools the runtime does not already
+  classify exactly
 - the kernel remains governance-only for dispatch commitments, cascade activation,
   evidence, and replay
 
 This preserves the kernel promise: the kernel governs execution, but adaptive
 selection logic stays outside the core path.
 
+Current evolution rule:
+
+- make deliberation thicker so it owns path search, retries, reordering, and
+  lease negotiation
+- make contracts lighter so they express more `intent` and `effect`
+- make governance look more like effect authorization than a prewritten
+  execution script
+
 ## Extensions
 
-Extensions can shape operator UX (for example capability disclosure), but kernel
+Extensions can shape operator UX (for example tool-surface disclosure), but kernel
 governance decisions remain in runtime services.
 
 ## Non-goals
