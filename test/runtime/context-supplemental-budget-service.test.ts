@@ -15,7 +15,7 @@ describe("context-supplemental-budget module", () => {
     config.infrastructure.contextBudget.maxInjectionTokens = 24;
 
     const sessionState = new RuntimeSessionStateStore();
-    sessionState.reservedContextInjectionTokensByScope.set("supplemental::root", 20);
+    sessionState.setReservedInjectionTokens("supplemental::root", 20);
 
     const deps: ContextSupplementalBudgetDeps = {
       config,
@@ -39,7 +39,7 @@ describe("context-supplemental-budget module", () => {
     config.infrastructure.contextBudget.maxInjectionTokens = 12;
 
     const sessionState = new RuntimeSessionStateStore();
-    sessionState.reservedContextInjectionTokensByScope.set("supplemental::root", 12);
+    sessionState.setReservedInjectionTokens("supplemental::root", 12);
 
     const deps: ContextSupplementalBudgetDeps = {
       config,
@@ -58,7 +58,7 @@ describe("context-supplemental-budget module", () => {
     config.infrastructure.contextBudget.maxInjectionTokens = 10;
 
     const sessionState = new RuntimeSessionStateStore();
-    sessionState.reservedContextInjectionTokensByScope.set("supplemental::root", 8);
+    sessionState.setReservedInjectionTokens("supplemental::root", 8);
 
     const deps: ContextSupplementalBudgetDeps = {
       config,
@@ -67,6 +67,6 @@ describe("context-supplemental-budget module", () => {
     };
 
     commitSupplementalContextInjection(deps, "supplemental", 5);
-    expect(sessionState.reservedContextInjectionTokensByScope.get("supplemental::root")).toBe(10);
+    expect(sessionState.getReservedInjectionTokens("supplemental::root")).toBe(10);
   });
 });

@@ -58,11 +58,11 @@ describe("session state cleanup", () => {
       costUsd: 0.0001,
     });
     const sessionState = (runtime as any).sessionState as {
-      turnsBySession: Map<string, number>;
-      toolCallsBySession: Map<string, number>;
+      getExistingCell: (session: string) => { turn: number; toolCalls: number } | undefined;
     };
-    expect(sessionState.turnsBySession.has(sessionId)).toBe(true);
-    expect(sessionState.toolCallsBySession.has(sessionId)).toBe(true);
+    const cell = sessionState.getExistingCell(sessionId);
+    expect(cell?.turn).toBeGreaterThan(0);
+    expect(cell?.toolCalls).toBeGreaterThan(0);
     expect(((runtime as any).contextBudget.sessions as Map<string, unknown>).has(sessionId)).toBe(
       true,
     );
@@ -79,8 +79,7 @@ describe("session state cleanup", () => {
 
     runtime.session.clearState(sessionId);
 
-    expect(sessionState.turnsBySession.has(sessionId)).toBe(false);
-    expect(sessionState.toolCallsBySession.has(sessionId)).toBe(false);
+    expect(sessionState.getExistingCell(sessionId)).toBeUndefined();
     expect((runtime as any).turnReplay.hasSession(sessionId)).toBe(false);
     expect(((runtime as any).contextBudget.sessions as Map<string, unknown>).has(sessionId)).toBe(
       false,
@@ -172,5 +171,42 @@ describe("session state cleanup", () => {
     expect(truthState.facts).toHaveLength(1);
     expect(truthState.facts[0]?.id).toBe("truth-1");
     expect(turnReplay.hasSession(sessionId)).toBe(true);
+  });
+
+  test("marks session hydration degraded when replaying a persisted event fails", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "brewva-hydration-degraded-"));
+    const sessionId = "hydration-degraded-1";
+
+    const writerRuntime = new BrewvaRuntime({ cwd: workspace });
+    writerRuntime.cost.recordAssistantUsage({
+      sessionId,
+      model: "test-model",
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 15,
+      costUsd: 0.0001,
+    });
+
+    const readerRuntime = new BrewvaRuntime({ cwd: workspace });
+    const costTracker = (readerRuntime as any).costTracker as {
+      applyCostUpdateEvent: (
+        session: string,
+        payload: Record<string, unknown> | null,
+        turn: number,
+        timestamp: number,
+      ) => void;
+    };
+    costTracker.applyCostUpdateEvent = () => {
+      throw new Error("hydration exploded");
+    };
+
+    const hydration = readerRuntime.session.getHydration(sessionId);
+    expect(hydration.status).toBe("degraded");
+    expect(hydration.issues).toHaveLength(1);
+    expect(hydration.issues[0]?.eventType).toBe("cost_update");
+    expect(hydration.issues[0]?.reason).toContain("hydration exploded");
+    expect(hydration.latestEventId).toBeDefined();
   });
 });

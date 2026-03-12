@@ -948,6 +948,20 @@ export interface VerificationSessionState {
   denialCount: number;
 }
 
+export interface SessionHydrationIssue {
+  eventId: string;
+  eventType: string;
+  index: number;
+  reason: string;
+}
+
+export interface SessionHydrationState {
+  status: "cold" | "ready" | "degraded";
+  latestEventId?: string;
+  hydratedAt?: number;
+  issues: SessionHydrationIssue[];
+}
+
 export interface ContextBudgetUsage {
   tokens: number | null;
   contextWindow: number;

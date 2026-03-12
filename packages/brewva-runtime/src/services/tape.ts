@@ -197,11 +197,11 @@ export class TapeService {
   }
 
   getTapeStatus(sessionId: string): TapeStatusState {
+    const state = this.sessionState.getCell(sessionId);
     const events = this.queryEvents(sessionId);
     const totalEntries = events.length;
 
-    const counterInitialized =
-      this.sessionState.tapeCheckpointCounterInitializedBySession.has(sessionId);
+    const counterInitialized = state.tapeCheckpointCounterInitialized;
 
     let lastAnchorIndex = -1;
     let lastCheckpointIndex = -1;
@@ -209,8 +209,8 @@ export class TapeService {
     let lastCheckpointId: string | undefined;
 
     if (counterInitialized) {
-      lastCheckpointId = this.sessionState.tapeLastCheckpointEventIdBySession.get(sessionId);
-      const targetAnchorId = this.sessionState.tapeLatestAnchorEventIdBySession.get(sessionId);
+      lastCheckpointId = state.tapeLastCheckpointEventId;
+      const targetAnchorId = state.tapeLatestAnchorEventId;
       if (targetAnchorId) {
         for (let index = events.length - 1; index >= 0; index -= 1) {
           const event = events[index];
@@ -243,7 +243,7 @@ export class TapeService {
     const entriesSinceAnchor =
       lastAnchorIndex >= 0 ? Math.max(0, totalEntries - lastAnchorIndex - 1) : totalEntries;
     const entriesSinceCheckpoint = counterInitialized
-      ? (this.sessionState.tapeEntriesSinceCheckpointBySession.get(sessionId) ?? totalEntries)
+      ? state.tapeEntriesSinceCheckpoint
       : lastCheckpointIndex >= 0
         ? Math.max(0, totalEntries - lastCheckpointIndex - 1)
         : totalEntries;
@@ -409,28 +409,12 @@ export class TapeService {
   }
 
   private writeTapeCheckpointCounter(sessionId: string, state: TapeCheckpointCounterState): void {
-    this.sessionState.tapeCheckpointCounterInitializedBySession.add(sessionId);
-    this.sessionState.tapeEntriesSinceCheckpointBySession.set(
-      sessionId,
-      Math.max(0, Math.floor(state.entriesSinceCheckpoint)),
-    );
-    if (state.latestAnchorEventId) {
-      this.sessionState.tapeLatestAnchorEventIdBySession.set(sessionId, state.latestAnchorEventId);
-    } else {
-      this.sessionState.tapeLatestAnchorEventIdBySession.delete(sessionId);
-    }
-    if (state.lastCheckpointEventId) {
-      this.sessionState.tapeLastCheckpointEventIdBySession.set(
-        sessionId,
-        state.lastCheckpointEventId,
-      );
-    } else {
-      this.sessionState.tapeLastCheckpointEventIdBySession.delete(sessionId);
-    }
-    this.sessionState.tapeProcessedEventIdsSinceCheckpointBySession.set(
-      sessionId,
-      state.processedEventIds,
-    );
+    const cell = this.sessionState.getCell(sessionId);
+    cell.tapeCheckpointCounterInitialized = true;
+    cell.tapeEntriesSinceCheckpoint = Math.max(0, Math.floor(state.entriesSinceCheckpoint));
+    cell.tapeLatestAnchorEventId = state.latestAnchorEventId;
+    cell.tapeLastCheckpointEventId = state.lastCheckpointEventId;
+    cell.tapeProcessedEventIdsSinceCheckpoint = state.processedEventIds;
   }
 
   private bootstrapTapeCheckpointCounter(sessionId: string): TapeCheckpointCounterState {
@@ -467,16 +451,15 @@ export class TapeService {
   }
 
   private getTapeCheckpointCounter(sessionId: string): TapeCheckpointCounterState {
-    if (!this.sessionState.tapeCheckpointCounterInitializedBySession.has(sessionId)) {
+    const cell = this.sessionState.getCell(sessionId);
+    if (!cell.tapeCheckpointCounterInitialized) {
       return this.bootstrapTapeCheckpointCounter(sessionId);
     }
     return {
-      entriesSinceCheckpoint:
-        this.sessionState.tapeEntriesSinceCheckpointBySession.get(sessionId) ?? 0,
-      latestAnchorEventId: this.sessionState.tapeLatestAnchorEventIdBySession.get(sessionId),
-      lastCheckpointEventId: this.sessionState.tapeLastCheckpointEventIdBySession.get(sessionId),
-      processedEventIds:
-        this.sessionState.tapeProcessedEventIdsSinceCheckpointBySession.get(sessionId) ?? new Set(),
+      entriesSinceCheckpoint: cell.tapeEntriesSinceCheckpoint,
+      latestAnchorEventId: cell.tapeLatestAnchorEventId,
+      lastCheckpointEventId: cell.tapeLastCheckpointEventId,
+      processedEventIds: cell.tapeProcessedEventIdsSinceCheckpoint,
     };
   }
 
@@ -510,7 +493,8 @@ export class TapeService {
     }
 
     const sessionId = lastEvent.sessionId;
-    if (this.sessionState.tapeCheckpointWriteInProgressBySession.has(sessionId)) {
+    const cell = this.sessionState.getCell(sessionId);
+    if (cell.tapeCheckpointWriteInProgress) {
       return;
     }
 
@@ -526,7 +510,7 @@ export class TapeService {
       return;
     }
 
-    this.sessionState.tapeCheckpointWriteInProgressBySession.add(sessionId);
+    cell.tapeCheckpointWriteInProgress = true;
     try {
       const payload = buildTapeCheckpointPayload({
         taskState: this.getTaskState(sessionId),
@@ -553,7 +537,7 @@ export class TapeService {
         this.writeTapeCheckpointCounter(sessionId, counterState);
       }
     } finally {
-      this.sessionState.tapeCheckpointWriteInProgressBySession.delete(sessionId);
+      cell.tapeCheckpointWriteInProgress = false;
     }
   }
 }

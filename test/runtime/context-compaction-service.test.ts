@@ -14,10 +14,10 @@ async function flushAsyncEvents(): Promise<void> {
 describe("context-compaction module", () => {
   test("marks compaction, clears scope caches, emits event, and appends ledger evidence", () => {
     const sessionState = new RuntimeSessionStateStore();
-    sessionState.lastInjectedContextFingerprintBySession.set("session-a::root", "fp-a");
-    sessionState.lastInjectedContextFingerprintBySession.set("session-b::root", "fp-b");
-    sessionState.reservedContextInjectionTokensByScope.set("session-a::root", 42);
-    sessionState.reservedContextInjectionTokensByScope.set("session-b::root", 7);
+    sessionState.setLastInjectedFingerprint("session-a::root", "fp-a");
+    sessionState.setLastInjectedFingerprint("session-b::root", "fp-b");
+    sessionState.setReservedInjectionTokens("session-a::root", 42);
+    sessionState.setReservedInjectionTokens("session-b::root", 7);
 
     const events: Array<{
       sessionId: string;
@@ -61,10 +61,10 @@ describe("context-compaction module", () => {
 
     expect(pressureMarks).toEqual(["session-a"]);
     expect(injectionMarks).toEqual(["session-a"]);
-    expect(sessionState.lastInjectedContextFingerprintBySession.has("session-a::root")).toBe(false);
-    expect(sessionState.lastInjectedContextFingerprintBySession.has("session-b::root")).toBe(true);
-    expect(sessionState.reservedContextInjectionTokensByScope.has("session-a::root")).toBe(false);
-    expect(sessionState.reservedContextInjectionTokensByScope.has("session-b::root")).toBe(true);
+    expect(sessionState.getLastInjectedFingerprint("session-a::root")).toBeUndefined();
+    expect(sessionState.getLastInjectedFingerprint("session-b::root")).toBe("fp-b");
+    expect(sessionState.getReservedInjectionTokens("session-a::root")).toBeUndefined();
+    expect(sessionState.getReservedInjectionTokens("session-b::root")).toBe(7);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual(
       expect.objectContaining({

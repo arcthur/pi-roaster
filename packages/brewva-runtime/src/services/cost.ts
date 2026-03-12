@@ -6,7 +6,9 @@ import type { LedgerService } from "./ledger.js";
 import type { SkillLifecycleService } from "./skill-lifecycle.js";
 
 export interface CostServiceOptions {
-  kernel: RuntimeKernelContext;
+  costTracker: RuntimeKernelContext["costTracker"];
+  getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   ledgerService: Pick<LedgerService, "recordInfrastructureRow">;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
   governancePort?: GovernancePort;
@@ -38,12 +40,12 @@ export class CostService {
   }) => unknown;
 
   constructor(options: CostServiceOptions) {
-    this.costTracker = options.kernel.costTracker;
+    this.costTracker = options.costTracker;
     this.recordInfrastructureRow = (input) => options.ledgerService.recordInfrastructureRow(input);
     this.governancePort = options.governancePort;
-    this.getCurrentTurn = (sessionId) => options.kernel.getCurrentTurn(sessionId);
+    this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
+    this.recordEvent = (input) => options.recordEvent(input);
   }
 
   recordAssistantUsage(input: {

@@ -12,7 +12,12 @@ import { RuntimeSessionStateStore } from "./session-state.js";
 import type { SkillLifecycleService } from "./skill-lifecycle.js";
 
 export interface ParallelServiceOptions {
-  kernel: RuntimeKernelContext;
+  securityConfig: RuntimeKernelContext["config"]["security"];
+  parallel: RuntimeKernelContext["parallel"];
+  parallelResults: RuntimeKernelContext["parallelResults"];
+  sessionState: RuntimeKernelContext["sessionState"];
+  getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
 }
 
@@ -33,13 +38,13 @@ export class ParallelService {
   }) => unknown;
 
   constructor(options: ParallelServiceOptions) {
-    this.securityPolicy = resolveSecurityPolicy(options.kernel.config.security);
-    this.parallel = options.kernel.parallel;
-    this.parallelResults = options.kernel.parallelResults;
-    this.sessionState = options.kernel.sessionState;
+    this.securityPolicy = resolveSecurityPolicy(options.securityConfig);
+    this.parallel = options.parallel;
+    this.parallelResults = options.parallelResults;
+    this.sessionState = options.sessionState;
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
-    this.getCurrentTurn = (sessionId) => options.kernel.getCurrentTurn(sessionId);
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
+    this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
+    this.recordEvent = (input) => options.recordEvent(input);
   }
 
   acquireParallelSlot(sessionId: string, runId: string): ParallelAcquireResult {
@@ -92,6 +97,7 @@ export class ParallelService {
     runId: string,
     options: { recordRejection: boolean },
   ): ParallelAcquireResult {
+    const state = this.sessionState.getCell(sessionId);
     const skill = this.getActiveSkill(sessionId);
     const maxParallel = skill?.contract.maxParallel;
 
@@ -106,11 +112,9 @@ export class ParallelService {
         const mode = this.securityPolicy.skillMaxParallelMode;
         if (mode === "warn") {
           const key = `maxParallel:${skill.name}`;
-          const seen =
-            this.sessionState.skillParallelWarningsBySession.get(sessionId) ?? new Set<string>();
+          const seen = state.skillParallelWarnings;
           if (!seen.has(key)) {
             seen.add(key);
-            this.sessionState.skillParallelWarningsBySession.set(sessionId, seen);
             this.recordEvent({
               sessionId,
               type: "skill_parallel_warning",

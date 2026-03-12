@@ -179,6 +179,41 @@ describe("event pipeline level classification", () => {
     ).toBe("governance");
   });
 
+  test("isolates listener failures and records durable telemetry at audit level", () => {
+    const runtime = new BrewvaRuntime({
+      cwd: mkdtempSync(join(tmpdir(), "brewva-events-audit-listener-")),
+      config: createAuditConfig(),
+    });
+    const sessionId = "audit-listener-error-session";
+    const deliveredTypes: string[] = [];
+
+    runtime.events.subscribe((event) => {
+      if (event.type === "governance_verify_spec_failed") {
+        throw new Error("listener exploded");
+      }
+    });
+    runtime.events.subscribe((event) => {
+      deliveredTypes.push(event.type);
+    });
+
+    runtime.events.record({
+      sessionId,
+      type: "governance_verify_spec_failed",
+      payload: {
+        reason: "listener-isolation-test",
+      },
+    });
+
+    expect(deliveredTypes).toContain("governance_verify_spec_failed");
+    expect(deliveredTypes.filter((type) => type === "governance_verify_spec_failed")).toHaveLength(
+      1,
+    );
+    const listenerErrors = runtime.events.query(sessionId, { type: "event_listener_error" });
+    expect(listenerErrors).toHaveLength(1);
+    expect(listenerErrors[0]?.payload?.sourceEventType).toBe("governance_verify_spec_failed");
+    expect(listenerErrors[0]?.payload?.errorMessage).toBe("listener exploded");
+  });
+
   test("drops non-authoritative governance telemetry at audit level", () => {
     const runtime = new BrewvaRuntime({
       cwd: mkdtempSync(join(tmpdir(), "brewva-events-audit-governance-telemetry-")),

@@ -46,7 +46,9 @@ const RESERVED_PROPOSAL_ISSUER_POLICIES = {
 } as const;
 
 export interface ProposalAdmissionServiceOptions {
-  kernel: RuntimeKernelContext;
+  listDecisionReceiptEvents: (sessionId: string) => BrewvaEventRecord[];
+  recordEvent: RuntimeKernelContext["recordEvent"];
+  getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
   skillRegistry: Pick<SkillRegistry, "get">;
   skillLifecycleService: Pick<
     SkillLifecycleService,
@@ -66,10 +68,9 @@ export class ProposalAdmissionService {
   private readonly listProducedOutputKeys: (sessionId: string) => string[];
 
   constructor(options: ProposalAdmissionServiceOptions) {
-    this.listDecisionReceiptEvents = (sessionId) =>
-      options.kernel.eventStore.list(sessionId, { type: DECISION_RECEIPT_RECORDED_EVENT_TYPE });
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
-    this.getCurrentTurn = (sessionId) => options.kernel.getCurrentTurn(sessionId);
+    this.listDecisionReceiptEvents = (sessionId) => options.listDecisionReceiptEvents(sessionId);
+    this.recordEvent = (input) => options.recordEvent(input);
+    this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
     this.getSkill = (name) => options.skillRegistry.get(name);
     this.setPendingDispatch = (sessionId, decision) =>
       options.skillLifecycleService.setPendingDispatch(sessionId, decision, { emitEvent: true });

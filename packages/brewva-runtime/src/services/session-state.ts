@@ -1,4 +1,9 @@
-import type { SkillChainIntent, SkillDispatchDecision, SkillOutputRecord } from "../types.js";
+import type {
+  SessionHydrationState,
+  SkillChainIntent,
+  SkillDispatchDecision,
+  SkillOutputRecord,
+} from "../types.js";
 
 export type ScanConvergenceReason =
   | "scan_only_turns"
@@ -25,30 +30,63 @@ export interface ScanConvergenceRuntimeState {
   toolStrategyByCallId: Map<string, ScanConvergenceToolStrategy>;
 }
 
+export class RuntimeSessionStateCell {
+  activeSkill?: string;
+  turn = 0;
+  toolCalls = 0;
+  lastInjectedContextFingerprintByScope = new Map<string, string>();
+  reservedContextInjectionTokensByScope = new Map<string, number>();
+  lastLedgerCompactionTurn?: number;
+  toolContractWarnings = new Set<string>();
+  skillBudgetWarnings = new Set<string>();
+  skillParallelWarnings = new Set<string>();
+  skillOutputs = new Map<string, SkillOutputRecord>();
+  pendingDispatch?: SkillDispatchDecision;
+  skillChainIntent?: SkillChainIntent;
+  tapeCheckpointWriteInProgress = false;
+  tapeCheckpointCounterInitialized = false;
+  tapeEntriesSinceCheckpoint = 0;
+  tapeLatestAnchorEventId?: string;
+  tapeLastCheckpointEventId?: string;
+  tapeProcessedEventIdsSinceCheckpoint = new Set<string>();
+  scanConvergence?: ScanConvergenceRuntimeState;
+  scanConvergenceHydrated = false;
+  hydration: SessionHydrationState = {
+    status: "cold",
+    issues: [],
+  };
+}
+
 export class RuntimeSessionStateStore {
-  readonly activeSkillsBySession = new Map<string, string>();
-  readonly turnsBySession = new Map<string, number>();
-  readonly toolCallsBySession = new Map<string, number>();
-  readonly lastInjectedContextFingerprintBySession = new Map<string, string>();
-  readonly reservedContextInjectionTokensByScope = new Map<string, number>();
-  readonly lastLedgerCompactionTurnBySession = new Map<string, number>();
-  readonly toolContractWarningsBySession = new Map<string, Set<string>>();
-  readonly skillBudgetWarningsBySession = new Map<string, Set<string>>();
-  readonly skillParallelWarningsBySession = new Map<string, Set<string>>();
-  readonly skillOutputsBySession = new Map<string, Map<string, SkillOutputRecord>>();
-  readonly pendingDispatchBySession = new Map<string, SkillDispatchDecision>();
-  readonly skillChainIntentsBySession = new Map<string, SkillChainIntent>();
-  readonly tapeCheckpointWriteInProgressBySession = new Set<string>();
-  readonly tapeCheckpointCounterInitializedBySession = new Set<string>();
-  readonly tapeEntriesSinceCheckpointBySession = new Map<string, number>();
-  readonly tapeLatestAnchorEventIdBySession = new Map<string, string>();
-  readonly tapeLastCheckpointEventIdBySession = new Map<string, string>();
-  readonly tapeProcessedEventIdsSinceCheckpointBySession = new Map<string, Set<string>>();
-  readonly scanConvergenceBySession = new Map<string, ScanConvergenceRuntimeState>();
-  readonly scanConvergenceHydratedBySession = new Set<string>();
+  private readonly cells = new Map<string, RuntimeSessionStateCell>();
+
+  private static readSessionIdFromScopeKey(scopeKey: string): string {
+    const separatorIndex = scopeKey.indexOf("::");
+    if (separatorIndex < 0) {
+      throw new Error(`Invalid injection scope key '${scopeKey}'.`);
+    }
+    const sessionId = scopeKey.slice(0, separatorIndex).trim();
+    if (!sessionId) {
+      throw new Error(`Invalid injection scope key '${scopeKey}'.`);
+    }
+    return sessionId;
+  }
+
+  getCell(sessionId: string): RuntimeSessionStateCell {
+    const existing = this.cells.get(sessionId);
+    if (existing) return existing;
+
+    const created = new RuntimeSessionStateCell();
+    this.cells.set(sessionId, created);
+    return created;
+  }
+
+  getExistingCell(sessionId: string): RuntimeSessionStateCell | undefined {
+    return this.cells.get(sessionId);
+  }
 
   getCurrentTurn(sessionId: string): number {
-    return this.turnsBySession.get(sessionId) ?? 0;
+    return this.cells.get(sessionId)?.turn ?? 0;
   }
 
   buildInjectionScopeKey(sessionId: string, scopeId?: string): string {
@@ -57,44 +95,39 @@ export class RuntimeSessionStateStore {
     return `${sessionId}::${normalizedScope}`;
   }
 
+  getReservedInjectionTokens(scopeKey: string): number | undefined {
+    return this.getExistingCell(
+      RuntimeSessionStateStore.readSessionIdFromScopeKey(scopeKey),
+    )?.reservedContextInjectionTokensByScope.get(scopeKey);
+  }
+
+  setReservedInjectionTokens(scopeKey: string, tokens: number): void {
+    this.getCell(
+      RuntimeSessionStateStore.readSessionIdFromScopeKey(scopeKey),
+    ).reservedContextInjectionTokensByScope.set(scopeKey, tokens);
+  }
+
+  getLastInjectedFingerprint(scopeKey: string): string | undefined {
+    return this.getExistingCell(
+      RuntimeSessionStateStore.readSessionIdFromScopeKey(scopeKey),
+    )?.lastInjectedContextFingerprintByScope.get(scopeKey);
+  }
+
+  setLastInjectedFingerprint(scopeKey: string, fingerprint: string): void {
+    this.getCell(
+      RuntimeSessionStateStore.readSessionIdFromScopeKey(scopeKey),
+    ).lastInjectedContextFingerprintByScope.set(scopeKey, fingerprint);
+  }
+
   clearInjectionFingerprintsForSession(sessionId: string): void {
-    const prefix = `${sessionId}::`;
-    for (const key of this.lastInjectedContextFingerprintBySession.keys()) {
-      if (key.startsWith(prefix)) {
-        this.lastInjectedContextFingerprintBySession.delete(key);
-      }
-    }
+    this.cells.get(sessionId)?.lastInjectedContextFingerprintByScope.clear();
   }
 
   clearReservedInjectionTokensForSession(sessionId: string): void {
-    const prefix = `${sessionId}::`;
-    for (const key of this.reservedContextInjectionTokensByScope.keys()) {
-      if (key.startsWith(prefix)) {
-        this.reservedContextInjectionTokensByScope.delete(key);
-      }
-    }
+    this.cells.get(sessionId)?.reservedContextInjectionTokensByScope.clear();
   }
 
   clearSession(sessionId: string): void {
-    this.tapeCheckpointWriteInProgressBySession.delete(sessionId);
-    this.tapeCheckpointCounterInitializedBySession.delete(sessionId);
-    this.tapeEntriesSinceCheckpointBySession.delete(sessionId);
-    this.tapeLatestAnchorEventIdBySession.delete(sessionId);
-    this.tapeLastCheckpointEventIdBySession.delete(sessionId);
-    this.tapeProcessedEventIdsSinceCheckpointBySession.delete(sessionId);
-    this.scanConvergenceBySession.delete(sessionId);
-    this.scanConvergenceHydratedBySession.delete(sessionId);
-    this.activeSkillsBySession.delete(sessionId);
-    this.turnsBySession.delete(sessionId);
-    this.toolCallsBySession.delete(sessionId);
-    this.lastLedgerCompactionTurnBySession.delete(sessionId);
-    this.toolContractWarningsBySession.delete(sessionId);
-    this.skillBudgetWarningsBySession.delete(sessionId);
-    this.skillParallelWarningsBySession.delete(sessionId);
-    this.skillOutputsBySession.delete(sessionId);
-    this.pendingDispatchBySession.delete(sessionId);
-    this.skillChainIntentsBySession.delete(sessionId);
-    this.clearInjectionFingerprintsForSession(sessionId);
-    this.clearReservedInjectionTokensForSession(sessionId);
+    this.cells.delete(sessionId);
   }
 }

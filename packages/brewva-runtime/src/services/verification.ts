@@ -36,7 +36,11 @@ function buildVerificationLessonKey(input: {
 }
 
 export interface VerificationServiceOptions {
-  kernel: RuntimeKernelContext;
+  cwd: RuntimeKernelContext["cwd"];
+  config: RuntimeKernelContext["config"];
+  verificationGate: RuntimeKernelContext["verificationGate"];
+  getTaskState: RuntimeKernelContext["getTaskState"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   governancePort?: GovernancePort;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
   ledgerService: Pick<LedgerService, "recordToolResult">;
@@ -73,14 +77,14 @@ export class VerificationService {
   }) => string;
 
   constructor(options: VerificationServiceOptions) {
-    this.cwd = options.kernel.cwd;
-    this.config = options.kernel.config;
-    this.verification = options.kernel.verificationGate;
+    this.cwd = options.cwd;
+    this.config = options.config;
+    this.verification = options.verificationGate;
     this.governancePort = options.governancePort;
-    this.getTaskState = (sessionId) => options.kernel.getTaskState(sessionId);
+    this.getTaskState = (sessionId) => options.getTaskState(sessionId);
     this.getActiveSkillName = (sessionId) =>
       options.skillLifecycleService.getActiveSkill(sessionId)?.name;
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
+    this.recordEvent = (input) => options.recordEvent(input);
     this.recordToolResult = (input) => options.ledgerService.recordToolResult(input);
   }
 

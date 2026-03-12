@@ -49,6 +49,18 @@ interface InspectVerification {
 interface InspectReport {
   sessionId: string;
   workspaceRoot: string;
+  hydration: {
+    status: "cold" | "ready" | "degraded";
+    hydratedAt: string | null;
+    latestEventId: string | null;
+    issueCount: number;
+    issues: Array<{
+      eventId: string;
+      eventType: string;
+      index: number;
+      reason: string;
+    }>;
+  };
   replay: {
     eventCount: number;
     firstEventAt: string | null;
@@ -270,6 +282,7 @@ function buildInspectReport(runtime: BrewvaRuntime, sessionId: string): InspectR
   const taskState = foldTaskLedgerEvents(taskEvents);
   const truthState = foldTruthLedgerEvents(truthEvents);
   const tapeStatus = runtime.events.getTapeStatus(sessionId);
+  const hydration = runtime.session.getHydration(sessionId);
   const bootstrap = readLatestEventPayload<InspectBootstrapPayload>(
     runtime,
     sessionId,
@@ -306,6 +319,18 @@ function buildInspectReport(runtime: BrewvaRuntime, sessionId: string): InspectR
   return {
     sessionId,
     workspaceRoot: runtime.workspaceRoot,
+    hydration: {
+      status: hydration.status,
+      hydratedAt: toIso(hydration.hydratedAt),
+      latestEventId: hydration.latestEventId ?? null,
+      issueCount: hydration.issues.length,
+      issues: hydration.issues.map((issue) => ({
+        eventId: issue.eventId,
+        eventType: issue.eventType,
+        index: issue.index,
+        reason: issue.reason,
+      })),
+    },
     replay: {
       eventCount: replaySession?.eventCount ?? events.length,
       firstEventAt: toIso(events[0]?.timestamp),
@@ -401,6 +426,7 @@ function printInspectText(report: InspectReport): void {
     `Session: ${report.sessionId}`,
     `Workspace: ${report.workspaceRoot}`,
     "",
+    `Hydration: status=${report.hydration.status} issues=${report.hydration.issueCount} hydratedAt=${report.hydration.hydratedAt ?? "n/a"}`,
     `Replay: events=${report.replay.eventCount} first=${report.replay.firstEventAt ?? "n/a"} last=${report.replay.lastEventAt ?? "n/a"}`,
     `Replay: anchors=${report.replay.anchorCount} checkpoints=${report.replay.checkpointCount} tapePressure=${report.replay.tapePressure} entriesSinceAnchor=${report.replay.entriesSinceAnchor}`,
     `Bootstrap: extensions=${renderNullableBoolean(report.bootstrap.extensionsEnabled)} addons=${renderNullableBoolean(report.bootstrap.addonsEnabled)} broker=${renderNullableBoolean(report.bootstrap.skillBrokerEnabled)}`,
@@ -419,6 +445,16 @@ function printInspectText(report: InspectReport): void {
 
   if (report.ledger.chainReason) {
     lines.push(`Ledger reason: ${report.ledger.chainReason}`);
+  }
+  if (report.hydration.latestEventId) {
+    lines.push(`Hydration latestEventId: ${report.hydration.latestEventId}`);
+  }
+  if (report.hydration.issues.length > 0) {
+    for (const issue of report.hydration.issues.slice(0, 5)) {
+      lines.push(
+        `Hydration issue: index=${issue.index} type=${issue.eventType} event=${issue.eventId} reason=${issue.reason}`,
+      );
+    }
   }
   if (report.bootstrap.routableSkills.length > 0) {
     lines.push(`Routable skills: ${report.bootstrap.routableSkills.join(", ")}`);

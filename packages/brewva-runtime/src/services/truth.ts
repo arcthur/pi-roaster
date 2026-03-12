@@ -8,7 +8,8 @@ import type { TruthFact, TruthFactSeverity, TruthFactStatus, TruthState } from "
 import { normalizeJsonRecord } from "../utils/json.js";
 
 export interface TruthServiceOptions {
-  kernel: RuntimeKernelContext;
+  getTruthState: RuntimeKernelContext["getTruthState"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
 }
 
 export class TruthService {
@@ -23,8 +24,8 @@ export class TruthService {
   }) => unknown;
 
   constructor(options: TruthServiceOptions) {
-    this.getTruthState = (sessionId) => options.kernel.getTruthState(sessionId);
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
+    this.getTruthState = (sessionId) => options.getTruthState(sessionId);
+    this.recordEvent = (input) => options.recordEvent(input);
   }
 
   upsertTruthFact(

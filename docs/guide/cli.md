@@ -33,6 +33,7 @@ For operational details, see `docs/guide/gateway-control-plane-daemon.md`.
 `brewva inspect` is the replay-first operator view for a persisted session.
 It summarizes:
 
+- session hydration status and any degraded replay issues
 - tape/event volume and tape pressure
 - folded task/truth state
 - latest verification outcome

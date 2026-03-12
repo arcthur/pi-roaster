@@ -16,6 +16,7 @@ import {
 import type { ToolOutputDistillationEntry } from "./context/tool-output-distilled.js";
 import { SessionCostTracker } from "./cost/tracker.js";
 import {
+  DECISION_RECEIPT_RECORDED_EVENT_TYPE,
   TOOL_OUTPUT_DISTILLED_EVENT_TYPE,
   VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE,
 } from "./events/event-types.js";
@@ -90,6 +91,7 @@ import type {
   ProposalKind,
   ProposalListQuery,
   ProposalRecord,
+  SessionHydrationState,
   SessionCostSummary,
   TapeSearchResult,
   TapeSearchScope,
@@ -485,6 +487,7 @@ export class BrewvaRuntime {
     ): void;
     clearState(sessionId: string): void;
     onClearState(listener: (sessionId: string) => void): () => void;
+    getHydration(sessionId: string): SessionHydrationState;
   };
 
   private readonly evidenceLedger: EvidenceLedger;
@@ -727,30 +730,49 @@ export class BrewvaRuntime {
       chainSources: options.skillCascadeChainSources,
     });
     const truthService = new TruthService({
-      kernel: this.kernel,
+      getTruthState: (sessionId) => this.kernel.getTruthState(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
     });
     const ledgerService = new LedgerService({
-      kernel: this.kernel,
+      config: this.config,
+      evidenceLedger: this.evidenceLedger,
+      sessionState: this.sessionState,
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       skillLifecycleService,
     });
     const parallelService = new ParallelService({
-      kernel: this.kernel,
+      securityConfig: this.config.security,
+      parallel: this.parallel,
+      parallelResults: this.parallelResults,
+      sessionState: this.sessionState,
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       skillLifecycleService,
     });
     const costService = new CostService({
-      kernel: this.kernel,
+      costTracker: this.costTracker,
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       ledgerService,
       skillLifecycleService,
       governancePort: options.governancePort,
     });
     const verificationService = new VerificationService({
-      kernel: this.kernel,
+      cwd: this.cwd,
+      config: this.config,
+      verificationGate: this.verificationGate,
+      getTaskState: (sessionId) => this.kernel.getTaskState(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       governancePort: options.governancePort,
       skillLifecycleService,
       ledgerService,
     });
     const proposalAdmissionService = new ProposalAdmissionService({
-      kernel: this.kernel,
+      listDecisionReceiptEvents: (sessionId) =>
+        this.eventStore.list(sessionId, { type: DECISION_RECEIPT_RECORDED_EVENT_TYPE }),
+      recordEvent: (input) => this.kernel.recordEvent(input),
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
       skillRegistry: this.skillRegistry,
       skillLifecycleService,
     });
@@ -764,7 +786,14 @@ export class BrewvaRuntime {
       skillCascadeService,
     });
     const contextService = new ContextService({
-      kernel: this.kernel,
+      config: this.config,
+      contextBudget: this.contextBudget,
+      contextInjection: this.contextInjection,
+      sessionState: this.sessionState,
+      getTruthState: (sessionId) => this.kernel.getTruthState(sessionId),
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      sanitizeInput: (text) => this.kernel.sanitizeInput(text),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       alwaysAllowedTools: CONTEXT_CRITICAL_ALLOWED_TOOLS,
       contextSourceProviders,
       ledgerService,
@@ -773,7 +802,11 @@ export class BrewvaRuntime {
       governancePort: options.governancePort,
     });
     const stallDetectorService = new StallDetectorService({
-      kernel: this.kernel,
+      sessionState: this.sessionState,
+      listEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
+      getTaskState: (sessionId) => this.kernel.getTaskState(sessionId),
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       taskService,
       skillLifecycleService,
     });
@@ -802,13 +835,17 @@ export class BrewvaRuntime {
       maybeRecordTapeCheckpoint: (event) => tapeService.maybeRecordTapeCheckpoint(event),
     });
     const truthProjectorService = new TruthProjectorService({
-      kernel: this.kernel,
+      cwd: this.cwd,
+      getTaskState: (sessionId) => this.kernel.getTaskState(sessionId),
+      getTruthState: (sessionId) => this.kernel.getTruthState(sessionId),
       eventPipeline,
       taskService,
       truthService,
     });
     const verificationProjectorService = new VerificationProjectorService({
-      kernel: this.kernel,
+      getTaskState: (sessionId) => this.kernel.getTaskState(sessionId),
+      getTruthState: (sessionId) => this.kernel.getTruthState(sessionId),
+      verificationStateStore: this.verificationGate.stateStore,
       eventPipeline,
       taskService,
       truthService,
@@ -839,16 +876,36 @@ export class BrewvaRuntime {
         }),
     });
     const fileChangeService = new FileChangeService({
-      kernel: this.kernel,
+      sessionState: this.sessionState,
+      fileChanges: this.fileChanges,
+      costTracker: this.costTracker,
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       ledgerService,
       skillLifecycleService,
     });
     const sessionLifecycleService = new SessionLifecycleService({
-      kernel: this.kernel,
+      sessionState: this.sessionState,
+      contextBudget: this.contextBudget,
+      contextInjection: this.contextInjection,
+      fileChanges: this.fileChanges,
+      verificationGate: this.verificationGate,
+      parallel: this.parallel,
+      parallelResults: this.parallelResults,
+      costTracker: this.costTracker,
+      projectionEngine: this.projectionEngine,
+      turnReplay: this.turnReplay,
+      eventStore: this.eventStore,
+      evidenceLedger: this.evidenceLedger,
+      recordEvent: (input) => this.kernel.recordEvent(input),
       contextService,
     });
     const toolGateService = new ToolGateService({
-      kernel: this.kernel,
+      securityConfig: this.config.security,
+      costTracker: this.costTracker,
+      sessionState: this.sessionState,
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
       alwaysAllowedTools: CONTROL_PLANE_TOOLS,
       skillLifecycleService,
       contextService,
@@ -1130,6 +1187,10 @@ export class BrewvaRuntime {
           }),
         clearState: (sessionId) => this.sessionLifecycleService.clearSessionState(sessionId),
         onClearState: (listener) => this.sessionLifecycleService.onClearState(listener),
+        getHydration: (sessionId) => {
+          this.sessionLifecycleService.ensureHydrated(sessionId);
+          return this.sessionLifecycleService.getHydrationState(sessionId);
+        },
       },
     };
   }

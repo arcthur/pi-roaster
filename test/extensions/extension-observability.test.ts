@@ -772,11 +772,9 @@ describe("Extension integration: observability", () => {
     );
 
     const sessionState = (runtime as any).sessionState as {
-      turnsBySession: Map<string, number>;
-      toolCallsBySession: Map<string, number>;
+      getExistingCell: (session: string) => { turn: number; toolCalls: number } | undefined;
     };
-    expect(sessionState.turnsBySession.has(sessionId)).toBe(false);
-    expect(sessionState.toolCallsBySession.has(sessionId)).toBe(false);
+    expect(sessionState.getExistingCell(sessionId)).toBeUndefined();
     expect(((runtime as any).contextBudget.sessions as Map<string, unknown>).has(sessionId)).toBe(
       false,
     );

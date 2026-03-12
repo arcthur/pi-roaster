@@ -60,7 +60,9 @@ function coerceTruthProjectionInput(value: unknown): {
 }
 
 export interface TruthProjectorServiceOptions {
-  kernel: RuntimeKernelContext;
+  cwd: RuntimeKernelContext["cwd"];
+  getTaskState: RuntimeKernelContext["getTaskState"];
+  getTruthState: RuntimeKernelContext["getTruthState"];
   eventPipeline: Pick<EventPipelineService, "subscribeEvents">;
   taskService: Pick<TaskService, "recordTaskBlocker" | "resolveTaskBlocker">;
   truthService: Pick<TruthService, "upsertTruthFact" | "resolveTruthFact">;
@@ -85,9 +87,9 @@ export class TruthProjectorService {
 
     projectTruthFromToolResult(
       {
-        cwd: options.kernel.cwd,
-        getTaskState: (sessionId) => options.kernel.getTaskState(sessionId),
-        getTruthState: (sessionId) => options.kernel.getTruthState(sessionId),
+        cwd: options.cwd,
+        getTaskState: (sessionId) => options.getTaskState(sessionId),
+        getTruthState: (sessionId) => options.getTruthState(sessionId),
         upsertTruthFact: (sessionId, input) =>
           options.truthService.upsertTruthFact(sessionId, input),
         resolveTruthFact: (sessionId, truthFactId) =>

@@ -30,6 +30,7 @@ Every runtime event follows the same envelope shape:
 - `proposal_decided`
 - `decision_receipt_recorded`
 - `verification_outcome_recorded`
+- `event_listener_error`
 - `governance_verify_spec_passed`
 - `governance_verify_spec_failed`
 - `governance_verify_spec_error`
@@ -37,6 +38,11 @@ Every runtime event follows the same envelope shape:
 - skill cascade lifecycle events
 
 These are retained under `infrastructure.events.level=audit`.
+
+`event_listener_error` is audit-retained listener-isolation telemetry emitted
+when a runtime event subscriber throws. The source event is still appended and
+projected synchronously; the error event is durable evidence that fan-out
+degraded without aborting later listeners.
 
 ## Operational Families
 

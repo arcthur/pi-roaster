@@ -90,25 +90,17 @@ describe("exec/process tool flow", () => {
     expect(typeof startDetails.sessionId).toBe("string");
 
     const sessionHandle = startDetails.sessionId ?? "";
-    const polled = await processTool.execute(
-      "tc-exec-poll",
-      {
-        action: "poll",
-        sessionId: sessionHandle,
-        timeout: 2_000,
-      },
-      undefined,
-      undefined,
-      fakeContext(sessionId),
-    );
-    const firstPollText = extractTextContent(polled);
-    expect(firstPollText.includes("done")).toBe(true);
+    let observedDone = false;
+    let finalStatus: string | undefined;
+    let finalVerdict: string | undefined;
 
-    const firstPollDetails = polled.details as { status?: string; verdict?: string };
-    if (firstPollDetails.status === "running") {
-      expect(firstPollDetails.verdict).toBe("inconclusive");
-      const completed = await processTool.execute(
-        "tc-exec-poll-finished",
+    for (const [index, pollCallId] of [
+      "tc-exec-poll",
+      "tc-exec-poll-finished",
+      "tc-exec-poll-final",
+    ].entries()) {
+      const polled = await processTool.execute(
+        pollCallId,
         {
           action: "poll",
           sessionId: sessionHandle,
@@ -118,14 +110,25 @@ describe("exec/process tool flow", () => {
         undefined,
         fakeContext(sessionId),
       );
-      const completedText = extractTextContent(completed);
-      expect(completedText.includes("done")).toBe(true);
-      expect((completed.details as { status?: string; verdict?: string }).status).toBe("completed");
-      expect((completed.details as { status?: string; verdict?: string }).verdict).toBeUndefined();
-    } else {
-      expect(firstPollDetails.status).toBe("completed");
-      expect(firstPollDetails.verdict).toBeUndefined();
+      const pollText = extractTextContent(polled);
+      observedDone ||= pollText.includes("done");
+
+      const pollDetails = polled.details as { status?: string; verdict?: string };
+      finalStatus = pollDetails.status;
+      finalVerdict = pollDetails.verdict;
+
+      if (pollDetails.status === "completed") {
+        break;
+      }
+
+      expect(pollDetails.status).toBe("running");
+      expect(pollDetails.verdict).toBe("inconclusive");
+      expect(index).toBeLessThan(2);
     }
+
+    expect(observedDone).toBe(true);
+    expect(finalStatus).toBe("completed");
+    expect(finalVerdict).toBeUndefined();
   });
 
   test("process kill stops a background session", async () => {

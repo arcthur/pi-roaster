@@ -28,7 +28,11 @@ export interface TrackToolCallEndInput {
 }
 
 export interface FileChangeServiceOptions {
-  kernel: RuntimeKernelContext;
+  sessionState: RuntimeKernelContext["sessionState"];
+  fileChanges: RuntimeKernelContext["fileChanges"];
+  costTracker: RuntimeKernelContext["costTracker"];
+  getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   ledgerService: Pick<LedgerService, "recordInfrastructureRow">;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
 }
@@ -60,19 +64,20 @@ export class FileChangeService {
   }) => unknown;
 
   constructor(options: FileChangeServiceOptions) {
-    this.sessionState = options.kernel.sessionState;
-    this.fileChanges = options.kernel.fileChanges;
-    this.costTracker = options.kernel.costTracker;
+    this.sessionState = options.sessionState;
+    this.fileChanges = options.fileChanges;
+    this.costTracker = options.costTracker;
     this.recordInfrastructureRow = (input) => options.ledgerService.recordInfrastructureRow(input);
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
-    this.getCurrentTurn = (sessionId) => options.kernel.getCurrentTurn(sessionId);
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
+    this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
+    this.recordEvent = (input) => options.recordEvent(input);
   }
 
   markToolCall(sessionId: string, toolName: string): void {
-    const current = this.sessionState.toolCallsBySession.get(sessionId) ?? 0;
+    const state = this.sessionState.getCell(sessionId);
+    const current = state.toolCalls;
     const next = current + 1;
-    this.sessionState.toolCallsBySession.set(sessionId, next);
+    state.toolCalls = next;
     this.costTracker.recordToolCall(sessionId, {
       toolName,
       turn: this.getCurrentTurn(sessionId),
@@ -90,7 +95,7 @@ export class FileChangeService {
     this.recordEvent({
       sessionId,
       type: "tool_call_marked",
-      turn: this.sessionState.turnsBySession.get(sessionId),
+      turn: state.turn,
       payload: {
         toolName,
         toolCalls: next,

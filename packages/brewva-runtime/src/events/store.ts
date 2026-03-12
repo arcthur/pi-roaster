@@ -50,6 +50,34 @@ interface EventFileCache {
   trailingFragment: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deepFreezeJson<T>(value: T): T {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      deepFreezeJson(entry);
+    }
+    return Object.freeze(value);
+  }
+  if (isRecord(value)) {
+    for (const entry of Object.values(value)) {
+      deepFreezeJson(entry);
+    }
+    return Object.freeze(value);
+  }
+  return value;
+}
+
+function freezeEventRecord(row: BrewvaEventRecord): BrewvaEventRecord {
+  const payload = row.payload ? deepFreezeJson(row.payload) : undefined;
+  return Object.freeze({
+    ...row,
+    payload,
+  });
+}
+
 function parseEventRecord(line: string): BrewvaEventRecord | null {
   try {
     const value = JSON.parse(line) as BrewvaEventRecord;
@@ -59,9 +87,12 @@ function parseEventRecord(line: string): BrewvaEventRecord | null {
       typeof value.sessionId === "string" &&
       typeof value.type === "string" &&
       typeof value.timestamp === "number" &&
-      Number.isFinite(value.timestamp)
+      Number.isFinite(value.timestamp) &&
+      (value.turn === undefined ||
+        (typeof value.turn === "number" && Number.isFinite(value.turn))) &&
+      (value.payload === undefined || isRecord(value.payload))
     ) {
-      return value;
+      return freezeEventRecord(value);
     }
   } catch {
     return null;
@@ -98,15 +129,16 @@ export class BrewvaEventStore {
         input.payload ? (redactUnknown(input.payload) as Record<string, unknown>) : undefined,
       ),
     };
+    const frozenRow = freezeEventRecord(row);
 
-    const filePath = this.filePathForSession(row.sessionId);
+    const filePath = this.filePathForSession(frozenRow.sessionId);
     const prefix = this.hasContent(filePath) ? "\n" : "";
-    const serialized = JSON.stringify(row);
+    const serialized = JSON.stringify(frozenRow);
     const appended = `${prefix}${serialized}`;
     writeFileSync(filePath, appended, { flag: "a" });
     this.fileHasContent.set(filePath, true);
-    this.trackAppendedRow(filePath, row, appended);
-    return row;
+    this.trackAppendedRow(filePath, frozenRow, appended);
+    return frozenRow;
   }
 
   appendAnchor(input: {

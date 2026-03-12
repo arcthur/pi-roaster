@@ -40,7 +40,14 @@ import type { SkillLifecycleService } from "./skill-lifecycle.js";
 import type { TaskService } from "./task.js";
 
 export interface ContextServiceOptions {
-  kernel: RuntimeKernelContext;
+  config: RuntimeKernelContext["config"];
+  contextBudget: RuntimeKernelContext["contextBudget"];
+  contextInjection: RuntimeKernelContext["contextInjection"];
+  sessionState: RuntimeKernelContext["sessionState"];
+  getTruthState: RuntimeKernelContext["getTruthState"];
+  getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
+  sanitizeInput: RuntimeKernelContext["sanitizeInput"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   alwaysAllowedTools: string[];
   contextSourceProviders: ContextSourceProviderRegistry;
   ledgerService: Pick<LedgerService, "recordInfrastructureRow">;
@@ -79,17 +86,16 @@ export class ContextService {
   private readonly contextInjectionOrchestratorDeps: ContextInjectionOrchestratorDeps;
 
   constructor(options: ContextServiceOptions) {
-    const { kernel } = options;
-    this.config = kernel.config;
-    this.contextBudget = kernel.contextBudget;
-    this.contextInjection = kernel.contextInjection;
-    this.sessionState = kernel.sessionState;
-    this.getTruthState = (sessionId) => kernel.getTruthState(sessionId);
+    this.config = options.config;
+    this.contextBudget = options.contextBudget;
+    this.contextInjection = options.contextInjection;
+    this.sessionState = options.sessionState;
+    this.getTruthState = (sessionId) => options.getTruthState(sessionId);
     this.maybeAlignTaskStatus = (input) => options.taskService.maybeAlignTaskStatus(input);
-    this.getCurrentTurn = (sessionId) => kernel.getCurrentTurn(sessionId);
+    this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
-    this.sanitizeInput = (text) => kernel.sanitizeInput(text);
-    this.recordEvent = (input) => kernel.recordEvent(input);
+    this.sanitizeInput = (text) => options.sanitizeInput(text);
+    this.recordEvent = (input) => options.recordEvent(input);
 
     this.contextPressure = new ContextPressureService({
       config: this.config,
@@ -133,11 +139,11 @@ export class ContextService {
         this.contextBudget.planInjection(id, inputText, budgetUsage),
       buildInjectionScopeKey: (id, scopeId) => this.buildInjectionScopeKey(id, scopeId),
       setReservedTokens: (scopeKey, tokens) =>
-        this.sessionState.reservedContextInjectionTokensByScope.set(scopeKey, tokens),
+        this.sessionState.setReservedInjectionTokens(scopeKey, tokens),
       getLastInjectedFingerprint: (scopeKey) =>
-        this.sessionState.lastInjectedContextFingerprintBySession.get(scopeKey),
+        this.sessionState.getLastInjectedFingerprint(scopeKey),
       setLastInjectedFingerprint: (scopeKey, fingerprint) =>
-        this.sessionState.lastInjectedContextFingerprintBySession.set(scopeKey, fingerprint),
+        this.sessionState.setLastInjectedFingerprint(scopeKey, fingerprint),
     };
   }
 

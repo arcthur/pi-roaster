@@ -216,7 +216,11 @@ export interface PollTaskProgressInput {
 }
 
 export interface StallDetectorServiceOptions {
-  kernel: RuntimeKernelContext;
+  sessionState: RuntimeKernelContext["sessionState"];
+  listEvents: (sessionId: string, query?: BrewvaEventQuery) => BrewvaEventRecord[];
+  getTaskState: RuntimeKernelContext["getTaskState"];
+  getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   taskService: Pick<TaskService, "recordTaskBlocker" | "resolveTaskBlocker">;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
 }
@@ -246,17 +250,17 @@ export class StallDetectorService {
   private readonly taskDetectionKeyBySession = new Map<string, string>();
 
   constructor(options: StallDetectorServiceOptions) {
-    this.sessionState = options.kernel.sessionState;
-    this.listEvents = (sessionId, query) => options.kernel.eventStore.list(sessionId, query);
-    this.getTaskState = (sessionId) => options.kernel.getTaskState(sessionId);
-    this.getCurrentTurn = (sessionId) => options.kernel.getCurrentTurn(sessionId);
+    this.sessionState = options.sessionState;
+    this.listEvents = (sessionId, query) => options.listEvents(sessionId, query);
+    this.getTaskState = (sessionId) => options.getTaskState(sessionId);
+    this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
     this.getActiveSkillName = (sessionId) =>
       options.skillLifecycleService.getActiveSkill(sessionId)?.name;
     this.recordTaskBlocker = (sessionId, input) =>
       options.taskService.recordTaskBlocker(sessionId, input);
     this.resolveTaskBlocker = (sessionId, blockerId) =>
       options.taskService.resolveTaskBlocker(sessionId, blockerId);
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
+    this.recordEvent = (input) => options.recordEvent(input);
   }
 
   onTurnStart(sessionId: string): void {
@@ -551,25 +555,27 @@ export class StallDetectorService {
   }
 
   private getScanState(sessionId: string): ScanConvergenceRuntimeState {
-    const existing = this.sessionState.scanConvergenceBySession.get(sessionId);
+    const cell = this.sessionState.getCell(sessionId);
+    const existing = cell.scanConvergence;
     if (existing) {
-      if (!this.sessionState.scanConvergenceHydratedBySession.has(sessionId)) {
+      if (!cell.scanConvergenceHydrated) {
         this.hydrateScanState(sessionId, existing);
       }
       return existing;
     }
 
     const created = EMPTY_STATE();
-    this.sessionState.scanConvergenceBySession.set(sessionId, created);
+    cell.scanConvergence = created;
     this.hydrateScanState(sessionId, created);
     return created;
   }
 
   private hydrateScanState(sessionId: string, state: ScanConvergenceRuntimeState): void {
-    if (this.sessionState.scanConvergenceHydratedBySession.has(sessionId)) {
+    const cell = this.sessionState.getCell(sessionId);
+    if (cell.scanConvergenceHydrated) {
       return;
     }
-    this.sessionState.scanConvergenceHydratedBySession.add(sessionId);
+    cell.scanConvergenceHydrated = true;
 
     const blocker = hasActiveGuardBlocker(this.getTaskState(sessionId));
     if (!blocker) {

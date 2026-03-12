@@ -78,6 +78,7 @@ const TURN_WAL_EVENT_TYPES = new Set<string>([
   "turn_wal_recovery_completed",
   "turn_wal_compacted",
 ]);
+const EVENT_LISTENER_ERROR_EVENT_TYPE = "event_listener_error";
 
 export interface RuntimeRecordEventInput {
   sessionId: string;
@@ -116,6 +117,13 @@ export class EventPipelineService {
   }
 
   recordEvent(input: RuntimeRecordEventInput): BrewvaEventRecord | undefined {
+    return this.appendEvent(input, { emitListeners: true });
+  }
+
+  private appendEvent(
+    input: RuntimeRecordEventInput,
+    options: { emitListeners: boolean },
+  ): BrewvaEventRecord | undefined {
     if (!this.shouldEmit(input.type)) {
       return undefined;
     }
@@ -131,15 +139,49 @@ export class EventPipelineService {
 
     this.observeReplayEvent(row);
 
-    const structured = this.toStructuredEvent(row);
-    for (const listener of this.eventListeners.values()) {
-      listener(structured);
+    let listenerErrors:
+      | Array<{
+          listenerIndex: number;
+          listenerName: string;
+          errorName: string;
+          errorMessage: string;
+          errorStack?: string;
+        }>
+      | undefined;
+    if (options.emitListeners) {
+      const structured = this.toStructuredEvent(row);
+      listenerErrors = this.notifyListeners(structured);
     }
 
     this.ingestProjectionEvent(row);
     if (!input.skipTapeCheckpoint) {
       this.maybeRecordTapeCheckpoint(row);
     }
+
+    if (listenerErrors && listenerErrors.length > 0) {
+      for (const listenerError of listenerErrors) {
+        this.appendEvent(
+          {
+            sessionId: row.sessionId,
+            type: EVENT_LISTENER_ERROR_EVENT_TYPE,
+            turn: row.turn,
+            timestamp: row.timestamp,
+            payload: {
+              sourceEventId: row.id,
+              sourceEventType: row.type,
+              listenerIndex: listenerError.listenerIndex,
+              listenerName: listenerError.listenerName,
+              errorName: listenerError.errorName,
+              errorMessage: listenerError.errorMessage,
+              errorStack: listenerError.errorStack,
+            },
+            skipTapeCheckpoint: true,
+          },
+          { emitListeners: false },
+        );
+      }
+    }
+
     return row;
   }
 
@@ -152,6 +194,7 @@ export class EventPipelineService {
 
   private classifyEventLevel(type: string): "audit" | "ops" | "debug" {
     if (AUDIT_EVENT_TYPES.has(type)) return "audit";
+    if (type === EVENT_LISTENER_ERROR_EVENT_TYPE) return "audit";
     if (DEBUG_EVENT_TYPES.has(type)) return "debug";
     if (TURN_WAL_EVENT_TYPES.has(type)) return "ops";
     if (type.startsWith("governance_")) return "ops";
@@ -189,6 +232,38 @@ export class EventPipelineService {
     return () => {
       this.eventListeners.delete(listener);
     };
+  }
+
+  private notifyListeners(event: BrewvaStructuredEvent): Array<{
+    listenerIndex: number;
+    listenerName: string;
+    errorName: string;
+    errorMessage: string;
+    errorStack?: string;
+  }> {
+    const errors: Array<{
+      listenerIndex: number;
+      listenerName: string;
+      errorName: string;
+      errorMessage: string;
+      errorStack?: string;
+    }> = [];
+    let listenerIndex = 0;
+    for (const listener of this.eventListeners.values()) {
+      listenerIndex += 1;
+      try {
+        listener(event);
+      } catch (error) {
+        errors.push({
+          listenerIndex,
+          listenerName: listener.name || "anonymous_listener",
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorStack: error instanceof Error ? error.stack : undefined,
+        });
+      }
+    }
+    return errors;
   }
 
   toStructuredEvent(event: BrewvaEventRecord): BrewvaStructuredEvent {

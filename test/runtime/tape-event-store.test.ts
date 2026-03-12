@@ -148,4 +148,63 @@ describe("BrewvaEventStore tape helpers", () => {
       expect(id.startsWith("evt_1735689600000_")).toBe(true);
     }
   });
+
+  test("skips malformed rows with non-record payloads during cache sync", () => {
+    const workspace = createWorkspace("tape-store-malformed-payload");
+    const store = new BrewvaEventStore(DEFAULT_BREWVA_CONFIG.infrastructure.events, workspace);
+    const sessionId = "tape-store-malformed-payload-1";
+
+    store.append({
+      sessionId,
+      type: "session_start",
+      payload: { source: "test" },
+      timestamp: 100,
+    });
+
+    const eventsRoot = join(workspace, DEFAULT_BREWVA_CONFIG.infrastructure.events.dir);
+    const fileName = readdirSync(eventsRoot).find((name) => name.endsWith(".jsonl"));
+    expect(fileName).toBeDefined();
+    const eventFilePath = join(eventsRoot, fileName ?? "missing.jsonl");
+    writeFileSync(
+      eventFilePath,
+      `\n${JSON.stringify({
+        id: "evt_bad_payload",
+        sessionId,
+        type: "broken_event",
+        timestamp: 101,
+        payload: ["not", "a", "record"],
+      })}`,
+      { flag: "a" },
+    );
+
+    const rows = store.list(sessionId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.type).toBe("session_start");
+  });
+
+  test("returns immutable cached event rows", () => {
+    const workspace = createWorkspace("tape-store-immutable");
+    const store = new BrewvaEventStore(DEFAULT_BREWVA_CONFIG.infrastructure.events, workspace);
+    const sessionId = "tape-store-immutable-1";
+
+    store.append({
+      sessionId,
+      type: "tool_call",
+      payload: {
+        toolName: "exec",
+        nested: {
+          command: "echo ok",
+        },
+      },
+      timestamp: 100,
+    });
+
+    const row = store.list(sessionId)[0];
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    expect(Object.isFrozen(row)).toBe(true);
+    expect(Object.isFrozen(row.payload)).toBe(true);
+    expect(Object.isFrozen(row.payload?.nested)).toBe(true);
+  });
 });

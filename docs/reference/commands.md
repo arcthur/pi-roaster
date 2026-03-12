@@ -186,6 +186,10 @@ Platform notes for supervisor install:
 session. It rebuilds a compact operator view from tape and nearby derived
 artifacts.
 
+The report now includes hydration status for runtime-local caches (`ready` or
+`degraded`) plus per-event hydrate issues when replay of non-authoritative
+session state encountered malformed or failing events.
+
 - `brewva inspect`: inspect the latest replayable session for the current workspace
 - `brewva inspect --session <id>`: inspect a specific session
 - `brewva inspect --json`: emit machine-readable JSON instead of text

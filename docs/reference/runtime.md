@@ -176,8 +176,23 @@ Read-only verification semantics:
 - `listWorkerResults(sessionId)`
 - `mergeWorkerResults(sessionId)`
 - `clearWorkerResults(sessionId)`
+- `pollStall(sessionId, input?)`
 - `clearState(sessionId)`
 - `onClearState(listener)`
+- `getHydration(sessionId)`
+
+`runtime.session.getHydration(sessionId)` returns replay/hydration state for the
+session-local runtime caches:
+
+- `status`: `cold | ready | degraded`
+- `hydratedAt`: latest successful hydrate timestamp when available
+- `latestEventId`: newest event considered during hydrate
+- `issues`: per-event replay failures captured during hydrate
+
+Hydration is session-local and replay-first: task/truth folds still derive from
+tape, while runtime-local caches such as active skill, warning dedupe, and
+verification gate state are restored opportunistically and marked `degraded`
+instead of silently failing.
 
 ## Async-Only API Direction
 

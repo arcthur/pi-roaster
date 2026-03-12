@@ -48,7 +48,7 @@ export function planSupplementalContextInjection(
   }
 
   const scopeKey = deps.sessionState.buildInjectionScopeKey(sessionId, injectionScopeId);
-  const usedTokens = deps.sessionState.reservedContextInjectionTokensByScope.get(scopeKey) ?? 0;
+  const usedTokens = deps.sessionState.getReservedInjectionTokens(scopeKey) ?? 0;
   const maxTokens = Math.max(
     0,
     Math.floor(deps.config.infrastructure.contextBudget.maxInjectionTokens),
@@ -108,12 +108,12 @@ export function commitSupplementalContextInjection(
   if (normalizedTokens <= 0) return;
 
   const scopeKey = deps.sessionState.buildInjectionScopeKey(sessionId, injectionScopeId);
-  const usedTokens = deps.sessionState.reservedContextInjectionTokensByScope.get(scopeKey) ?? 0;
+  const usedTokens = deps.sessionState.getReservedInjectionTokens(scopeKey) ?? 0;
   const maxTokens = Math.max(
     0,
     Math.floor(deps.config.infrastructure.contextBudget.maxInjectionTokens),
   );
-  deps.sessionState.reservedContextInjectionTokensByScope.set(
+  deps.sessionState.setReservedInjectionTokens(
     scopeKey,
     Math.min(maxTokens, usedTokens + normalizedTokens),
   );

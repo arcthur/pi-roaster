@@ -57,7 +57,11 @@ function resolveToolFailureClass(input: {
 }
 
 export interface LedgerServiceOptions {
-  kernel: RuntimeKernelContext;
+  config: RuntimeKernelContext["config"];
+  evidenceLedger: RuntimeKernelContext["evidenceLedger"];
+  sessionState: RuntimeKernelContext["sessionState"];
+  getCurrentTurn: RuntimeKernelContext["getCurrentTurn"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
 }
 
@@ -121,12 +125,12 @@ export class LedgerService {
   }) => unknown;
 
   constructor(options: LedgerServiceOptions) {
-    this.config = options.kernel.config;
-    this.ledger = options.kernel.evidenceLedger;
-    this.sessionState = options.kernel.sessionState;
-    this.getCurrentTurn = (sessionId) => options.kernel.getCurrentTurn(sessionId);
+    this.config = options.config;
+    this.ledger = options.evidenceLedger;
+    this.sessionState = options.sessionState;
+    this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
-    this.recordEvent = (input) => options.kernel.recordEvent(input);
+    this.recordEvent = (input) => options.recordEvent(input);
   }
 
   recordInfrastructureRow(input: {
@@ -316,11 +320,12 @@ export class LedgerService {
   }
 
   private maybeCompactLedger(sessionId: string, turn: number): void {
+    const state = this.sessionState.getCell(sessionId);
     const every = Math.max(0, Math.trunc(this.config.ledger.checkpointEveryTurns));
     if (every <= 0) return;
     if (turn <= 0) return;
     if (turn % every !== 0) return;
-    if (this.sessionState.lastLedgerCompactionTurnBySession.get(sessionId) === turn) {
+    if (state.lastLedgerCompactionTurn === turn) {
       return;
     }
 
@@ -330,7 +335,7 @@ export class LedgerService {
       reason: `turn-${turn}`,
     });
     if (!result) return;
-    this.sessionState.lastLedgerCompactionTurnBySession.set(sessionId, turn);
+    state.lastLedgerCompactionTurn = turn;
     this.recordEvent({
       sessionId,
       type: "ledger_compacted",

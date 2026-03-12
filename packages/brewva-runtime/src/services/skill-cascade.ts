@@ -123,13 +123,13 @@ export class SkillCascadeService {
   }
 
   getIntent(sessionId: string): SkillChainIntent | undefined {
-    const intent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    const intent = this.sessionState.getExistingCell(sessionId)?.skillChainIntent;
     if (!intent) return undefined;
     return cloneIntent(intent);
   }
 
   pauseIntent(sessionId: string, reason = "manual_pause"): SkillCascadeControlResult {
-    const intent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    const intent = this.sessionState.getExistingCell(sessionId)?.skillChainIntent;
     if (!intent) return { ok: false, reason: "intent_not_found" };
     if (this.isTerminal(intent.status)) {
       return { ok: false, reason: `intent_${intent.status}` };
@@ -148,7 +148,7 @@ export class SkillCascadeService {
   }
 
   resumeIntent(sessionId: string, reason = "manual_resume"): SkillCascadeControlResult {
-    const intent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    const intent = this.sessionState.getExistingCell(sessionId)?.skillChainIntent;
     if (!intent) return { ok: false, reason: "intent_not_found" };
     if (this.isTerminal(intent.status)) {
       return { ok: false, reason: `intent_${intent.status}` };
@@ -168,7 +168,7 @@ export class SkillCascadeService {
   }
 
   cancelIntent(sessionId: string, reason = "manual_cancel"): SkillCascadeControlResult {
-    const intent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    const intent = this.sessionState.getExistingCell(sessionId)?.skillChainIntent;
     if (!intent) return { ok: false, reason: "intent_not_found" };
     if (this.isTerminal(intent.status)) {
       return { ok: false, reason: `intent_${intent.status}` };
@@ -255,7 +255,7 @@ export class SkillCascadeService {
     }
 
     if (event.type === "skill_routing_overridden" || event.type === "skill_routing_ignored") {
-      const intent = this.sessionState.skillChainIntentsBySession.get(event.sessionId);
+      const intent = this.sessionState.getExistingCell(event.sessionId)?.skillChainIntent;
       if (!intent || this.isTerminal(intent.status) || intent.source !== "dispatch") {
         return;
       }
@@ -285,10 +285,11 @@ export class SkillCascadeService {
   }
 
   private onSkillRoutingDecided(sessionId: string, sourceEventId?: string): void {
-    const decision = this.sessionState.pendingDispatchBySession.get(sessionId);
+    const state = this.sessionState.getCell(sessionId);
+    const decision = state.pendingDispatch;
     if (!decision) return;
     if (decision.mode === "none" || decision.mode === "suggest") return;
-    const existingIntent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    const existingIntent = state.skillChainIntent;
     const sourceDecision = evaluateSkillCascadeSourceDecision({
       enabledSources: this.config.enabledSources,
       sourcePriority: this.config.sourcePriority,
@@ -362,7 +363,7 @@ export class SkillCascadeService {
       this.autoActivationBySession.delete(sessionId);
     }
 
-    const intent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    const intent = this.sessionState.getExistingCell(sessionId)?.skillChainIntent;
     if (!intent || this.isTerminal(intent.status)) return;
     const current = intent.steps[intent.cursor];
     if (!current) return;
@@ -425,7 +426,7 @@ export class SkillCascadeService {
     skillName: string,
     outputs: Record<string, unknown>,
   ): void {
-    const intent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    const intent = this.sessionState.getExistingCell(sessionId)?.skillChainIntent;
     if (intent && !this.isTerminal(intent.status)) {
       const current = intent.steps[intent.cursor];
       if (current && current.skill === skillName) {
@@ -669,7 +670,7 @@ export class SkillCascadeService {
   }
 
   private persistIntent(sessionId: string, intent: SkillChainIntent): void {
-    this.sessionState.skillChainIntentsBySession.set(sessionId, cloneIntent(intent));
+    this.sessionState.getCell(sessionId).skillChainIntent = cloneIntent(intent);
   }
 
   private emitIntentEvent(

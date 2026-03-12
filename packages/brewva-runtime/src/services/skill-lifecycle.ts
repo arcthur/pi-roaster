@@ -192,12 +192,13 @@ export class SkillLifecycleService {
     sessionId: string,
     name: string,
   ): { ok: boolean; reason?: string; skill?: SkillDocument } {
+    const state = this.sessionState.getCell(sessionId);
     const skill = this.skills.get(name);
     if (!skill) {
       return { ok: false, reason: `Skill '${name}' not found.` };
     }
 
-    const activeName = this.sessionState.activeSkillsBySession.get(sessionId);
+    const activeName = state.activeSkill;
     if (activeName && activeName !== name) {
       const activeSkill = this.skills.get(activeName);
       const activeAllows = activeSkill?.contract.composableWith?.includes(name) ?? false;
@@ -210,8 +211,8 @@ export class SkillLifecycleService {
       }
     }
 
-    this.sessionState.activeSkillsBySession.set(sessionId, name);
-    this.sessionState.toolCallsBySession.set(sessionId, 0);
+    state.activeSkill = name;
+    state.toolCalls = 0;
     this.recordEvent({
       sessionId,
       type: "skill_activated",
@@ -245,14 +246,14 @@ export class SkillLifecycleService {
           }),
         });
       }
-      this.sessionState.pendingDispatchBySession.delete(sessionId);
+      state.pendingDispatch = undefined;
     }
 
     return { ok: true, skill };
   }
 
   getActiveSkill(sessionId: string): SkillDocument | undefined {
-    const active = this.sessionState.activeSkillsBySession.get(sessionId);
+    const active = this.sessionState.getExistingCell(sessionId)?.activeSkill;
     if (!active) return undefined;
     return this.skills.get(active);
   }
@@ -262,12 +263,13 @@ export class SkillLifecycleService {
     decision: SkillDispatchDecision,
     options: { emitEvent?: boolean } = {},
   ): void {
-    const activeSkillName = this.sessionState.activeSkillsBySession.get(sessionId) ?? null;
+    const state = this.sessionState.getCell(sessionId);
+    const activeSkillName = state.activeSkill ?? null;
     const shouldStorePending = decision.mode !== "none";
     if (!shouldStorePending) {
-      this.sessionState.pendingDispatchBySession.delete(sessionId);
+      state.pendingDispatch = undefined;
     } else {
-      this.sessionState.pendingDispatchBySession.set(sessionId, decision);
+      state.pendingDispatch = decision;
     }
     if (options.emitEvent === false) return;
     this.recordEvent({
@@ -290,12 +292,15 @@ export class SkillLifecycleService {
   }
 
   getPendingDispatch(sessionId: string): SkillDispatchDecision | undefined {
-    return this.sessionState.pendingDispatchBySession.get(sessionId);
+    return this.sessionState.getExistingCell(sessionId)?.pendingDispatch;
   }
 
   clearPendingDispatch(sessionId: string): SkillDispatchDecision | undefined {
-    const pending = this.sessionState.pendingDispatchBySession.get(sessionId);
-    this.sessionState.pendingDispatchBySession.delete(sessionId);
+    const state = this.sessionState.getExistingCell(sessionId);
+    const pending = state?.pendingDispatch;
+    if (state) {
+      state.pendingDispatch = undefined;
+    }
     return pending;
   }
 
@@ -347,7 +352,8 @@ export class SkillLifecycleService {
   }
 
   completeSkill(sessionId: string, outputs: Record<string, unknown>): SkillOutputValidationResult {
-    const activeSkillName = this.sessionState.activeSkillsBySession.get(sessionId) ?? null;
+    const state = this.sessionState.getCell(sessionId);
+    const activeSkillName = state.activeSkill ?? null;
     const validation = this.validateSkillOutputs(sessionId, outputs);
     if (!validation.ok) {
       return validation;
@@ -355,20 +361,15 @@ export class SkillLifecycleService {
 
     if (activeSkillName) {
       const completedAt = Date.now();
-      let sessionOutputs = this.sessionState.skillOutputsBySession.get(sessionId);
-      if (!sessionOutputs) {
-        sessionOutputs = new Map();
-        this.sessionState.skillOutputsBySession.set(sessionId, sessionOutputs);
-      }
-      sessionOutputs.set(activeSkillName, {
+      state.skillOutputs.set(activeSkillName, {
         skillName: activeSkillName,
         completedAt,
         outputs,
       });
       const outputKeys = Object.keys(outputs).toSorted();
 
-      this.sessionState.activeSkillsBySession.delete(sessionId);
-      this.sessionState.toolCallsBySession.delete(sessionId);
+      state.activeSkill = undefined;
+      state.toolCalls = 0;
 
       this.recordEvent({
         sessionId,
@@ -388,7 +389,7 @@ export class SkillLifecycleService {
   }
 
   getSkillOutputs(sessionId: string, skillName: string): Record<string, unknown> | undefined {
-    return this.sessionState.skillOutputsBySession.get(sessionId)?.get(skillName)?.outputs;
+    return this.sessionState.getExistingCell(sessionId)?.skillOutputs.get(skillName)?.outputs;
   }
 
   getAvailableConsumedOutputs(sessionId: string, targetSkillName: string): Record<string, unknown> {
@@ -402,7 +403,7 @@ export class SkillLifecycleService {
 
     const consumeSet = new Set(requestedInputs);
     const result: Record<string, unknown> = {};
-    const sessionOutputs = this.sessionState.skillOutputsBySession.get(sessionId);
+    const sessionOutputs = this.sessionState.getExistingCell(sessionId)?.skillOutputs;
     if (!sessionOutputs) return {};
 
     for (const record of sessionOutputs.values()) {
@@ -416,7 +417,7 @@ export class SkillLifecycleService {
   }
 
   listProducedOutputKeys(sessionId: string): string[] {
-    const sessionOutputs = this.sessionState.skillOutputsBySession.get(sessionId);
+    const sessionOutputs = this.sessionState.getExistingCell(sessionId)?.skillOutputs;
     if (!sessionOutputs || sessionOutputs.size === 0) {
       return [];
     }

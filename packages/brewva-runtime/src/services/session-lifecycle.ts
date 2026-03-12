@@ -17,6 +17,8 @@ import { TAPE_CHECKPOINT_EVENT_TYPE, coerceTapeCheckpointPayload } from "../tape
 import type { TurnReplayEngine } from "../tape/replay-engine.js";
 import type {
   BrewvaEventRecord,
+  SessionHydrationIssue,
+  SessionHydrationState,
   SkillChainIntent,
   SkillDispatchDecision,
   SkillOutputRecord,
@@ -35,7 +37,19 @@ import { RuntimeSessionStateStore } from "./session-state.js";
 const SKILL_SELECTION_SIGNALS = new Set<SkillSelectionSignal>(SKILL_SELECTION_SIGNALS_LIST);
 
 export interface SessionLifecycleServiceOptions {
-  kernel: RuntimeKernelContext;
+  sessionState: RuntimeKernelContext["sessionState"];
+  contextBudget: RuntimeKernelContext["contextBudget"];
+  contextInjection: RuntimeKernelContext["contextInjection"];
+  fileChanges: RuntimeKernelContext["fileChanges"];
+  verificationGate: RuntimeKernelContext["verificationGate"];
+  parallel: RuntimeKernelContext["parallel"];
+  parallelResults: RuntimeKernelContext["parallelResults"];
+  costTracker: RuntimeKernelContext["costTracker"];
+  projectionEngine: RuntimeKernelContext["projectionEngine"];
+  turnReplay: RuntimeKernelContext["turnReplay"];
+  eventStore: RuntimeKernelContext["eventStore"];
+  evidenceLedger: RuntimeKernelContext["evidenceLedger"];
+  recordEvent: RuntimeKernelContext["recordEvent"];
   contextService: Pick<ContextService, "clearReservedInjectionTokensForSession">;
 }
 
@@ -61,33 +75,32 @@ export class SessionLifecycleService {
     timestamp?: number;
     skipTapeCheckpoint?: boolean;
   }) => unknown;
-  private readonly hydratedSessions = new Set<string>();
   private readonly clearStateListeners = new Set<(sessionId: string) => void>();
 
   constructor(options: SessionLifecycleServiceOptions) {
-    const { kernel } = options;
-    this.sessionState = kernel.sessionState;
-    this.contextBudget = kernel.contextBudget;
-    this.contextInjection = kernel.contextInjection;
+    this.sessionState = options.sessionState;
+    this.contextBudget = options.contextBudget;
+    this.contextInjection = options.contextInjection;
     this.clearReservedInjectionTokensForSession = (sessionId) =>
       options.contextService.clearReservedInjectionTokensForSession(sessionId);
-    this.fileChanges = kernel.fileChanges;
-    this.verification = kernel.verificationGate;
-    this.parallel = kernel.parallel;
-    this.parallelResults = kernel.parallelResults;
-    this.costTracker = kernel.costTracker;
-    this.projectionEngine = kernel.projectionEngine;
-    this.turnReplay = kernel.turnReplay;
-    this.events = kernel.eventStore;
-    this.ledger = kernel.evidenceLedger;
-    this.recordEvent = (input) => kernel.recordEvent(input);
+    this.fileChanges = options.fileChanges;
+    this.verification = options.verificationGate;
+    this.parallel = options.parallel;
+    this.parallelResults = options.parallelResults;
+    this.costTracker = options.costTracker;
+    this.projectionEngine = options.projectionEngine;
+    this.turnReplay = options.turnReplay;
+    this.events = options.eventStore;
+    this.ledger = options.evidenceLedger;
+    this.recordEvent = (input) => options.recordEvent(input);
   }
 
   onTurnStart(sessionId: string, turnIndex: number): void {
     this.hydrateSessionStateFromEvents(sessionId);
-    const current = this.sessionState.turnsBySession.get(sessionId) ?? 0;
+    const state = this.sessionState.getCell(sessionId);
+    const current = state.turn;
     const effectiveTurn = Math.max(current, turnIndex);
-    this.sessionState.turnsBySession.set(sessionId, effectiveTurn);
+    state.turn = effectiveTurn;
     this.contextBudget.beginTurn(sessionId, effectiveTurn);
     this.contextInjection.clearPending(sessionId);
     this.clearReservedInjectionTokensForSession(sessionId);
@@ -95,6 +108,27 @@ export class SessionLifecycleService {
 
   ensureHydrated(sessionId: string): void {
     this.hydrateSessionStateFromEvents(sessionId);
+  }
+
+  getHydrationState(sessionId: string): SessionHydrationState {
+    const hydration = this.sessionState.getExistingCell(sessionId)?.hydration;
+    if (!hydration) {
+      return {
+        status: "cold",
+        issues: [],
+      };
+    }
+    return {
+      status: hydration.status,
+      latestEventId: hydration.latestEventId,
+      hydratedAt: hydration.hydratedAt,
+      issues: hydration.issues.map((issue) => ({
+        eventId: issue.eventId,
+        eventType: issue.eventType,
+        index: issue.index,
+        reason: issue.reason,
+      })),
+    };
   }
 
   onClearState(listener: (sessionId: string) => void): () => void {
@@ -113,7 +147,6 @@ export class SessionLifecycleService {
       }
     }
 
-    this.hydratedSessions.delete(sessionId);
     this.sessionState.clearSession(sessionId);
 
     this.fileChanges.clearSession(sessionId);
@@ -133,13 +166,20 @@ export class SessionLifecycleService {
   }
 
   private hydrateSessionStateFromEvents(sessionId: string): void {
-    if (this.hydratedSessions.has(sessionId)) return;
-    this.hydratedSessions.add(sessionId);
+    const state = this.sessionState.getCell(sessionId);
+    if (state.hydration.status !== "cold") return;
 
     const events = this.events.list(sessionId);
     this.costTracker.clear(sessionId);
     this.verification.stateStore.clear(sessionId);
-    if (events.length === 0) return;
+    if (events.length === 0) {
+      state.hydration = {
+        status: "ready",
+        hydratedAt: Date.now(),
+        issues: [],
+      };
+      return;
+    }
 
     const latestCheckpoint = this.findLatestCheckpoint(events);
     const costReplayStartIndex = latestCheckpoint ? latestCheckpoint.index + 1 : 0;
@@ -158,219 +198,202 @@ export class SessionLifecycleService {
       mode: "missing_only",
     });
 
-    let derivedTurn = this.sessionState.turnsBySession.get(sessionId) ?? 0;
-    let activeSkill = this.sessionState.activeSkillsBySession.get(sessionId);
-    let toolCalls = this.sessionState.toolCallsBySession.get(sessionId) ?? 0;
-    let lastLedgerCompactionTurn =
-      this.sessionState.lastLedgerCompactionTurnBySession.get(sessionId);
+    let derivedTurn = state.turn;
+    let activeSkill = state.activeSkill;
+    let toolCalls = state.toolCalls;
+    let lastLedgerCompactionTurn = state.lastLedgerCompactionTurn;
 
-    const toolContractWarnings = new Set(
-      this.sessionState.toolContractWarningsBySession.get(sessionId) ?? [],
-    );
-    const skillBudgetWarnings = new Set(
-      this.sessionState.skillBudgetWarningsBySession.get(sessionId) ?? [],
-    );
-    const skillParallelWarnings = new Set(
-      this.sessionState.skillParallelWarningsBySession.get(sessionId) ?? [],
-    );
+    const toolContractWarnings = new Set(state.toolContractWarnings);
+    const skillBudgetWarnings = new Set(state.skillBudgetWarnings);
+    const skillParallelWarnings = new Set(state.skillParallelWarnings);
     const skillOutputs = new Map<string, SkillOutputRecord>();
-    let pendingDispatch = this.sessionState.pendingDispatchBySession.get(sessionId);
-    let skillChainIntent = this.sessionState.skillChainIntentsBySession.get(sessionId);
+    let pendingDispatch = state.pendingDispatch;
+    let skillChainIntent = state.skillChainIntent;
+    const issues: SessionHydrationIssue[] = [];
 
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
       if (!event) continue;
-      if (typeof event.turn === "number" && Number.isFinite(event.turn)) {
-        derivedTurn = Math.max(derivedTurn, Math.floor(event.turn));
-      }
-
-      const payload =
-        event.payload && typeof event.payload === "object"
-          ? (event.payload as Record<string, unknown>)
-          : null;
-
-      const replayCostTail = index >= costReplayStartIndex;
-      const replayCheckpointTurnTransient =
-        !replayCostTail &&
-        checkpointTurn !== null &&
-        this.normalizeTurn(event.turn) === checkpointTurn &&
-        this.isCheckpointTurnCostTransientEvent(event.type);
-
-      if (replayCostTail || replayCheckpointTurnTransient) {
-        this.replayCostStateEvent(sessionId, event, payload, {
-          checkpointTurnTransient: replayCheckpointTurnTransient,
-        });
-      }
-
-      if (event.type === VERIFICATION_WRITE_MARKED_EVENT_TYPE) {
-        const writePayload = coerceVerificationWriteMarkedPayload(payload);
-        if (writePayload) {
-          this.verification.stateStore.markWriteAt(sessionId, event.timestamp);
+      try {
+        if (typeof event.turn === "number" && Number.isFinite(event.turn)) {
+          derivedTurn = Math.max(derivedTurn, Math.floor(event.turn));
         }
-        continue;
-      }
 
-      if (event.type === TOOL_RESULT_RECORDED_EVENT_TYPE) {
-        const projection = readVerificationToolResultProjectionPayload(
-          payload?.verificationProjection,
-        );
-        if (projection?.evidence.length) {
-          this.verification.stateStore.appendEvidence(sessionId, projection.evidence);
-        }
-        if (projection?.checkRun) {
-          this.verification.stateStore.setCheckRun(
-            sessionId,
-            projection.checkRun.checkName,
-            projection.checkRun.run,
-          );
-        }
-      }
+        const payload =
+          event.payload && typeof event.payload === "object"
+            ? (event.payload as Record<string, unknown>)
+            : null;
 
-      if (event.type === VERIFICATION_STATE_RESET_EVENT_TYPE) {
-        this.verification.stateStore.clear(sessionId);
-        continue;
-      }
+        const replayCostTail = index >= costReplayStartIndex;
+        const replayCheckpointTurnTransient =
+          !replayCostTail &&
+          checkpointTurn !== null &&
+          this.normalizeTurn(event.turn) === checkpointTurn &&
+          this.isCheckpointTurnCostTransientEvent(event.type);
 
-      if (event.type === "skill_activated") {
-        const skillName = this.readSkillName(payload);
-        if (skillName) {
-          activeSkill = skillName;
-          toolCalls = 0;
-        }
-        continue;
-      }
-
-      if (event.type === "skill_completed") {
-        const skillName = this.readSkillName(payload);
-        const outputs = this.readSkillOutputs(payload);
-        if (skillName && outputs) {
-          skillOutputs.set(skillName, {
-            skillName,
-            completedAt: this.readNonNegativeNumber(payload?.completedAt) ?? event.timestamp,
-            outputs,
+        if (replayCostTail || replayCheckpointTurnTransient) {
+          this.replayCostStateEvent(sessionId, event, payload, {
+            checkpointTurnTransient: replayCheckpointTurnTransient,
           });
         }
-        activeSkill = undefined;
-        toolCalls = 0;
-        continue;
-      }
 
-      if (event.type === "tool_call_marked") {
-        if (activeSkill) {
-          toolCalls += 1;
+        if (event.type === VERIFICATION_WRITE_MARKED_EVENT_TYPE) {
+          const writePayload = coerceVerificationWriteMarkedPayload(payload);
+          if (writePayload) {
+            this.verification.stateStore.markWriteAt(sessionId, event.timestamp);
+          }
+          continue;
         }
-        continue;
-      }
 
-      if (event.type === "tool_contract_warning") {
-        const skillName = this.readSkillName(payload);
-        const normalizedTool = this.readToolName(payload);
-        if (skillName && normalizedTool) {
-          toolContractWarnings.add(`${skillName}:${normalizedTool}`);
+        if (event.type === TOOL_RESULT_RECORDED_EVENT_TYPE) {
+          const projection = readVerificationToolResultProjectionPayload(
+            payload?.verificationProjection,
+          );
+          if (projection?.evidence.length) {
+            this.verification.stateStore.appendEvidence(sessionId, projection.evidence);
+          }
+          if (projection?.checkRun) {
+            this.verification.stateStore.setCheckRun(
+              sessionId,
+              projection.checkRun.checkName,
+              projection.checkRun.run,
+            );
+          }
         }
-        continue;
-      }
 
-      if (event.type === "skill_budget_warning") {
-        const skillName = this.readSkillName(payload);
-        const budget = payload?.budget;
-        if (!skillName || typeof budget !== "string") continue;
-        if (budget === "tokens") {
-          skillBudgetWarnings.add(`maxTokens:${skillName}`);
-        } else if (budget === "tool_calls") {
-          skillBudgetWarnings.add(`maxToolCalls:${skillName}`);
+        if (event.type === VERIFICATION_STATE_RESET_EVENT_TYPE) {
+          this.verification.stateStore.clear(sessionId);
+          continue;
         }
-        continue;
-      }
 
-      if (event.type === "skill_parallel_warning") {
-        const skillName = this.readSkillName(payload);
-        if (skillName) {
-          skillParallelWarnings.add(`maxParallel:${skillName}`);
+        if (event.type === "skill_activated") {
+          const skillName = this.readSkillName(payload);
+          if (skillName) {
+            activeSkill = skillName;
+            toolCalls = 0;
+          }
+          continue;
         }
-        continue;
-      }
 
-      if (event.type === "skill_routing_decided") {
-        const parsed = this.readPendingDispatch(payload, event.turn);
-        if (parsed) {
-          pendingDispatch = parsed;
+        if (event.type === "skill_completed") {
+          const skillName = this.readSkillName(payload);
+          const outputs = this.readSkillOutputs(payload);
+          if (skillName && outputs) {
+            skillOutputs.set(skillName, {
+              skillName,
+              completedAt: this.readNonNegativeNumber(payload?.completedAt) ?? event.timestamp,
+              outputs,
+            });
+          }
+          activeSkill = undefined;
+          toolCalls = 0;
+          continue;
         }
-        continue;
-      }
 
-      if (event.type.startsWith("skill_cascade_")) {
-        const parsedIntent = this.readSkillChainIntent(payload);
-        if (parsedIntent) {
-          skillChainIntent = parsedIntent;
+        if (event.type === "tool_call_marked") {
+          if (activeSkill) {
+            toolCalls += 1;
+          }
+          continue;
         }
-        continue;
-      }
 
-      if (
-        event.type === "skill_routing_followed" ||
-        event.type === "skill_routing_overridden" ||
-        event.type === "skill_routing_ignored"
-      ) {
-        pendingDispatch = undefined;
-        continue;
-      }
+        if (event.type === "tool_contract_warning") {
+          const skillName = this.readSkillName(payload);
+          const normalizedTool = this.readToolName(payload);
+          if (skillName && normalizedTool) {
+            toolContractWarnings.add(`${skillName}:${normalizedTool}`);
+          }
+          continue;
+        }
 
-      if (
-        event.type === "ledger_compacted" &&
-        typeof event.turn === "number" &&
-        Number.isFinite(event.turn)
-      ) {
-        const normalizedTurn = Math.floor(event.turn);
+        if (event.type === "skill_budget_warning") {
+          const skillName = this.readSkillName(payload);
+          const budget = payload?.budget;
+          if (!skillName || typeof budget !== "string") continue;
+          if (budget === "tokens") {
+            skillBudgetWarnings.add(`maxTokens:${skillName}`);
+          } else if (budget === "tool_calls") {
+            skillBudgetWarnings.add(`maxToolCalls:${skillName}`);
+          }
+          continue;
+        }
+
+        if (event.type === "skill_parallel_warning") {
+          const skillName = this.readSkillName(payload);
+          if (skillName) {
+            skillParallelWarnings.add(`maxParallel:${skillName}`);
+          }
+          continue;
+        }
+
+        if (event.type === "skill_routing_decided") {
+          const parsed = this.readPendingDispatch(payload, event.turn);
+          if (parsed) {
+            pendingDispatch = parsed;
+          }
+          continue;
+        }
+
+        if (event.type.startsWith("skill_cascade_")) {
+          const parsedIntent = this.readSkillChainIntent(payload);
+          if (parsedIntent) {
+            skillChainIntent = parsedIntent;
+          }
+          continue;
+        }
+
         if (
-          typeof lastLedgerCompactionTurn !== "number" ||
-          normalizedTurn > lastLedgerCompactionTurn
+          event.type === "skill_routing_followed" ||
+          event.type === "skill_routing_overridden" ||
+          event.type === "skill_routing_ignored"
         ) {
-          lastLedgerCompactionTurn = normalizedTurn;
+          pendingDispatch = undefined;
+          continue;
         }
+
+        if (
+          event.type === "ledger_compacted" &&
+          typeof event.turn === "number" &&
+          Number.isFinite(event.turn)
+        ) {
+          const normalizedTurn = Math.floor(event.turn);
+          if (
+            typeof lastLedgerCompactionTurn !== "number" ||
+            normalizedTurn > lastLedgerCompactionTurn
+          ) {
+            lastLedgerCompactionTurn = normalizedTurn;
+          }
+        }
+      } catch (error) {
+        issues.push({
+          eventId: event.id,
+          eventType: event.type,
+          index,
+          reason: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
-    this.sessionState.turnsBySession.set(sessionId, derivedTurn);
-    if (activeSkill) {
-      this.sessionState.activeSkillsBySession.set(sessionId, activeSkill);
-      this.sessionState.toolCallsBySession.set(sessionId, toolCalls);
-    } else {
-      this.sessionState.activeSkillsBySession.delete(sessionId);
-      this.sessionState.toolCallsBySession.delete(sessionId);
-    }
-
-    if (typeof lastLedgerCompactionTurn === "number" && Number.isFinite(lastLedgerCompactionTurn)) {
-      this.sessionState.lastLedgerCompactionTurnBySession.set(sessionId, lastLedgerCompactionTurn);
-    } else {
-      this.sessionState.lastLedgerCompactionTurnBySession.delete(sessionId);
-    }
-
-    if (toolContractWarnings.size > 0) {
-      this.sessionState.toolContractWarningsBySession.set(sessionId, toolContractWarnings);
-    }
-    if (skillBudgetWarnings.size > 0) {
-      this.sessionState.skillBudgetWarningsBySession.set(sessionId, skillBudgetWarnings);
-    }
-    if (skillParallelWarnings.size > 0) {
-      this.sessionState.skillParallelWarningsBySession.set(sessionId, skillParallelWarnings);
-    }
-    if (pendingDispatch && pendingDispatch.mode !== "none") {
-      this.sessionState.pendingDispatchBySession.set(sessionId, pendingDispatch);
-    } else {
-      this.sessionState.pendingDispatchBySession.delete(sessionId);
-    }
-
-    if (skillOutputs.size > 0) {
-      this.sessionState.skillOutputsBySession.set(sessionId, skillOutputs);
-    } else {
-      this.sessionState.skillOutputsBySession.delete(sessionId);
-    }
-    if (skillChainIntent) {
-      this.sessionState.skillChainIntentsBySession.set(sessionId, skillChainIntent);
-    } else {
-      this.sessionState.skillChainIntentsBySession.delete(sessionId);
-    }
+    state.turn = derivedTurn;
+    state.activeSkill = activeSkill;
+    state.toolCalls = activeSkill ? toolCalls : 0;
+    state.lastLedgerCompactionTurn =
+      typeof lastLedgerCompactionTurn === "number" && Number.isFinite(lastLedgerCompactionTurn)
+        ? lastLedgerCompactionTurn
+        : undefined;
+    state.toolContractWarnings = toolContractWarnings;
+    state.skillBudgetWarnings = skillBudgetWarnings;
+    state.skillParallelWarnings = skillParallelWarnings;
+    state.pendingDispatch =
+      pendingDispatch && pendingDispatch.mode !== "none" ? pendingDispatch : undefined;
+    state.skillOutputs = skillOutputs;
+    state.skillChainIntent = skillChainIntent;
+    state.hydration = {
+      status: issues.length > 0 ? "degraded" : "ready",
+      latestEventId: events[events.length - 1]?.id,
+      hydratedAt: Date.now(),
+      issues,
+    };
   }
 
   private findLatestCheckpoint(events: BrewvaEventRecord[]): {

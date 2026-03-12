@@ -105,7 +105,9 @@ function toFreshRun(
 }
 
 export interface VerificationProjectorServiceOptions {
-  kernel: RuntimeKernelContext;
+  getTaskState: RuntimeKernelContext["getTaskState"];
+  getTruthState: RuntimeKernelContext["getTruthState"];
+  verificationStateStore: RuntimeKernelContext["verificationGate"]["stateStore"];
   eventPipeline: Pick<EventPipelineService, "subscribeEvents">;
   taskService: Pick<TaskService, "recordTaskBlocker" | "resolveTaskBlocker">;
   truthService: Pick<TruthService, "upsertTruthFact" | "resolveTruthFact">;
@@ -141,9 +143,9 @@ export class VerificationProjectorService {
   ) => { ok: boolean; error?: string };
 
   constructor(options: VerificationProjectorServiceOptions) {
-    this.getTaskState = (sessionId) => options.kernel.getTaskState(sessionId);
-    this.getTruthState = (sessionId) => options.kernel.getTruthState(sessionId);
-    this.stateStore = options.kernel.verificationGate.stateStore;
+    this.getTaskState = (sessionId) => options.getTaskState(sessionId);
+    this.getTruthState = (sessionId) => options.getTruthState(sessionId);
+    this.stateStore = options.verificationStateStore;
     this.recordTaskBlocker = (sessionId, input) =>
       options.taskService.recordTaskBlocker(sessionId, input);
     this.resolveTaskBlocker = (sessionId, blockerId) =>
