@@ -191,8 +191,20 @@ export {
 } from "./context-composer.js";
 export {
   buildCapabilityView,
+  renderCapabilityView,
   type CapabilityAccessDecision,
+  type CapabilityDetail,
+  type CapabilityHintId,
+  type CapabilityPolicyId,
+  type CapabilityRenderMode,
+  type CapabilityRenderedBlock,
+  type CapabilityRenderedBlockKind,
+  type CapabilityRenderedBlockPriority,
+  type CapabilitySurface,
+  type CapabilityViewPolicy,
+  type CapabilityVisibilityInventory,
   type BuildCapabilityViewInput,
+  type RenderCapabilityViewInput,
   type BuildCapabilityViewResult,
 } from "./capability-view.js";
 export { registerEventStream } from "./event-stream.js";

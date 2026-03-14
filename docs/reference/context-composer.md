@@ -26,7 +26,13 @@ decides how already-admitted context should be shown to the model.
 - `sessionId`
 - current compaction-gate state
 - pending compaction reason, if any
-- capability-view tool-surface summary for the current turn
+- capability-view semantic disclosure state for the current turn
+  - `inventory` for visible-now summary, posture counts, hidden-surface counts,
+    and disclosure hints
+  - `policies` for disclosure and posture-boundary rules
+  - `requested` for explicit `$name` requests parsed from the turn prompt
+  - `details` for requested capability semantics selected for rendering
+  - `missing` for requested names that do not map to a known tool
 - admitted context entries from `runtime.context.buildInjection(...)`
 - acceptance status for that injected context
 
@@ -45,7 +51,11 @@ The composer returns an ordered list of blocks:
   - optional narrative providers may add `brewva.skill-candidates` or
     `brewva.tool-outputs-distilled`
 - `constraint`
-  - capability surface explanation
+  - rendered capability disclosure blocks derived from the semantic capability
+    view
+  - this may include `capability-view-summary`, `capability-view-policy`,
+    optional `capability-view-inventory`, requested `capability-detail:*`, and
+    `capability-detail-missing`
   - compaction gate/advisory blocks
   - any admitted constraint-category provider blocks such as
     `brewva.skill-cascade-gate`
@@ -62,6 +72,28 @@ Each block carries:
 - `category`
 - `content`
 - `estimatedTokens`
+
+## Capability Disclosure Resolution
+
+`ContextComposer` first measures admitted narrative tokens, then chooses a
+render profile for capability disclosure:
+
+- healthy narrative headroom keeps full disclosure plus inventory
+- moderate pressure keeps full policy and requested details but drops inventory
+- tighter pressure switches to compact summary/policy/detail rendering
+
+After rendering, governance trimming still happens in semantic order instead of
+raw string truncation:
+
+- non-operational diagnostics first
+- optional inventory
+- compaction advisory
+- compact capability detail/policy, then compact summary
+- generic capability policy before requested diagnostic capability detail
+- operational diagnostics last
+
+This keeps explicit `$name` detail requests more stable than inventory or
+decorative hints when context pressure increases.
 
 ## Non-Goals
 
@@ -89,3 +121,7 @@ The composer emits `context_composed` telemetry from the lifecycle adapter with:
 This provides a direct measurement for the product rule:
 
 `Model sees narrative.`
+
+The same `narrativeRatio` also drives capability disclosure resolution, so
+posture-aware tool detail can degrade by tier before requested semantics are
+dropped outright.

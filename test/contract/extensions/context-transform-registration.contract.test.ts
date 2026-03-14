@@ -77,6 +77,74 @@ describe("context transform registration contract", () => {
     expect(result.systemPrompt).toContain("[Brewva Context Contract]");
   });
 
+  test("surfaces capabilityView detailNames in hidden context metadata", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const extensionApi = api as unknown as {
+      registerTool: (tool: { name: string; description: string; parameters?: unknown }) => void;
+    };
+    extensionApi.registerTool({
+      name: "obs_query",
+      description: "Query runtime events.",
+      parameters: { type: "object", properties: {} },
+    });
+    const runtime = createRuntimeFixture({
+      context: {
+        onTurnStart: () => undefined,
+        observeUsage: () => undefined,
+        checkAndRequestCompaction: () => false,
+        markCompacted: () => undefined,
+        buildInjection: async () => ({
+          text: "[TaskState]\nstatus: active",
+          entries: [
+            makeInjectedEntry(
+              CONTEXT_SOURCES.taskState,
+              "task-state",
+              "[TaskState]\nstatus: active",
+            ),
+          ],
+          accepted: true,
+          originalTokens: 42,
+          finalTokens: 42,
+          truncated: false,
+        }),
+      },
+    });
+
+    registerContextTransform(api, runtime);
+
+    const result = await invokeHandlerAsync<{
+      message: {
+        details?: {
+          capabilityView?: {
+            requested?: string[];
+            detailNames?: string[];
+            missing?: string[];
+          };
+        };
+      };
+    }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "inspect $obs_query and $missing_tool",
+        systemPrompt: "base prompt",
+      },
+      {
+        sessionManager: {
+          getSessionId: () => "s-capability-view",
+        },
+        getContextUsage: () => undefined,
+      },
+    );
+
+    expect(result.message.details?.capabilityView).toEqual({
+      requested: ["obs_query", "missing_tool"],
+      detailNames: ["obs_query"],
+      missing: ["missing_tool"],
+    });
+  });
+
   test("emits deterministic routing telemetry from the real runtime path", async () => {
     const { api, handlers } = createMockExtensionAPI();
     const runtime = createRuntimeFixture({

@@ -149,11 +149,14 @@ Current extension composition resolves three layers before `before_agent_start`:
 - `operator tools`
   - operator-facing observability and control tools shown only for operator/full
     routing profiles by default or explicit `$tool_name` tool-surface requests
-    in the capability view
+    in current-turn capability disclosure
 
 Default product behavior:
 
-- the capability view block shows only the tools that are visible now
+- capability disclosure is rendered from the current-turn semantic capability
+  view, and its summary reflects only the tools that are visible now
+- renderer output is tiered: summary/policy are essential, inventory is
+  optional, and explicit `$tool_name` requests produce requested detail blocks
 - hidden managed Brewva tools can be surfaced for one turn by explicitly
   requesting `$tool_name`
 - explicit `$tool_name` requests change disclosure for the current turn only;

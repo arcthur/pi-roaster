@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildCapabilityView,
   composeContextBlocks,
   type ContextComposerInput,
 } from "@brewva/brewva-gateway/runtime-plugins";
@@ -82,12 +83,17 @@ describe("context composer", () => {
         windowTurns: 4,
       },
       pendingCompactionReason: null,
-      capabilityView: {
-        block: "[CapabilityView]\nvisible_now: $skill_load",
-        requested: [],
-        expanded: [],
-        missing: [],
-      },
+      capabilityView: buildCapabilityView({
+        prompt: "continue",
+        allTools: [
+          {
+            name: "skill_load",
+            description: "Load a skill.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        activeToolNames: ["skill_load"],
+      }),
       injectionAccepted: true,
       admittedEntries: [
         makeEntry(
@@ -115,7 +121,7 @@ describe("context composer", () => {
     expect(result.content.indexOf("[TaskState]")).toBeLessThan(
       result.content.indexOf("[SkillCascadeGate]"),
     );
-    expect(result.metrics.narrativeRatio).toBeGreaterThan(0.4);
+    expect(result.metrics.narrativeRatio).toBeGreaterThan(0.25);
   });
 
   test("keeps compaction constraints even when governance diagnostics are trimmed by the cap", () => {
@@ -137,12 +143,17 @@ describe("context composer", () => {
         windowTurns: 4,
       },
       pendingCompactionReason: "usage_threshold",
-      capabilityView: {
-        block: "[CapabilityView]\nvisible_now: $session_compact",
-        requested: [],
-        expanded: [],
-        missing: [],
-      },
+      capabilityView: buildCapabilityView({
+        prompt: "continue",
+        allTools: [
+          {
+            name: "session_compact",
+            description: "Compact session context.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        activeToolNames: ["session_compact"],
+      }),
       injectionAccepted: false,
       admittedEntries: [],
     });
@@ -173,12 +184,17 @@ describe("context composer", () => {
         windowTurns: 4,
       },
       pendingCompactionReason: null,
-      capabilityView: {
-        block: "[CapabilityView]\nvisible_now: $obs_query",
-        requested: ["obs_query"],
-        expanded: ["obs_query"],
-        missing: [],
-      },
+      capabilityView: buildCapabilityView({
+        prompt: "inspect $obs_query",
+        allTools: [
+          {
+            name: "obs_query",
+            description: "Query runtime events.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        activeToolNames: ["obs_query"],
+      }),
       injectionAccepted: false,
       admittedEntries: [],
     });
@@ -187,6 +203,7 @@ describe("context composer", () => {
     expect(result.content).toContain("requested_by: $obs_query");
     expect(result.content).toContain("tape_pressure: high");
     expect(result.content).toContain("tape_entries_since_anchor: 18");
+    expect(result.content).not.toContain("[CapabilityDetail:$obs_query]");
   });
 
   test("caps governance-heavy injections before they crowd out narrative blocks", () => {
@@ -213,13 +230,61 @@ describe("context composer", () => {
         windowTurns: 4,
       },
       pendingCompactionReason: "usage_threshold",
-      capabilityView: {
-        block:
-          "[CapabilityView]\nvisible_now: $session_compact, $output_search, $ledger_query, $task_record_blocker, $task_view_state, $obs_query, $tape_search, $skill_load",
-        requested: ["obs_query"],
-        expanded: ["obs_query"],
-        missing: [],
-      },
+      capabilityView: buildCapabilityView({
+        prompt: "inspect $obs_query",
+        allTools: [
+          {
+            name: "session_compact",
+            description: "Compact session context.",
+            parameters: { type: "object", properties: {} },
+          },
+          {
+            name: "output_search",
+            description: "Search persisted tool output.",
+            parameters: { type: "object", properties: { query: { type: "string" } } },
+          },
+          {
+            name: "ledger_query",
+            description: "Query session ledger.",
+            parameters: { type: "object", properties: { query: { type: "string" } } },
+          },
+          {
+            name: "task_record_blocker",
+            description: "Record a task blocker.",
+            parameters: { type: "object", properties: { blocker: { type: "string" } } },
+          },
+          {
+            name: "task_view_state",
+            description: "View task state.",
+            parameters: { type: "object", properties: {} },
+          },
+          {
+            name: "obs_query",
+            description: "Query runtime events.",
+            parameters: { type: "object", properties: {} },
+          },
+          {
+            name: "tape_search",
+            description: "Search tape entries.",
+            parameters: { type: "object", properties: { query: { type: "string" } } },
+          },
+          {
+            name: "skill_load",
+            description: "Load a skill.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        activeToolNames: [
+          "session_compact",
+          "output_search",
+          "ledger_query",
+          "task_record_blocker",
+          "task_view_state",
+          "obs_query",
+          "tape_search",
+          "skill_load",
+        ],
+      }),
       injectionAccepted: true,
       admittedEntries: [
         makeEntry(CONTEXT_SOURCES.taskState, "task-state", "[TaskState]\nstatus: active", 16),
@@ -232,7 +297,7 @@ describe("context composer", () => {
       ],
     });
 
-    expect(result.content).not.toContain("[OperationalDiagnostics]");
+    expect(result.content).toContain("[OperationalDiagnostics]");
     expect(result.content).not.toContain("[ExplorationAdvisory]");
     expect(result.content).toContain("[TaskState]");
     expect(result.metrics.narrativeRatio).toBeGreaterThan(0.15);
@@ -264,16 +329,83 @@ describe("context composer", () => {
         windowTurns: 4,
       },
       pendingCompactionReason: null,
-      capabilityView: {
-        block: "[CapabilityView]\nvisible_now: $obs_query",
-        requested: [],
-        expanded: [],
-        missing: [],
-      },
+      capabilityView: buildCapabilityView({
+        prompt: "continue",
+        allTools: [
+          {
+            name: "obs_query",
+            description: "Query runtime events.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        activeToolNames: ["obs_query"],
+      }),
       injectionAccepted: false,
       admittedEntries: [],
     });
 
     expect(result.content).not.toContain("[ExplorationAdvisory]");
+  });
+
+  test("uses narrative ratio to compact capability sections before dropping explicit tool details", () => {
+    const capabilityView = buildCapabilityView({
+      prompt: "inspect $task_set_spec",
+      allTools: [
+        {
+          name: "session_compact",
+          description: "Compact session context.",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "task_set_spec",
+          description: "Set the task specification.",
+          parameters: { type: "object", properties: { goal: { type: "string" } } },
+        },
+        {
+          name: "tape_search",
+          description: "Search tape entries.",
+          parameters: { type: "object", properties: { query: { type: "string" } } },
+        },
+        {
+          name: "obs_query",
+          description: "Query runtime events.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      activeToolNames: ["session_compact"],
+    });
+
+    const result = composeContextBlocks({
+      runtime: createComposerRuntime("low", 1),
+      sessionId: "compose-6",
+      gateStatus: {
+        required: false,
+        reason: null,
+        pressure: {
+          level: "low",
+          usageRatio: 0.18,
+          hardLimitRatio: 0.98,
+          compactionThresholdRatio: 0.8,
+        },
+        recentCompaction: false,
+        lastCompactionTurn: null,
+        turnsSinceCompaction: 1,
+        windowTurns: 4,
+      },
+      pendingCompactionReason: null,
+      capabilityView,
+      injectionAccepted: false,
+      admittedEntries: [],
+    });
+
+    expect(result.content).toContain("[CapabilityView]");
+    expect(result.content).toContain("[CapabilityDetail:$task_set_spec]");
+    expect(result.content).toContain("posture: reversible_mutate");
+    expect(result.content).toContain("effects: memory_write");
+    expect(result.content).not.toContain("description:");
+    expect(result.content).not.toContain("surface_policy:");
+    expect(result.content).not.toContain("posture_policy:");
+    expect(result.content).not.toContain("hidden_skill_count:");
+    expect(result.content).not.toContain("operator_hint:");
   });
 });

@@ -90,8 +90,10 @@ and compaction gates still decide whether execution is actually allowed.
 
 Default behavior is intentionally narrow:
 
-- explicit `$name` requests always expand tool details in the capability-view
-  block
+- explicit `$name` requests add names to the current-turn capability disclosure
+  request set
+- `ContextComposer` may render those requests as `capability-detail:*` blocks
+  or compact equivalents depending on narrative pressure and governance budget
 - any managed Brewva tool can be surfaced for the current turn by that request path
 - that disclosure path does not widen runtime authority or effect authorization
 - skill commitments still activate the normal task-specific tool surface without
@@ -270,17 +272,20 @@ Key implications:
 
 - applies a compact system-level context contract
 - calls `ContextComposer` with kernel-admitted context entries
-- injects a capability-view block for progressive tool disclosure (compact
-  visible tool list; expand with `$name`)
+- injects rendered capability disclosure blocks from the semantic capability
+  view (`summary`, `policy`, optional `inventory`, requested `detail`, and
+  `missing`)
 - enforces compaction gate behavior under critical context pressure
 - projects proposal-derived selection telemetry (`skill_routing_selection`)
+- writes hidden-message capability metadata as `capabilityView.requested`,
+  `capabilityView.detailNames`, and `capabilityView.missing`
 
 Boundary split:
 
 - runtime context services own source registration, budget, deduplication, and
   admission
-- `ContextComposer` owns block ordering and category (`narrative`,
-  `constraint`, `diagnostic`)
+- `ContextComposer` owns block ordering, category (`narrative`, `constraint`,
+  `diagnostic`), and capability disclosure resolution tier
 - `registerContextTransform` remains the lifecycle adapter for `turn_start`,
   `context`, `before_agent_start`, `session_compact`, and `session_shutdown`
 

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { buildCapabilityView } from "@brewva/brewva-gateway/runtime-plugins";
+import { buildCapabilityView, renderCapabilityView } from "@brewva/brewva-gateway/runtime-plugins";
 
 describe("capability view", () => {
-  test("builds compact capability list with governance-first ordering", () => {
+  test("builds semantic inventory with governance-first ordering", () => {
     const result = buildCapabilityView({
       prompt: "continue",
       allTools: [
@@ -42,16 +42,28 @@ describe("capability view", () => {
       activeToolNames: ["exec"],
     });
 
-    expect(result.block).toContain("[CapabilityView]");
-    expect(result.block).toContain("available_total: 3");
-    expect(result.block).toContain("visible_now_count: 1");
-    expect(result.block).toContain("visible_now: $exec");
-    expect(result.block).toContain("visible_postures: observe=0 reversible_mutate=0 commitment=1");
-    expect(result.block).toContain("hidden_skill_count: 1");
-    expect(result.block).toContain("hidden_operator_count: 0");
+    expect(result.inventory.availableTotal).toBe(3);
+    expect(result.inventory.visibleNames).toEqual(["exec"]);
+    expect(result.inventory.visibleByPosture).toEqual({
+      observe: 0,
+      reversible_mutate: 0,
+      commitment: 1,
+    });
+    expect(result.inventory.hiddenBySurface.skill).toBe(1);
+    expect(result.inventory.hiddenBySurface.operator).toBe(0);
+
+    const rendered = renderCapabilityView({
+      capabilityView: result,
+      mode: "full",
+      includeInventory: true,
+    });
+    expect(rendered[0]?.content).toContain("[CapabilityView]");
+    expect(rendered[0]?.content).toContain("available_total: 3");
+    expect(rendered[0]?.content).toContain("visible_now: $exec");
+    expect(rendered[2]?.content).toContain("hidden_skill_count: 1");
   });
 
-  test("expands capability details from $name requests", () => {
+  test("selects capability details from $name requests", () => {
     const result = buildCapabilityView({
       prompt: "inspect $tape_search and $not_exists",
       allTools: [
@@ -72,28 +84,43 @@ describe("capability view", () => {
     });
 
     expect(result.requested).toEqual(["tape_search", "not_exists"]);
-    expect(result.expanded).toEqual(["tape_search"]);
+    expect(result.details.map((detail) => detail.name)).toEqual(["tape_search"]);
     expect(result.missing).toEqual(["not_exists"]);
-    expect(result.block).toContain("[CapabilityDetail:$tape_search]");
-    expect(result.block).toContain("parameters: query");
-    expect(result.block).toContain("surface: skill");
-    expect(result.block).toContain("posture: observe");
-    expect(result.block).toContain("effects: runtime_observe");
-    expect(result.block).toContain("visible_now: false");
-    expect(result.block).toContain("unknown: $not_exists");
+    expect(result.details[0]).toMatchObject({
+      surface: "skill",
+      posture: "observe",
+      visibleNow: false,
+    });
+    expect(result.details[0]?.effects).toEqual(["runtime_observe"]);
+
+    const rendered = renderCapabilityView({
+      capabilityView: result,
+      mode: "full",
+      includeInventory: false,
+    });
+    expect(rendered.map((block) => block.id)).toEqual([
+      "capability-view-summary",
+      "capability-view-policy",
+      "capability-detail:tape_search",
+      "capability-detail-missing",
+    ]);
+    expect(rendered[2]?.content).toContain("parameters: query");
+    expect(rendered[2]?.content).toContain("surface: skill");
+    expect(rendered[3]?.content).toContain("unknown: $not_exists");
   });
 
-  test("returns empty block when tool list is empty", () => {
+  test("returns empty semantic view when tool list is empty", () => {
     const result = buildCapabilityView({
       prompt: "$exec",
       allTools: [],
       activeToolNames: [],
     });
 
-    expect(result.block).toBe("");
+    expect(result.inventory.availableTotal).toBe(0);
     expect(result.requested).toHaveLength(0);
-    expect(result.expanded).toHaveLength(0);
+    expect(result.details).toHaveLength(0);
     expect(result.missing).toHaveLength(0);
+    expect(renderCapabilityView({ capabilityView: result })).toEqual([]);
   });
 
   test("does not treat uppercase $NAME tokens as capability requests", () => {
@@ -110,11 +137,11 @@ describe("capability view", () => {
     });
 
     expect(result.requested).toEqual(["exec"]);
-    expect(result.expanded).toEqual(["exec"]);
+    expect(result.details.map((detail) => detail.name)).toEqual(["exec"]);
     expect(result.missing).toEqual([]);
   });
 
-  test("includes allowed_now and deny_reason when access resolver is provided", () => {
+  test("includes access decisions in detail semantics and rendered output", () => {
     const result = buildCapabilityView({
       prompt: "inspect $exec",
       allTools: [
@@ -133,11 +160,20 @@ describe("capability view", () => {
       },
     });
 
-    expect(result.block).toContain("allowed_now: false");
-    expect(result.block).toContain("deny_reason: blocked-for-test");
+    expect(result.details[0]?.access).toEqual({
+      allowed: false,
+      reason: "blocked-for-test",
+    });
+    const rendered = renderCapabilityView({
+      capabilityView: result,
+      mode: "compact",
+      includeInventory: false,
+    });
+    expect(rendered[2]?.content).toContain("allowed_now: false");
+    expect(rendered[2]?.content).toContain("deny_reason: blocked-for-test");
   });
 
-  test("describes hidden operator tools and explicit request hint", () => {
+  test("records operator visibility hints in inventory semantics", () => {
     const result = buildCapabilityView({
       prompt: "continue",
       allTools: [
@@ -155,13 +191,18 @@ describe("capability view", () => {
       activeToolNames: ["skill_load"],
     });
 
-    expect(result.block).toContain("hidden_operator_count: 1");
+    expect(result.inventory.hiddenBySurface.operator).toBe(1);
+    expect(result.inventory.hints).toContain("operator_profile_available");
     expect(
-      result.block.includes("operator_hint: operator/full profile keeps these tools visible"),
+      renderCapabilityView({
+        capabilityView: result,
+        mode: "full",
+        includeInventory: true,
+      })[2]?.content.includes("operator_hint: operator/full profile keeps these tools visible"),
     ).toBe(true);
   });
 
-  test("describes hidden skill tools when no skill-scoped tool is visible", () => {
+  test("records skill visibility hints when no skill-scoped tool is active", () => {
     const result = buildCapabilityView({
       prompt: "continue",
       allTools: [
@@ -179,11 +220,11 @@ describe("capability view", () => {
       activeToolNames: ["session_compact"],
     });
 
-    expect(result.block).toContain("hidden_skill_count: 1");
-    expect(result.block).toContain("skill_hint: load or accept a skill");
+    expect(result.inventory.hiddenBySurface.skill).toBe(1);
+    expect(result.inventory.hints).toContain("load_or_accept_skill");
   });
 
-  test("expands posture and effect boundary for reversible tools", () => {
+  test("captures posture and effect boundaries for reversible tools", () => {
     const result = buildCapabilityView({
       prompt: "inspect $task_set_spec",
       allTools: [
@@ -196,8 +237,47 @@ describe("capability view", () => {
       activeToolNames: [],
     });
 
-    expect(result.block).toContain("[CapabilityDetail:$task_set_spec]");
-    expect(result.block).toContain("posture: reversible_mutate");
-    expect(result.block).toContain("effects: memory_write");
+    expect(result.details[0]?.posture).toBe("reversible_mutate");
+    expect(result.details[0]?.effects).toEqual(["memory_write"]);
+  });
+
+  test("renders compact disclosure without inventory noise", () => {
+    const result = buildCapabilityView({
+      prompt: "inspect $task_set_spec",
+      allTools: [
+        {
+          name: "session_compact",
+          description: "Compact session context.",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "task_set_spec",
+          description: "Set the task specification.",
+          parameters: { type: "object", properties: { goal: { type: "string" } } },
+        },
+        {
+          name: "obs_query",
+          description: "Query runtime events.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      activeToolNames: ["session_compact"],
+    });
+
+    const rendered = renderCapabilityView({
+      capabilityView: result,
+      mode: "compact",
+      includeInventory: false,
+    });
+
+    expect(rendered.map((block) => block.id)).toEqual([
+      "capability-view-summary",
+      "capability-view-policy",
+      "capability-detail:task_set_spec",
+    ]);
+    expect(rendered[1]?.content).toContain("posture_policy:");
+    expect(rendered[1]?.content).not.toContain("surface_policy:");
+    expect(rendered[2]?.content).toContain("posture: reversible_mutate");
+    expect(rendered[2]?.content).not.toContain("description:");
   });
 });

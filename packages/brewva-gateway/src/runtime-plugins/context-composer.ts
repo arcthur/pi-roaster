@@ -4,7 +4,11 @@ import {
   type ContextCompactionGateStatus,
   type ContextInjectionEntry,
 } from "@brewva/brewva-runtime";
-import type { BuildCapabilityViewResult } from "./capability-view.js";
+import {
+  renderCapabilityView,
+  type BuildCapabilityViewResult,
+  type CapabilityRenderedBlock,
+} from "./capability-view.js";
 import { formatPercent } from "./context-shared.js";
 import { estimateTokens } from "./tool-output-distiller.js";
 
@@ -12,6 +16,8 @@ const GOVERNANCE_TOKEN_CAP_RATIO = 0.15;
 const MIN_GOVERNANCE_TOKEN_CAP = 96;
 const MIN_CAPABILITY_VIEW_TOKENS = 48;
 const CHARS_PER_TOKEN = 3.5;
+const CAPABILITY_VIEW_INVENTORY_RATIO_THRESHOLD = 0.35;
+const CAPABILITY_VIEW_COMPACT_RATIO_THRESHOLD = 0.2;
 
 export type ContextBlockCategory = "narrative" | "constraint" | "diagnostic";
 
@@ -34,6 +40,10 @@ export interface ContextComposerResult {
   blocks: ComposedContextBlock[];
   content: string;
   metrics: ContextComposerMetrics;
+}
+
+interface InternalContextBlock extends ComposedContextBlock {
+  compactContent?: string;
 }
 
 export interface ContextComposedEventPayload extends Record<string, unknown> {
@@ -84,16 +94,25 @@ function makeBlock(
   id: string,
   category: ContextBlockCategory,
   content: string,
-): ComposedContextBlock | null {
+  options: {
+    compactContent?: string;
+  } = {},
+): InternalContextBlock | null {
   const normalized = content.trim();
   if (normalized.length === 0) {
     return null;
   }
+  const normalizedCompact =
+    typeof options.compactContent === "string" ? options.compactContent.trim() : undefined;
   return {
     id,
     category,
     content: normalized,
     estimatedTokens: estimateTokens(normalized),
+    compactContent:
+      normalizedCompact && normalizedCompact.length > 0 && normalizedCompact !== normalized
+        ? normalizedCompact
+        : undefined,
   };
 }
 
@@ -184,7 +203,9 @@ function compareCategory(left: ContextBlockCategory, right: ContextBlockCategory
   return order[left] - order[right];
 }
 
-function buildMetrics(blocks: ComposedContextBlock[]): ContextComposerMetrics {
+function buildMetrics<T extends Pick<ComposedContextBlock, "category" | "estimatedTokens">>(
+  blocks: T[],
+): ContextComposerMetrics {
   let narrativeTokens = 0;
   let constraintTokens = 0;
   let diagnosticTokens = 0;
@@ -220,11 +241,166 @@ function truncateContentToTokenBudget(content: string, maxTokens: number): strin
   return `${content.slice(0, maxChars - 3)}...`;
 }
 
-function rebuildBlock(block: ComposedContextBlock, content: string): ComposedContextBlock | null {
-  return makeBlock(block.id, block.category, content);
+function rebuildBlock(
+  block: InternalContextBlock,
+  content: string,
+  options: {
+    compactContent?: string;
+  } = {},
+): InternalContextBlock | null {
+  return makeBlock(block.id, block.category, content, {
+    compactContent: options.compactContent,
+  });
 }
 
-function applyGovernanceBudgetCap(blocks: ComposedContextBlock[]): ComposedContextBlock[] {
+function compactBlock(block: InternalContextBlock): InternalContextBlock | null {
+  if (!block.compactContent) {
+    return block;
+  }
+  return rebuildBlock(block, block.compactContent);
+}
+
+function measureGovernanceTokens(blocks: InternalContextBlock[]): number {
+  return blocks.reduce((sum, block) => {
+    if (block.category === "constraint" || block.category === "diagnostic") {
+      return sum + block.estimatedTokens;
+    }
+    return sum;
+  }, 0);
+}
+
+function isDiagnosticCapabilityDetailBlock(block: InternalContextBlock): boolean {
+  if (!block.id.startsWith("capability-detail:")) {
+    return false;
+  }
+  const toolName = block.id.slice("capability-detail:".length);
+  return DIAGNOSTIC_CAPABILITY_NAMES.has(toolName);
+}
+
+function removeBlocksWhileOverCap(
+  blocks: InternalContextBlock[],
+  governanceCap: number,
+  predicate: (block: InternalContextBlock) => boolean,
+): InternalContextBlock[] {
+  let governanceTokens = measureGovernanceTokens(blocks);
+  if (governanceTokens <= governanceCap) {
+    return blocks;
+  }
+  return blocks.filter((block) => {
+    if (!predicate(block)) {
+      return true;
+    }
+    if (governanceTokens <= governanceCap) {
+      return true;
+    }
+    governanceTokens -=
+      block.category === "constraint" || block.category === "diagnostic"
+        ? block.estimatedTokens
+        : 0;
+    return false;
+  });
+}
+
+function compactBlocksWhileOverCap(
+  blocks: InternalContextBlock[],
+  governanceCap: number,
+  predicate: (block: InternalContextBlock) => boolean,
+): InternalContextBlock[] {
+  const current = [...blocks];
+  let governanceTokens = measureGovernanceTokens(current);
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+  for (let index = 0; index < current.length; index += 1) {
+    const block = current[index];
+    if (!block || !predicate(block) || !block.compactContent) {
+      continue;
+    }
+    if (governanceTokens <= governanceCap) {
+      break;
+    }
+    const compacted = compactBlock(block);
+    if (!compacted || compacted.estimatedTokens >= block.estimatedTokens) {
+      continue;
+    }
+    governanceTokens -= block.estimatedTokens - compacted.estimatedTokens;
+    current[index] = compacted;
+  }
+  return current;
+}
+
+function estimateRenderedBlockTokens(blocks: CapabilityRenderedBlock[]): number {
+  return blocks.reduce((sum, block) => sum + estimateTokens(block.content), 0);
+}
+
+function computeProjectedNarrativeRatio(
+  existingMetrics: ContextComposerMetrics,
+  renderedBlocks: CapabilityRenderedBlock[],
+): number {
+  const totalTokens = existingMetrics.totalTokens + estimateRenderedBlockTokens(renderedBlocks);
+  if (totalTokens <= 0) {
+    return 0;
+  }
+  return existingMetrics.narrativeTokens / totalTokens;
+}
+
+function resolveCapabilityBlocks(
+  capabilityView: BuildCapabilityViewResult,
+  existingMetrics: ContextComposerMetrics,
+): CapabilityRenderedBlock[] {
+  if (existingMetrics.narrativeTokens <= 0) {
+    return renderCapabilityView({
+      capabilityView,
+      mode: "compact",
+      includeInventory: false,
+    });
+  }
+
+  const fullWithInventory = renderCapabilityView({
+    capabilityView,
+    mode: "full",
+    includeInventory: true,
+  });
+  if (
+    computeProjectedNarrativeRatio(existingMetrics, fullWithInventory) >=
+    CAPABILITY_VIEW_INVENTORY_RATIO_THRESHOLD
+  ) {
+    return fullWithInventory;
+  }
+
+  const fullWithoutInventory = renderCapabilityView({
+    capabilityView,
+    mode: "full",
+    includeInventory: false,
+  });
+  if (
+    computeProjectedNarrativeRatio(existingMetrics, fullWithoutInventory) >=
+    CAPABILITY_VIEW_COMPACT_RATIO_THRESHOLD
+  ) {
+    return fullWithoutInventory;
+  }
+
+  return renderCapabilityView({
+    capabilityView,
+    mode: "compact",
+    includeInventory: false,
+  });
+}
+
+function buildCapabilityBlocks(
+  capabilityView: BuildCapabilityViewResult,
+  existingMetrics: ContextComposerMetrics,
+): InternalContextBlock[] {
+  const renderedBlocks = resolveCapabilityBlocks(capabilityView, existingMetrics);
+  return renderedBlocks.flatMap((block) => {
+    const constraintBlock = makeBlock(block.id, "constraint", block.content, {
+      compactContent: block.compactContent,
+    });
+    return constraintBlock ? [constraintBlock] : [];
+  });
+}
+
+function applyGovernanceBudgetCap(blocks: InternalContextBlock[]): InternalContextBlock[] {
   if (blocks.length === 0) {
     return blocks;
   }
@@ -233,48 +409,104 @@ function applyGovernanceBudgetCap(blocks: ComposedContextBlock[]): ComposedConte
   let metrics = buildMetrics(current);
   const hasPendingCompactionAdvisory = current.some((block) => block.id === "compaction-advisory");
   const hasCriticalCompactionGate = current.some((block) => block.id === "compaction-gate");
-  let governanceTokens = metrics.constraintTokens + metrics.diagnosticTokens;
   const governanceCap = Math.max(
     hasPendingCompactionAdvisory && !hasCriticalCompactionGate
       ? MIN_GOVERNANCE_TOKEN_CAP + 32
       : MIN_GOVERNANCE_TOKEN_CAP,
     Math.floor(metrics.totalTokens * GOVERNANCE_TOKEN_CAP_RATIO),
   );
+  let governanceTokens = metrics.constraintTokens + metrics.diagnosticTokens;
   if (governanceTokens <= governanceCap) {
     return current;
   }
 
-  current = current.filter((block) => {
-    if (block.category !== "diagnostic") {
-      return true;
-    }
-    if (governanceTokens <= governanceCap) {
-      return true;
-    }
-    governanceTokens -= block.estimatedTokens;
-    return false;
-  });
+  current = removeBlocksWhileOverCap(
+    current,
+    governanceCap,
+    (block) => block.category === "diagnostic" && block.id !== "operational-diagnostics",
+  );
 
+  governanceTokens = measureGovernanceTokens(current);
   if (governanceTokens <= governanceCap) {
     return current;
   }
 
-  current = current.filter((block) => {
-    if (block.id !== "compaction-advisory") {
-      return true;
-    }
-    if (governanceTokens <= governanceCap) {
-      return true;
-    }
-    governanceTokens -= block.estimatedTokens;
-    return false;
-  });
+  current = removeBlocksWhileOverCap(
+    current,
+    governanceCap,
+    (block) => block.id === "capability-view-inventory",
+  );
 
+  governanceTokens = measureGovernanceTokens(current);
   if (governanceTokens <= governanceCap) {
     return current;
   }
 
-  const capabilityIndex = current.findIndex((block) => block.id === "capability-view");
+  current = removeBlocksWhileOverCap(
+    current,
+    governanceCap,
+    (block) => block.id === "compaction-advisory",
+  );
+
+  governanceTokens = measureGovernanceTokens(current);
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  current = compactBlocksWhileOverCap(
+    current,
+    governanceCap,
+    (block) => block.id.startsWith("capability-detail:") || block.id === "capability-view-policy",
+  );
+
+  governanceTokens = measureGovernanceTokens(current);
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  current = compactBlocksWhileOverCap(
+    current,
+    governanceCap,
+    (block) => block.id === "capability-view-summary",
+  );
+
+  governanceTokens = measureGovernanceTokens(current);
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  current = removeBlocksWhileOverCap(
+    current,
+    governanceCap,
+    (block) => block.id === "capability-view-policy",
+  );
+
+  governanceTokens = measureGovernanceTokens(current);
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  current = removeBlocksWhileOverCap(current, governanceCap, isDiagnosticCapabilityDetailBlock);
+
+  governanceTokens = measureGovernanceTokens(current);
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  current = removeBlocksWhileOverCap(
+    current,
+    governanceCap,
+    (block) => block.id === "operational-diagnostics",
+  );
+
+  governanceTokens = measureGovernanceTokens(current);
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  const capabilityIndex = current.findIndex(
+    (block) => block.id === "capability-view-summary" || block.id === "capability-view",
+  );
   if (capabilityIndex < 0) {
     return current;
   }
@@ -338,7 +570,7 @@ function resolveExplorationAdvisoryBlock(input: ContextComposerInput): ComposedC
 }
 
 export function composeContextBlocks(input: ContextComposerInput): ContextComposerResult {
-  const blocks: ComposedContextBlock[] = [];
+  const blocks: InternalContextBlock[] = [];
 
   if (input.injectionAccepted) {
     for (const entry of input.admittedEntries) {
@@ -374,10 +606,8 @@ export function composeContextBlocks(input: ContextComposerInput): ContextCompos
     }
   }
 
-  const capabilityBlock = makeBlock("capability-view", "constraint", input.capabilityView.block);
-  if (capabilityBlock) {
-    blocks.push(capabilityBlock);
-  }
+  const preCapabilityMetrics = buildMetrics(blocks);
+  blocks.push(...buildCapabilityBlocks(input.capabilityView, preCapabilityMetrics));
 
   const diagnosticRequests = shouldIncludeOperationalDiagnostics(input.capabilityView.requested);
   const includeTapeTelemetry = diagnosticRequests.length > 0;
@@ -414,10 +644,11 @@ export function composeContextBlocks(input: ContextComposerInput): ContextCompos
       return categoryDiff;
     }),
   );
-  const metrics = buildMetrics(ordered);
+  const publicBlocks = ordered.map(({ compactContent: _compactContent, ...block }) => block);
+  const metrics = buildMetrics(publicBlocks);
   return {
-    blocks: ordered,
-    content: ordered.map((block) => block.content).join("\n\n"),
+    blocks: publicBlocks,
+    content: publicBlocks.map((block) => block.content).join("\n\n"),
     metrics,
   };
 }

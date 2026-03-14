@@ -487,7 +487,7 @@ export function createContextTransformLifecycle(
               },
               capabilityView: {
                 requested: capabilityView.requested,
-                expanded: capabilityView.expanded,
+                detailNames: capabilityView.details.map((detail) => detail.name),
                 missing: capabilityView.missing,
               },
             },
@@ -587,7 +587,7 @@ export function createContextTransformLifecycle(
             },
             capabilityView: {
               requested: capabilityView.requested,
-              expanded: capabilityView.expanded,
+              detailNames: capabilityView.details.map((detail) => detail.name),
               missing: capabilityView.missing,
             },
           },

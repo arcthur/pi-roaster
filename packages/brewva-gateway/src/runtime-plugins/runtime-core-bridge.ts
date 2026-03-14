@@ -90,7 +90,7 @@ export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRunti
               },
               capabilityView: {
                 requested: capabilityView.requested,
-                expanded: capabilityView.expanded,
+                detailNames: capabilityView.details.map((detail) => detail.name),
                 missing: capabilityView.missing,
               },
             },

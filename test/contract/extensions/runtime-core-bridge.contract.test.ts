@@ -240,6 +240,66 @@ describe("runtime core bridge extension", () => {
     expect(calls.observedContext[0]?.sessionId).toBe("core-before-start");
   });
 
+  test("given explicit capability requests, when bridge composes hidden context metadata, then detailNames reflect disclosed details", async () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const extensionApi = api as unknown as {
+      registerTool: (tool: { name: string; description: string; parameters?: unknown }) => void;
+    };
+    extensionApi.registerTool({
+      name: "obs_query",
+      description: "Query runtime events.",
+      parameters: { type: "object", properties: {} },
+    });
+
+    const { runtime } = createRuntimeFixture();
+    registerRuntimeCoreBridge(api, runtime);
+
+    const results = await invokeHandlersAsync<{
+      message?: {
+        details?: {
+          capabilityView?: {
+            requested?: string[];
+            detailNames?: string[];
+            missing?: string[];
+          };
+        };
+      };
+    }>(
+      handlers,
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "inspect $obs_query and $missing_tool",
+        systemPrompt: "base prompt",
+      },
+      createSessionContext("core-capability-view"),
+    );
+    const beforeStart = results.find(
+      (
+        result,
+      ): result is {
+        message: {
+          details: {
+            capabilityView: {
+              requested: string[];
+              detailNames: string[];
+              missing: string[];
+            };
+          };
+        };
+      } =>
+        typeof result === "object" &&
+        result !== null &&
+        Array.isArray(result.message?.details?.capabilityView?.detailNames),
+    );
+
+    expect(beforeStart?.message.details.capabilityView).toEqual({
+      requested: ["obs_query", "missing_tool"],
+      detailNames: ["obs_query"],
+      missing: ["missing_tool"],
+    });
+  });
+
   test("given tool_call event, when bridge handles it, then runtime.tools.start is invoked", () => {
     const { api, handlers } = createMockExtensionAPI();
     const { runtime, calls } = createRuntimeFixture();
