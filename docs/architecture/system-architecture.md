@@ -178,11 +178,22 @@ Current rule:
 
 `BrewvaRuntimeOptions.governancePort` is optional and governance-only:
 
+- `authorizeEffectCommitment`
 - `verifySpec`
 - `detectCostAnomaly`
 - `checkCompactionIntegrity`
 
-These checks enrich auditability; they do not introduce adaptive inference paths.
+These checks enrich auditability and effect authorization; they do not
+introduce adaptive inference paths.
+
+Current host default:
+
+- CLI and gateway-owned runtimes install an explicit trusted local governance
+  port
+- that host port authorizes commitment effects for local trusted surfaces
+- raw `BrewvaRuntime` instances without a governance port now fail closed at the
+  commitment boundary by opening a replayable operator-approval desk rather than
+  implicitly authorizing the effect
 
 ## Control Plane Boundary
 

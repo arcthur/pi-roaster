@@ -22,6 +22,7 @@ function createRuntimeFixture(
   input: {
     startAllowed?: boolean;
     startReason?: string;
+    startAdvisory?: string;
   } = {},
 ) {
   const calls: RuntimeCalls = {
@@ -43,6 +44,7 @@ function createRuntimeFixture(
       return {
         allowed: input.startAllowed ?? true,
         reason: input.startReason,
+        advisory: input.startAdvisory,
       };
     },
     explainAccess() {
@@ -290,6 +292,50 @@ describe("runtime core bridge extension", () => {
     expect(calls.finished[0]?.sessionId).toBe("core-tool-result");
     expect(calls.finished[0]?.toolCallId).toBe("tc-1");
     expect(calls.finished[0]?.channelSuccess).toBe(true);
+  });
+
+  test("given advisory tool start, when tool_result runs, then advisory is returned without polluting runtime.finish", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const { runtime, calls } = createRuntimeFixture({
+      startAdvisory:
+        "[ExplorationAdvisory]\nSummarize what you know, then switch strategy before broadening the scan.",
+    });
+    registerRuntimeCoreBridge(api, runtime);
+    invokeHandler(
+      handlers,
+      "tool_call",
+      {
+        toolCallId: "tc-advisory",
+        toolName: "look_at",
+        input: { goal: "inspect the runtime boundary" },
+      },
+      createSessionContext("core-tool-advisory"),
+    );
+
+    const results = invokeHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolCallId: "tc-advisory",
+        toolName: "look_at",
+        input: { goal: "inspect the runtime boundary" },
+        isError: false,
+        content: [{ type: "text", text: "original result" }],
+        details: { durationMs: 1 },
+      },
+      createSessionContext("core-tool-advisory"),
+    );
+    const advisoryResult = results.find(
+      (result) =>
+        result &&
+        typeof result === "object" &&
+        Array.isArray((result as { content?: unknown }).content),
+    ) as { content?: Array<{ text?: string }> } | undefined;
+
+    expect(advisoryResult?.content?.[0]?.text).toContain("[ExplorationAdvisory]");
+    expect(advisoryResult?.content?.[1]?.text).toBe("original result");
+    expect(calls.finished).toHaveLength(1);
+    expect(calls.finished[0]?.outputText).toBe("original result");
   });
 
   test("given session_compact event, when bridge handles it, then compaction is marked and event recorded", () => {

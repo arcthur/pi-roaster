@@ -12,6 +12,7 @@ import {
 import {
   BrewvaConfigLoadError,
   BrewvaRuntime,
+  createTrustedLocalGovernancePort,
   normalizeAgentId,
   parseTaskSpec,
   type TaskSpec,
@@ -711,6 +712,7 @@ function printGatewayCostSummary(input: {
   const runtime = new BrewvaRuntime({
     cwd: resolveBackendWorkingCwd(input.cwd),
     configPath: input.configPath,
+    governancePort: createTrustedLocalGovernancePort(),
   });
   runtime.context.onTurnStart(replaySessionId, 0);
   printCostSummary(replaySessionId, runtime);
@@ -855,6 +857,7 @@ async function run(): Promise<void> {
     const runtime = new BrewvaRuntime({
       cwd: parsed.cwd,
       configPath: parsed.configPath,
+      governancePort: createTrustedLocalGovernancePort(),
     });
     const targetSessionId = parsed.sessionId ?? runtime.events.listReplaySessions(1)[0]?.sessionId;
     if (!targetSessionId) {
@@ -877,6 +880,7 @@ async function run(): Promise<void> {
     const runtime = new BrewvaRuntime({
       cwd: parsed.cwd,
       configPath: parsed.configPath,
+      governancePort: createTrustedLocalGovernancePort(),
     });
     const targetSessionId = runtime.tools.resolveUndoSessionId(parsed.sessionId);
     if (!targetSessionId) {

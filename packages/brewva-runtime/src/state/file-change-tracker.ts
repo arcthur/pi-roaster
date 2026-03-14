@@ -256,6 +256,10 @@ export class FileChangeTracker {
   }
 
   rollbackLast(sessionId: string): RollbackResult {
+    return this.rollbackPatchSet(sessionId);
+  }
+
+  rollbackPatchSet(sessionId: string, patchSetId?: string): RollbackResult {
     this.ensureHistoryLoaded(sessionId);
     const history = this.historyBySession.get(sessionId);
     const latest = history?.at(-1);
@@ -265,6 +269,16 @@ export class FileChangeTracker {
         restoredPaths: [],
         failedPaths: [],
         reason: "no_patchset",
+      };
+    }
+    const normalizedPatchSetId = patchSetId?.trim();
+    if (normalizedPatchSetId && latest.patchSet.id !== normalizedPatchSetId) {
+      return {
+        ok: false,
+        patchSetId: normalizedPatchSetId,
+        restoredPaths: [],
+        failedPaths: [],
+        reason: "patchset_not_latest",
       };
     }
 

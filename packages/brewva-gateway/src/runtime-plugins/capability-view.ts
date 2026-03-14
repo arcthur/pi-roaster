@@ -1,3 +1,8 @@
+import {
+  getToolGovernanceDescriptor,
+  type ToolEffectClass,
+  type ToolInvocationPosture,
+} from "@brewva/brewva-runtime";
 import { getBrewvaToolSurface, type BrewvaToolSurface } from "@brewva/brewva-tools";
 
 interface ToolLike {
@@ -15,6 +20,8 @@ interface CapabilityEntry {
   visible: boolean;
   governance: boolean;
   surface: CapabilitySurface;
+  posture: ToolInvocationPosture;
+  effects: ToolEffectClass[];
 }
 
 export interface CapabilityAccessDecision {
@@ -62,6 +69,11 @@ const SURFACE_ORDER: Record<CapabilitySurface, number> = {
   operator: 2,
   external: 3,
 };
+const POSTURE_ORDER: Record<ToolInvocationPosture, number> = {
+  observe: 0,
+  reversible_mutate: 1,
+  commitment: 2,
+};
 
 function normalizeToolName(name: string): string {
   return name.trim().toLowerCase();
@@ -89,6 +101,17 @@ function resolveCapabilitySurface(name: string): CapabilitySurface {
   return getBrewvaToolSurface(name) ?? "external";
 }
 
+function resolveCapabilityPosture(name: string): {
+  posture: ToolInvocationPosture;
+  effects: ToolEffectClass[];
+} {
+  const descriptor = getToolGovernanceDescriptor(name);
+  return {
+    posture: descriptor?.posture ?? "observe",
+    effects: [...(descriptor?.effects ?? [])],
+  };
+}
+
 function toCapabilityEntries(input: BuildCapabilityViewInput): CapabilityEntry[] {
   const activeToolNames = new Set(
     input.activeToolNames.map((name) => normalizeToolName(name)).filter((name) => name.length > 0),
@@ -104,6 +127,7 @@ function toCapabilityEntries(input: BuildCapabilityViewInput): CapabilityEntry[]
       visible: activeToolNames.has(name),
       governance: GOVERNANCE_TOOL_NAMES.has(name),
       surface: resolveCapabilitySurface(name),
+      ...resolveCapabilityPosture(name),
     });
   }
   entries.sort((left, right) => {
@@ -115,6 +139,9 @@ function toCapabilityEntries(input: BuildCapabilityViewInput): CapabilityEntry[]
     }
     if (left.governance !== right.governance) {
       return left.governance ? -1 : 1;
+    }
+    if (left.posture !== right.posture) {
+      return POSTURE_ORDER[left.posture] - POSTURE_ORDER[right.posture];
     }
     return left.name.localeCompare(right.name);
   });
@@ -151,6 +178,8 @@ function formatDetailBlock(
     `description: ${description}`,
     `parameters: ${parameters}`,
     `surface: ${entry.surface}`,
+    `posture: ${entry.posture}`,
+    `effects: ${entry.effects.length > 0 ? entry.effects.join(", ") : "(none)"}`,
     `visible_now: ${entry.visible ? "true" : "false"}`,
     `governance: ${entry.governance ? "true" : "false"}`,
   ];
@@ -180,6 +209,12 @@ export function buildCapabilityView(input: BuildCapabilityViewInput): BuildCapab
   }
 
   const visibleEntries = entries.filter((entry) => entry.visible);
+  const visibleByPosture = {
+    observe: visibleEntries.filter((entry) => entry.posture === "observe").length,
+    reversible_mutate: visibleEntries.filter((entry) => entry.posture === "reversible_mutate")
+      .length,
+    commitment: visibleEntries.filter((entry) => entry.posture === "commitment").length,
+  };
   const visibleSkillCount = visibleEntries.filter((entry) => entry.surface === "skill").length;
   const hiddenSkillCount = entries.filter(
     (entry) => !entry.visible && entry.surface === "skill",
@@ -217,10 +252,12 @@ export function buildCapabilityView(input: BuildCapabilityViewInput): BuildCapab
     `available_total: ${entries.length}`,
     `visible_now_count: ${visibleEntries.length}`,
     `visible_now: ${compactList}`,
+    `visible_postures: observe=${visibleByPosture.observe} reversible_mutate=${visibleByPosture.reversible_mutate} commitment=${visibleByPosture.commitment}`,
     `hidden_skill_count: ${hiddenSkillCount}`,
     `hidden_operator_count: ${hiddenOperatorCount}`,
     `hidden_external_count: ${hiddenExternalCount}`,
     "surface_policy: base tools stay visible; skill tools follow current skill commitments; any managed tool can be surfaced for one turn with an explicit $name request; operator/full profile keeps operator tools visible by default.",
+    "posture_policy: observe tools favor exploration, reversible_mutate tools create local rollback or journal anchors, commitment tools require explicit effect authorization.",
     "expand_hint: include `$name` in your turn to reveal one capability detail.",
   ];
   if (hiddenSkillCount > 0 && visibleSkillCount === 0) {

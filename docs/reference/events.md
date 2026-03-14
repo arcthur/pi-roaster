@@ -29,6 +29,9 @@ Every runtime event follows the same envelope shape:
 - `proposal_received`
 - `proposal_decided`
 - `decision_receipt_recorded`
+- `effect_commitment_approval_requested`
+- `effect_commitment_approval_decided`
+- `effect_commitment_approval_consumed`
 - `verification_outcome_recorded`
 - `event_listener_error`
 - `governance_verify_spec_passed`
@@ -54,6 +57,8 @@ degraded without aborting later listeners.
 - `budget_alert`
 - `observability_query_executed`
 - `scan_convergence_*`
+- `reversible_mutation_*`
+- `effect_commitment_approval_*`
 - `task_stuck_*`
 - `tool_surface_resolved`
 - `context_composed`
@@ -146,6 +151,35 @@ levels, but they no longer inflate audit-level tape retention.
   including `critical_compaction_gate` short-circuit paths.
 - `skill_routing_decided` remains an internal commitment event for pending
   dispatch recommendation state and recovery, not a public cognition API.
+
+## Reversible Mutation Receipt Events
+
+- `reversible_mutation_prepared` records the selected reversible posture
+  strategy before execution begins.
+- `reversible_mutation_recorded` records the resulting rollback or journal
+  anchor for `reversible_mutate` posture tools:
+  - `workspace_write` tools point at a patchset-backed rollback anchor
+  - task-ledger `memory_write` tools record before/after task-state journals
+  - `cognition_note` records the written artifact reference when available
+- `reversible_mutation_rolled_back` records the explicit rollback execution
+  result for the last reversible receipt:
+  - workspace patchset rollbacks capture restored vs failed paths
+  - task-state journal rollbacks capture checkpoint replay success
+  - unsupported rollback kinds remain explicit structured failures
+
+## Effect Commitment Approval Desk Events
+
+- `effect_commitment_approval_requested` records a pending operator approval
+  request for one concrete commitment proposal when no host governance override
+  authorizes it immediately.
+  - the payload includes the concrete `effect_commitment` proposal so the desk
+    can rebuild resume-ready request state from tape after restart
+- `effect_commitment_approval_decided` records the explicit operator decision
+  (`accept` or `reject`) for that pending request.
+- `effect_commitment_approval_consumed` records the point where an accepted
+  approval is consumed by an explicit resume of that exact pending request.
+- together with `decision_receipt_recorded`, this event family is the replay
+  source for the operator desk queue after restart.
 
 ## Scan Convergence Guard Events
 

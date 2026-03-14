@@ -1,10 +1,17 @@
 import {
+  SCAN_CONVERGENCE_ADVISORY_EVENT_TYPE,
+  SCAN_CONVERGENCE_RESET_EVENT_TYPE,
   type ContextCompactionGateStatus,
   type ContextInjectionEntry,
 } from "@brewva/brewva-runtime";
 import type { BuildCapabilityViewResult } from "./capability-view.js";
 import { formatPercent } from "./context-shared.js";
 import { estimateTokens } from "./tool-output-distiller.js";
+
+const GOVERNANCE_TOKEN_CAP_RATIO = 0.15;
+const MIN_GOVERNANCE_TOKEN_CAP = 96;
+const MIN_CAPABILITY_VIEW_TOKENS = 48;
+const CHARS_PER_TOKEN = 3.5;
 
 export type ContextBlockCategory = "narrative" | "constraint" | "diagnostic";
 
@@ -46,6 +53,14 @@ export interface ContextComposerInput {
         tapePressure: string;
         entriesSinceAnchor: number;
       };
+      query?: (
+        sessionId: string,
+        query: { type?: string; last?: number },
+      ) => Array<{
+        payload?: Record<string, unknown>;
+        turn?: number;
+        timestamp: number;
+      }>;
     };
   };
   sessionId: string;
@@ -143,6 +158,19 @@ function buildOperationalDiagnosticsBlock(input: {
   return lines.join("\n");
 }
 
+function buildExplorationAdvisoryBlock(payload: Record<string, unknown>): string | null {
+  const message =
+    typeof payload.message === "string"
+      ? payload.message.trim()
+      : typeof payload.summary === "string"
+        ? payload.summary.trim()
+        : "";
+  if (!message) {
+    return null;
+  }
+  return message;
+}
+
 function shouldIncludeOperationalDiagnostics(requested: string[]): string[] {
   return requested.filter((name) => DIAGNOSTIC_CAPABILITY_NAMES.has(name));
 }
@@ -179,6 +207,134 @@ function buildMetrics(blocks: ComposedContextBlock[]): ContextComposerMetrics {
     diagnosticTokens,
     narrativeRatio: totalTokens > 0 ? narrativeTokens / totalTokens : 0,
   };
+}
+
+function truncateContentToTokenBudget(content: string, maxTokens: number): string {
+  const maxChars = Math.max(1, Math.floor(Math.max(1, maxTokens) * CHARS_PER_TOKEN));
+  if (content.length <= maxChars) {
+    return content;
+  }
+  if (maxChars <= 3) {
+    return content.slice(0, maxChars);
+  }
+  return `${content.slice(0, maxChars - 3)}...`;
+}
+
+function rebuildBlock(block: ComposedContextBlock, content: string): ComposedContextBlock | null {
+  return makeBlock(block.id, block.category, content);
+}
+
+function applyGovernanceBudgetCap(blocks: ComposedContextBlock[]): ComposedContextBlock[] {
+  if (blocks.length === 0) {
+    return blocks;
+  }
+
+  let current = [...blocks];
+  let metrics = buildMetrics(current);
+  const hasPendingCompactionAdvisory = current.some((block) => block.id === "compaction-advisory");
+  const hasCriticalCompactionGate = current.some((block) => block.id === "compaction-gate");
+  let governanceTokens = metrics.constraintTokens + metrics.diagnosticTokens;
+  const governanceCap = Math.max(
+    hasPendingCompactionAdvisory && !hasCriticalCompactionGate
+      ? MIN_GOVERNANCE_TOKEN_CAP + 32
+      : MIN_GOVERNANCE_TOKEN_CAP,
+    Math.floor(metrics.totalTokens * GOVERNANCE_TOKEN_CAP_RATIO),
+  );
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  current = current.filter((block) => {
+    if (block.category !== "diagnostic") {
+      return true;
+    }
+    if (governanceTokens <= governanceCap) {
+      return true;
+    }
+    governanceTokens -= block.estimatedTokens;
+    return false;
+  });
+
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  current = current.filter((block) => {
+    if (block.id !== "compaction-advisory") {
+      return true;
+    }
+    if (governanceTokens <= governanceCap) {
+      return true;
+    }
+    governanceTokens -= block.estimatedTokens;
+    return false;
+  });
+
+  if (governanceTokens <= governanceCap) {
+    return current;
+  }
+
+  const capabilityIndex = current.findIndex((block) => block.id === "capability-view");
+  if (capabilityIndex < 0) {
+    return current;
+  }
+
+  const otherGovernanceTokens = current.reduce((sum, block, index) => {
+    if (index === capabilityIndex) {
+      return sum;
+    }
+    if (block.category === "constraint" || block.category === "diagnostic") {
+      return sum + block.estimatedTokens;
+    }
+    return sum;
+  }, 0);
+  const capabilityBudget = Math.max(
+    MIN_CAPABILITY_VIEW_TOKENS,
+    governanceCap - otherGovernanceTokens,
+  );
+  const capabilityBlock = current[capabilityIndex]!;
+  if (capabilityBlock.estimatedTokens <= capabilityBudget) {
+    return current;
+  }
+
+  const truncatedCapability = rebuildBlock(
+    capabilityBlock,
+    truncateContentToTokenBudget(capabilityBlock.content, capabilityBudget),
+  );
+  if (!truncatedCapability) {
+    return current.filter((_, index) => index !== capabilityIndex);
+  }
+
+  current[capabilityIndex] = truncatedCapability;
+  return current;
+}
+
+function resolveExplorationAdvisoryBlock(input: ContextComposerInput): ComposedContextBlock | null {
+  const advisoryEvent = input.runtime.events.query?.(input.sessionId, {
+    type: SCAN_CONVERGENCE_ADVISORY_EVENT_TYPE,
+    last: 1,
+  })?.[0];
+  const resetEvent = input.runtime.events.query?.(input.sessionId, {
+    type: SCAN_CONVERGENCE_RESET_EVENT_TYPE,
+    last: 1,
+  })?.[0];
+  if (
+    advisoryEvent &&
+    resetEvent &&
+    typeof advisoryEvent.timestamp === "number" &&
+    typeof resetEvent.timestamp === "number" &&
+    resetEvent.timestamp >= advisoryEvent.timestamp
+  ) {
+    return null;
+  }
+  if (!advisoryEvent?.payload || typeof advisoryEvent.payload !== "object") {
+    return null;
+  }
+  const content = buildExplorationAdvisoryBlock(advisoryEvent.payload);
+  if (!content) {
+    return null;
+  }
+  return makeBlock("exploration-advisory", "diagnostic", content);
 }
 
 export function composeContextBlocks(input: ContextComposerInput): ContextComposerResult {
@@ -247,10 +403,17 @@ export function composeContextBlocks(input: ContextComposerInput): ContextCompos
     }
   }
 
-  const ordered = [...blocks].toSorted((left, right) => {
-    const categoryDiff = compareCategory(left.category, right.category);
-    return categoryDiff;
-  });
+  const explorationAdvisoryBlock = resolveExplorationAdvisoryBlock(input);
+  if (explorationAdvisoryBlock) {
+    blocks.push(explorationAdvisoryBlock);
+  }
+
+  const ordered = applyGovernanceBudgetCap(
+    [...blocks].toSorted((left, right) => {
+      const categoryDiff = compareCategory(left.category, right.category);
+      return categoryDiff;
+    }),
+  );
   const metrics = buildMetrics(ordered);
   return {
     blocks: ordered,

@@ -18,6 +18,11 @@ import type {
   ProposalRecord,
 } from "../types.js";
 import { commitContextPacketProposal } from "./proposal-admission-context-packet.js";
+import {
+  commitEffectCommitmentProposal,
+  type AuthorizeEffectCommitmentInput,
+  type EffectCommitmentAuthorizationDecision,
+} from "./proposal-admission-effect-commitment.js";
 import { commitSkillSelectionProposal } from "./proposal-admission-skill-selection.js";
 import type { SkillLifecycleService } from "./skill-lifecycle.js";
 
@@ -54,6 +59,9 @@ export interface ProposalAdmissionServiceOptions {
     SkillLifecycleService,
     "setPendingDispatch" | "listProducedOutputKeys"
   >;
+  effectCommitmentAuthorizer: (
+    input: AuthorizeEffectCommitmentInput,
+  ) => EffectCommitmentAuthorizationDecision;
 }
 
 export class ProposalAdmissionService {
@@ -66,6 +74,9 @@ export class ProposalAdmissionService {
     decision: Parameters<SkillLifecycleService["setPendingDispatch"]>[1],
   ) => void;
   private readonly listProducedOutputKeys: (sessionId: string) => string[];
+  private readonly authorizeEffectCommitment: (
+    input: AuthorizeEffectCommitmentInput,
+  ) => EffectCommitmentAuthorizationDecision;
 
   constructor(options: ProposalAdmissionServiceOptions) {
     this.listDecisionReceiptEvents = (sessionId) => options.listDecisionReceiptEvents(sessionId);
@@ -76,6 +87,7 @@ export class ProposalAdmissionService {
       options.skillLifecycleService.setPendingDispatch(sessionId, decision, { emitEvent: true });
     this.listProducedOutputKeys = (sessionId) =>
       options.skillLifecycleService.listProducedOutputKeys(sessionId);
+    this.authorizeEffectCommitment = (input) => options.effectCommitmentAuthorizer(input);
   }
 
   submitProposal<K extends ProposalKind>(
@@ -341,6 +353,30 @@ export class ProposalAdmissionService {
             nextTurn,
             committedEffects,
           ),
+      });
+    }
+    if (proposal.kind === "effect_commitment") {
+      return commitEffectCommitmentProposal({
+        sessionId,
+        proposal: proposal as ProposalEnvelope<"effect_commitment">,
+        turn,
+        buildDecisionReceipt: (
+          nextProposal,
+          decision,
+          policyBasis,
+          reasons,
+          nextTurn,
+          committedEffects = [],
+        ) =>
+          this.buildDecisionReceipt(
+            nextProposal,
+            decision,
+            policyBasis,
+            reasons,
+            nextTurn,
+            committedEffects,
+          ),
+        authorize: (input) => this.authorizeEffectCommitment(input),
       });
     }
     return commitContextPacketProposal({

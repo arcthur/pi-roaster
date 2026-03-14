@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { BrewvaRuntime, DEFAULT_BREWVA_CONFIG, type BrewvaConfig } from "@brewva/brewva-runtime";
+import {
+  BrewvaRuntime,
+  DEFAULT_BREWVA_CONFIG,
+  createTrustedLocalGovernancePort,
+  type BrewvaConfig,
+} from "@brewva/brewva-runtime";
 import { createTestWorkspace } from "../../helpers/workspace.js";
 
 function createConfig(): BrewvaConfig {
@@ -53,6 +58,7 @@ describe("skill dispatch recommendation", () => {
     const runtime = new BrewvaRuntime({
       cwd: createTestWorkspace("skill-dispatch-suggest"),
       config: createConfig(),
+      governancePort: createTrustedLocalGovernancePort(),
     });
     const sessionId = "skill-dispatch-suggest-1";
     const receipt = submitReviewSelection(runtime, sessionId, 10);

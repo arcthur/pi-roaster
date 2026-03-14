@@ -46,6 +46,7 @@ describe("capability view", () => {
     expect(result.block).toContain("available_total: 3");
     expect(result.block).toContain("visible_now_count: 1");
     expect(result.block).toContain("visible_now: $exec");
+    expect(result.block).toContain("visible_postures: observe=0 reversible_mutate=0 commitment=1");
     expect(result.block).toContain("hidden_skill_count: 1");
     expect(result.block).toContain("hidden_operator_count: 0");
   });
@@ -76,6 +77,8 @@ describe("capability view", () => {
     expect(result.block).toContain("[CapabilityDetail:$tape_search]");
     expect(result.block).toContain("parameters: query");
     expect(result.block).toContain("surface: skill");
+    expect(result.block).toContain("posture: observe");
+    expect(result.block).toContain("effects: runtime_observe");
     expect(result.block).toContain("visible_now: false");
     expect(result.block).toContain("unknown: $not_exists");
   });
@@ -178,5 +181,23 @@ describe("capability view", () => {
 
     expect(result.block).toContain("hidden_skill_count: 1");
     expect(result.block).toContain("skill_hint: load or accept a skill");
+  });
+
+  test("expands posture and effect boundary for reversible tools", () => {
+    const result = buildCapabilityView({
+      prompt: "inspect $task_set_spec",
+      allTools: [
+        {
+          name: "task_set_spec",
+          description: "Set the task specification.",
+          parameters: { type: "object", properties: { goal: { type: "string" } } },
+        },
+      ],
+      activeToolNames: [],
+    });
+
+    expect(result.block).toContain("[CapabilityDetail:$task_set_spec]");
+    expect(result.block).toContain("posture: reversible_mutate");
+    expect(result.block).toContain("effects: memory_write");
   });
 });

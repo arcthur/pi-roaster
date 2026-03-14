@@ -1,4 +1,10 @@
-import type { SessionCostSummary, VerificationLevel, VerificationReport } from "../types.js";
+import type {
+  ProposalDecision,
+  ProposalEnvelope,
+  SessionCostSummary,
+  VerificationLevel,
+  VerificationReport,
+} from "../types.js";
 
 export interface GovernanceVerifySpecInput {
   sessionId: string;
@@ -32,6 +38,19 @@ export interface GovernanceCompactionIntegrityOutput {
   reason?: string;
 }
 
+export interface GovernanceAuthorizeEffectCommitmentInput {
+  sessionId: string;
+  proposal: ProposalEnvelope<"effect_commitment">;
+  turn: number;
+}
+
+export interface GovernanceAuthorizeEffectCommitmentOutput {
+  decision: ProposalDecision;
+  reason?: string;
+  reasons?: string[];
+  policyBasis?: string[];
+}
+
 export interface GovernancePort {
   verifySpec?(
     input: GovernanceVerifySpecInput,
@@ -42,4 +61,7 @@ export interface GovernancePort {
   checkCompactionIntegrity?(
     input: GovernanceCompactionIntegrityInput,
   ): GovernanceCompactionIntegrityOutput | Promise<GovernanceCompactionIntegrityOutput>;
+  authorizeEffectCommitment?(
+    input: GovernanceAuthorizeEffectCommitmentInput,
+  ): GovernanceAuthorizeEffectCommitmentOutput | Promise<GovernanceAuthorizeEffectCommitmentOutput>;
 }

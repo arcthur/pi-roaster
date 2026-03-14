@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { BrewvaRuntime, normalizeAgentId, type BrewvaConfig } from "@brewva/brewva-runtime";
+import {
+  BrewvaRuntime,
+  createTrustedLocalGovernancePort,
+  normalizeAgentId,
+  type BrewvaConfig,
+} from "@brewva/brewva-runtime";
 
 export interface AgentRuntimeHandle {
   agentId: string;
@@ -204,6 +209,7 @@ export class AgentRuntimeManager {
       cwd: this.controllerRuntime.cwd,
       agentId,
       config,
+      governancePort: createTrustedLocalGovernancePort(),
     });
     const now = Date.now();
     return {

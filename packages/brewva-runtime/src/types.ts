@@ -16,6 +16,7 @@ export type ToolEffectClass =
   | "schedule_mutation"
   | "memory_write";
 export type ToolGovernanceRisk = "low" | "medium" | "high";
+export type ToolInvocationPosture = "observe" | "reversible_mutate" | "commitment";
 export type SkillDispatchMode = "suggest" | "auto";
 export type SkillCascadeMode = "off" | "assist" | "auto";
 export type SkillCascadeSource = "dispatch" | "explicit";
@@ -62,6 +63,43 @@ export type SkillOutputContract =
 export interface ToolGovernanceDescriptor {
   effects: ToolEffectClass[];
   defaultRisk?: ToolGovernanceRisk;
+  posture?: ToolInvocationPosture;
+}
+
+export type ToolMutationStrategy =
+  | "workspace_patchset"
+  | "task_state_journal"
+  | "artifact_write"
+  | "generic_journal";
+
+export type ToolMutationRollbackKind = "patchset" | "task_state_replay" | "artifact_ref" | "none";
+
+export interface ToolMutationReceipt {
+  id: string;
+  toolCallId: string;
+  toolName: string;
+  posture: "reversible_mutate";
+  strategy: ToolMutationStrategy;
+  rollbackKind: ToolMutationRollbackKind;
+  effects: ToolEffectClass[];
+  turn: number;
+  timestamp: number;
+}
+
+export interface ToolMutationRollbackResult {
+  ok: boolean;
+  receiptId?: string;
+  toolName?: string;
+  strategy?: ToolMutationStrategy;
+  rollbackKind?: ToolMutationRollbackKind;
+  restoredPaths: string[];
+  failedPaths: string[];
+  reason?:
+    | "no_mutation_receipt"
+    | "unsupported_rollback"
+    | "no_patchset"
+    | "restore_failed"
+    | "patchset_not_latest";
 }
 
 export interface SkillCompletionDefinition {
@@ -204,7 +242,7 @@ export const SKILL_SELECTION_SIGNALS: SkillSelectionSignal[] = [
   "available_output",
 ];
 
-export type ProposalKind = "skill_selection" | "context_packet";
+export type ProposalKind = "skill_selection" | "context_packet" | "effect_commitment";
 
 export type ProposalDecision = "accept" | "reject" | "defer";
 export type ContextPacketAction = "upsert" | "revoke";
@@ -247,9 +285,19 @@ export interface ContextPacketProposalPayload {
   profile?: ContextPacketProfile;
 }
 
+export interface EffectCommitmentProposalPayload {
+  toolName: string;
+  toolCallId: string;
+  posture: ToolInvocationPosture;
+  effects: ToolEffectClass[];
+  defaultRisk?: ToolGovernanceRisk;
+  argsSummary?: string;
+}
+
 export type ProposalPayloadByKind = {
   skill_selection: SkillSelectionProposalPayload;
   context_packet: ContextPacketProposalPayload;
+  effect_commitment: EffectCommitmentProposalPayload;
 };
 
 export type ProposalPayload = ProposalPayloadByKind[ProposalKind];
@@ -292,6 +340,38 @@ export interface ProposalListQuery {
   decision?: ProposalDecision;
   limit?: number;
 }
+
+export interface PendingEffectCommitmentRequest {
+  requestId: string;
+  proposalId: string;
+  toolName: string;
+  toolCallId: string;
+  subject: string;
+  posture: "commitment";
+  effects: ToolEffectClass[];
+  defaultRisk?: ToolGovernanceRisk;
+  argsSummary?: string;
+  evidenceRefs: EvidenceRef[];
+  turn: number;
+  createdAt: number;
+}
+
+export interface DecideEffectCommitmentInput {
+  decision: "accept" | "reject";
+  actor?: string;
+  reason?: string;
+}
+
+export type DecideEffectCommitmentResult =
+  | {
+      ok: true;
+      request: PendingEffectCommitmentRequest;
+      decision: "accept" | "reject";
+    }
+  | {
+      ok: false;
+      error: "request_not_found" | "decision_required";
+    };
 
 export interface SkillSelectionBreakdownEntry {
   signal: SkillSelectionSignal;
@@ -750,7 +830,11 @@ export interface BrewvaConfig {
     maxConsecutiveErrors: number;
     maxRecoveryCatchUps: number;
   };
-  parallel: { enabled: boolean; maxConcurrent: number; maxTotalPerSession: number };
+  parallel: {
+    enabled: boolean;
+    maxConcurrent: number;
+    maxTotalPerSession: number;
+  };
   channels: {
     orchestration: {
       enabled: boolean;
@@ -983,7 +1067,11 @@ export interface VerificationReport {
   reason?: "read_only";
   level: VerificationLevel;
   missingEvidence: string[];
-  checks: Array<{ name: string; status: "pass" | "fail" | "skip"; evidence?: string }>;
+  checks: Array<{
+    name: string;
+    status: "pass" | "fail" | "skip";
+    evidence?: string;
+  }>;
 }
 
 export interface VerificationCheckRun {
@@ -1228,7 +1316,7 @@ export interface RollbackResult {
   patchSetId?: string;
   restoredPaths: string[];
   failedPaths: string[];
-  reason?: "no_patchset" | "restore_failed";
+  reason?: "no_patchset" | "restore_failed" | "patchset_not_latest";
 }
 
 export interface BrewvaEventRecord {

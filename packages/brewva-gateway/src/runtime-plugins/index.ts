@@ -1,5 +1,6 @@
 import {
   BrewvaRuntime,
+  createTrustedLocalGovernancePort,
   getExactToolGovernanceDescriptor,
   registerToolGovernanceDescriptor,
   sameToolGovernanceDescriptor,
@@ -20,7 +21,7 @@ import { registerLedgerWriter } from "./ledger-writer.js";
 import { createMemoryCuratorLifecycle, registerMemoryCurator } from "./memory-curator.js";
 import { createMemoryFormationLifecycle, registerMemoryFormation } from "./memory-formation.js";
 import { createNotificationLifecycle, registerNotification } from "./notification.js";
-import { createQualityGateLifecycle, registerQualityGate } from "./quality-gate.js";
+import { createQualityGateLifecycle } from "./quality-gate.js";
 import { registerToolResultDistiller } from "./tool-result-distiller.js";
 import { createToolSurfaceLifecycle, registerToolSurface } from "./tool-surface.js";
 import { registerTurnLifecycleAdapter } from "./turn-lifecycle-adapter.js";
@@ -57,6 +58,9 @@ function registerLifecycleHandlers(
   profile: BrewvaExtensionProfile | undefined,
   toolDefinitionsByName?: ReadonlyMap<string, ReturnType<typeof buildBrewvaTools>[number]>,
 ): void {
+  const hooks = pi as unknown as {
+    on(event: string, handler: (event: unknown, ctx: unknown) => unknown): void;
+  };
   const features = resolveProfile(profile);
   const contextTransform = createContextTransformLifecycle(pi, runtime);
   const qualityGate = createQualityGateLifecycle(runtime);
@@ -69,6 +73,8 @@ function registerLifecycleHandlers(
   const cognitiveMetrics = features.cognitive ? createCognitiveMetricsLifecycle(runtime) : null;
   const notification = features.cognitive ? createNotificationLifecycle(runtime) : null;
 
+  hooks.on("input", qualityGate.input);
+  hooks.on("tool_call", qualityGate.toolCall);
   registerEventStream(pi, runtime);
   registerTurnLifecycleAdapter(pi, {
     sessionStart: cognitiveMetrics ? [cognitiveMetrics.sessionStart] : undefined,
@@ -84,7 +90,6 @@ function registerLifecycleHandlers(
       contextTransform.beforeAgentStart,
       ...(cognitiveMetrics ? [cognitiveMetrics.beforeAgentStart] : []),
     ],
-    toolCall: [qualityGate.toolCall],
     toolResult: cognitiveMetrics ? [cognitiveMetrics.toolResult] : undefined,
     toolExecutionEnd: cognitiveMetrics ? [cognitiveMetrics.toolExecutionEnd] : undefined,
     agentEnd: [
@@ -106,6 +111,7 @@ function registerLifecycleHandlers(
   });
   registerLedgerWriter(pi, runtime);
   registerToolResultDistiller(pi, runtime);
+  hooks.on("tool_result", qualityGate.toolResult);
   if (features.debug) {
     registerDebugLoop(pi, runtime);
   }
@@ -115,7 +121,12 @@ export function createBrewvaExtension(
   options: CreateBrewvaExtensionOptions = {},
 ): ExtensionFactory {
   return (pi) => {
-    const runtime = options.runtime ?? new BrewvaRuntime(options);
+    const runtime =
+      options.runtime ??
+      new BrewvaRuntime({
+        ...options,
+        governancePort: options.governancePort ?? createTrustedLocalGovernancePort(),
+      });
     const shouldRegisterTools = options.registerTools !== false;
     const allTools = shouldRegisterTools ? buildBrewvaTools({ runtime }) : [];
     const toolDefinitionsByName = shouldRegisterTools

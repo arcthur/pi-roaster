@@ -13,6 +13,7 @@ import {
   SCHEDULE_CHILD_SESSION_STARTED_EVENT_TYPE,
   SCHEDULE_RECOVERY_DEFERRED_EVENT_TYPE,
   SchedulerService,
+  createTrustedLocalGovernancePort,
   parseScheduleIntentEvent,
 } from "@brewva/brewva-runtime";
 import { TurnWALStore } from "@brewva/brewva-runtime/channels";
@@ -65,6 +66,7 @@ export async function runDaemon(parsed: RunDaemonOptions): Promise<void> {
     cwd: parsed.cwd,
     configPath: parsed.configPath,
     agentId: parsed.agentId,
+    governancePort: createTrustedLocalGovernancePort(),
   });
   parsed.onRuntimeReady?.(runtime);
 

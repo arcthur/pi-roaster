@@ -1,13 +1,20 @@
-import type { ToolEffectClass, ToolGovernanceDescriptor, ToolGovernanceRisk } from "../types.js";
+import type {
+  ToolEffectClass,
+  ToolGovernanceDescriptor,
+  ToolGovernanceRisk,
+  ToolInvocationPosture,
+} from "../types.js";
 import { normalizeToolName } from "../utils/tool-name.js";
 
 function descriptor(input: {
   effects: ToolEffectClass[];
   defaultRisk?: ToolGovernanceRisk;
+  posture?: ToolInvocationPosture;
 }): ToolGovernanceDescriptor {
   return {
     effects: input.effects,
     defaultRisk: input.defaultRisk,
+    posture: input.posture ?? resolveToolInvocationPostureFromEffects(input.effects),
   };
 }
 
@@ -15,7 +22,28 @@ function normalizeDescriptor(input: ToolGovernanceDescriptor): ToolGovernanceDes
   return {
     effects: [...new Set(input.effects)],
     defaultRisk: input.defaultRisk,
+    posture: input.posture ?? resolveToolInvocationPostureFromEffects(input.effects),
   };
+}
+
+function resolveToolInvocationPostureFromEffects(
+  effects: readonly ToolEffectClass[],
+): ToolInvocationPosture {
+  if (
+    effects.some(
+      (effect) =>
+        effect === "local_exec" ||
+        effect === "external_network" ||
+        effect === "external_side_effect" ||
+        effect === "schedule_mutation",
+    )
+  ) {
+    return "commitment";
+  }
+  if (effects.some((effect) => effect === "workspace_write" || effect === "memory_write")) {
+    return "reversible_mutate";
+  }
+  return "observe";
 }
 
 function sameEffects(
@@ -277,7 +305,11 @@ export function sameToolGovernanceDescriptor(
   if (!left || !right) {
     return left === right;
   }
-  return left.defaultRisk === right.defaultRisk && sameEffects(left.effects, right.effects);
+  return (
+    left.defaultRisk === right.defaultRisk &&
+    left.posture === right.posture &&
+    sameEffects(left.effects, right.effects)
+  );
 }
 
 export function getToolGovernanceDescriptor(
@@ -295,4 +327,8 @@ export function getToolGovernanceDescriptor(
   }
   const hinted = TOOL_NAME_EFFECT_HINTS.find((entry) => entry.match.test(normalized));
   return hinted?.descriptor;
+}
+
+export function resolveToolInvocationPosture(toolName: string): ToolInvocationPosture {
+  return getToolGovernanceDescriptor(toolName)?.posture ?? "observe";
 }

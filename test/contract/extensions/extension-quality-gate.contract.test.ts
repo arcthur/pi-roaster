@@ -180,4 +180,54 @@ describe("Extension gaps: quality gate", () => {
     expect(result.block).toBe(true);
     expect(result.reason).toBe("blocked-by-runtime");
   });
+
+  test("given allowed tool_call with advisory, when tool_result hook runs, then advisory is injected into the same turn", () => {
+    const { api, handlers } = createMockExtensionAPI();
+    const runtime = createRuntimeFixture({
+      tools: {
+        start: () => ({
+          allowed: true,
+          advisory:
+            "[ExplorationAdvisory]\nSummarize what you know, then switch strategy before broadening the scan.",
+        }),
+      },
+      context: {
+        sanitizeInput: (text: string) => text,
+      },
+    });
+
+    registerQualityGate(api, runtime);
+
+    invokeHandler(
+      handlers,
+      "tool_call",
+      {
+        toolCallId: "tc-advisory",
+        toolName: "look_at",
+        input: { goal: "inspect runtime" },
+      },
+      {
+        sessionManager: { getSessionId: () => "qg-3" },
+        getContextUsage: () => ({ tokens: 120, contextWindow: 4096, percent: 0.03 }),
+      },
+    );
+
+    const result = invokeHandler<{ content?: Array<{ text?: string }> }>(
+      handlers,
+      "tool_result",
+      {
+        toolCallId: "tc-advisory",
+        toolName: "look_at",
+        input: { goal: "inspect runtime" },
+        isError: false,
+        content: [{ type: "text", text: "original result" }],
+      },
+      {
+        sessionManager: { getSessionId: () => "qg-3" },
+      },
+    );
+
+    expect(result.content?.[0]?.text).toContain("[ExplorationAdvisory]");
+    expect(result.content?.[1]?.text).toBe("original result");
+  });
 });

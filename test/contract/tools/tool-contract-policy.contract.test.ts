@@ -175,6 +175,7 @@ describe("effect governance policy modes", () => {
     expect(getToolGovernanceDescriptor("process")).toEqual({
       effects: ["local_exec"],
       defaultRisk: "medium",
+      posture: "commitment",
     });
     expect(getToolGovernanceDescriptor("process_image")).toBeUndefined();
     expect(getToolGovernanceDescriptor("data_process")).toBeUndefined();

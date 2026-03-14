@@ -5,13 +5,14 @@ import {
 } from "../events/event-types.js";
 import type { RuntimeKernelContext } from "../runtime-kernel.js";
 import { FileChangeTracker } from "../state/file-change-tracker.js";
-import type { SkillDocument } from "../types.js";
-import type { RollbackResult } from "../types.js";
+import type { PatchSet, RollbackResult, SkillDocument } from "../types.js";
 import { isMutationTool } from "../verification/classifier.js";
 import { buildVerificationWriteMarkedPayload } from "../verification/projector-payloads.js";
 import type { LedgerService } from "./ledger.js";
+import type { ReversibleMutationService } from "./reversible-mutation.js";
 import { RuntimeSessionStateStore } from "./session-state.js";
 import type { SkillLifecycleService } from "./skill-lifecycle.js";
+import type { TrustMeterService } from "./trust-meter.js";
 
 export interface TrackToolCallInput {
   sessionId: string;
@@ -35,6 +36,8 @@ export interface FileChangeServiceOptions {
   recordEvent: RuntimeKernelContext["recordEvent"];
   ledgerService: Pick<LedgerService, "recordInfrastructureRow">;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
+  trustMeterService: TrustMeterService;
+  reversibleMutationService: Pick<ReversibleMutationService, "markWorkspacePatchSetRolledBack">;
 }
 
 export class FileChangeService {
@@ -62,6 +65,14 @@ export class FileChangeService {
     timestamp?: number;
     skipTapeCheckpoint?: boolean;
   }) => unknown;
+  private readonly observeRollback: (
+    sessionId: string,
+    input: { ok: boolean; failedPaths: number; strategy: "workspace_patchset" },
+  ) => void;
+  private readonly markWorkspacePatchSetRolledBack: (
+    sessionId: string,
+    patchSetId: string,
+  ) => string | undefined;
 
   constructor(options: FileChangeServiceOptions) {
     this.sessionState = options.sessionState;
@@ -71,6 +82,15 @@ export class FileChangeService {
     this.getActiveSkill = (sessionId) => options.skillLifecycleService.getActiveSkill(sessionId);
     this.getCurrentTurn = (sessionId) => options.getCurrentTurn(sessionId);
     this.recordEvent = (input) => options.recordEvent(input);
+    this.observeRollback = (sessionId, input) =>
+      options.trustMeterService.observeRollbackResult({
+        sessionId,
+        ok: input.ok,
+        failedPaths: input.failedPaths,
+        strategy: input.strategy,
+      });
+    this.markWorkspacePatchSetRolledBack = (sessionId, patchSetId) =>
+      options.reversibleMutationService.markWorkspacePatchSetRolledBack(sessionId, patchSetId);
   }
 
   markToolCall(sessionId: string, toolName: string): void {
@@ -125,13 +145,13 @@ export class FileChangeService {
     });
   }
 
-  trackToolCallEnd(input: TrackToolCallEndInput): void {
+  trackToolCallEnd(input: TrackToolCallEndInput): PatchSet | undefined {
     const patchSet = this.fileChanges.completeToolCall({
       sessionId: input.sessionId,
       toolCallId: input.toolCallId,
       channelSuccess: input.channelSuccess,
     });
-    if (!patchSet) return;
+    if (!patchSet) return undefined;
     this.recordEvent({
       sessionId: input.sessionId,
       type: "patch_recorded",
@@ -146,11 +166,28 @@ export class FileChangeService {
         })),
       },
     });
+    return patchSet;
   }
 
   rollbackLastPatchSet(sessionId: string): RollbackResult {
-    const rollback = this.fileChanges.rollbackLast(sessionId);
+    return this.rollbackPatchSet(sessionId);
+  }
+
+  rollbackPatchSet(sessionId: string, patchSetId?: string): RollbackResult {
+    const rollback =
+      typeof patchSetId === "string" && patchSetId.trim().length > 0
+        ? this.fileChanges.rollbackPatchSet(sessionId, patchSetId)
+        : this.fileChanges.rollbackLast(sessionId);
     const turn = this.getCurrentTurn(sessionId);
+    const mutationReceiptId =
+      rollback.ok && rollback.patchSetId
+        ? this.markWorkspacePatchSetRolledBack(sessionId, rollback.patchSetId)
+        : undefined;
+    this.observeRollback(sessionId, {
+      ok: rollback.ok,
+      failedPaths: rollback.failedPaths.length,
+      strategy: "workspace_patchset",
+    });
     this.recordEvent({
       sessionId,
       type: "rollback",
@@ -158,6 +195,7 @@ export class FileChangeService {
       payload: {
         ok: rollback.ok,
         patchSetId: rollback.patchSetId ?? null,
+        mutationReceiptId: mutationReceiptId ?? null,
         restoredPaths: rollback.restoredPaths,
         failedPaths: rollback.failedPaths,
         reason: rollback.reason ?? null,
@@ -188,6 +226,7 @@ export class FileChangeService {
       metadata: {
         source: "rollback_tool",
         patchSetId: rollback.patchSetId ?? null,
+        mutationReceiptId: mutationReceiptId ?? null,
         restoredPaths: rollback.restoredPaths,
         failedPaths: rollback.failedPaths,
       },

@@ -104,7 +104,7 @@ describe("event stream turn-end bridge", () => {
     expect(turnEnds).toEqual(["scan-bridge-turn-end"]);
   });
 
-  test("delegates scan-only turn blocking to runtime after repeated low-signal turns", () => {
+  test("delegates scan-only advisory handling to runtime after repeated low-signal turns", () => {
     const runtime = createRuntimeFixture();
     const { api, handlers } = createMockExtensionAPI();
     const sessionId = "scan-bridge-runtime-1";
@@ -129,26 +129,27 @@ describe("event stream turn-end bridge", () => {
       });
     }
 
-    const blocker = runtime.task
-      .getState(sessionId)
-      .blockers.find((entry) => entry.id === "guard:scan-convergence");
-    expect(blocker?.source).toBe("runtime.scan_convergence");
+    expect(
+      runtime.task
+        .getState(sessionId)
+        .blockers.find((entry) => entry.id === "guard:scan-convergence"),
+    ).toBeUndefined();
 
     runtime.context.onTurnStart(sessionId, 4);
-    const blocked = completeToolTurn({
+    const results = completeToolTurn({
       handlers,
       ctx,
       turnIndex: 4,
-      toolCallId: "tc-look-at-blocked",
+      toolCallId: "tc-look-at-advised",
       toolName: "look_at",
       input: { goal: "find the runtime facade" },
     });
 
-    expect(blocked.some((result) => (result as { block?: boolean })?.block === true)).toBe(true);
-    const blockedEvent = runtime.events.query(sessionId, {
-      type: "scan_convergence_blocked_tool",
+    expect(results.some((result) => (result as { block?: boolean })?.block === true)).toBe(false);
+    const advisoryEvent = runtime.events.query(sessionId, {
+      type: "scan_convergence_advisory",
       last: 1,
     })[0];
-    expect(blockedEvent?.payload?.toolStrategy).toBe("low_signal");
+    expect(advisoryEvent?.payload?.toolStrategy).toBe("low_signal");
   });
 });

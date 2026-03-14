@@ -35,6 +35,8 @@ The runtime no longer exposes a large flat method list. Public access is organiz
 
 - `submit(sessionId, proposal)`
 - `list(sessionId, query?)`
+- `listPendingEffectCommitments(sessionId)`
+- `decideEffectCommitment(sessionId, requestId, input)`
 
 Proposal boundary semantics:
 
@@ -44,6 +46,15 @@ Proposal boundary semantics:
   receipt timestamp; `limit: 1` is therefore the latest committed proposal.
 - Accepted proposals may arm pending dispatch recommendations, create explicit cascade intents, or
   admit replayable context packets.
+- Commitment-posture tools without a host governance override use a session-local
+  operator desk:
+  - `listPendingEffectCommitments(...)` exposes pending effect approvals
+  - `decideEffectCommitment(...)` records explicit `accept | reject` operator decisions
+  - accepted approvals do not auto-apply to later matching calls; the caller must
+    resume the exact pending request through `runtime.tools.start(...)` with
+    `effectCommitmentRequestId`, the original `toolCallId`, and matching args
+  - pending and accepted request state is replay-hydrated from tape after
+    restart; operator approval is not kept only in process memory
 
 Reference: `docs/reference/proposal-boundary.md`.
 
@@ -79,6 +90,11 @@ Reference: `docs/reference/proposal-boundary.md`.
 - `checkAccess(sessionId, toolName)`
 - `explainAccess(input)`
 - `start(input)`
+  `start(input)` accepts optional `effectCommitmentRequestId` for explicitly
+  resuming an operator-approved commitment request. Deferred commitment starts
+  return the same `effectCommitmentRequestId` on the result surface so host code
+  can route the approval flow. Restarted runtimes may reuse that request id
+  after desk state has been rebuilt from events.
 - `finish(input)`
   `finish(input)` and `recordResult(input)` use `channelSuccess` for tool/lifecycle transport success; semantic outcome is carried by `verdict`.
 - `acquireParallelSlot(sessionId, runId)`
@@ -90,6 +106,7 @@ Reference: `docs/reference/proposal-boundary.md`.
 - `listResourceLeases(sessionId, query?)`
 - `cancelResourceLease(sessionId, leaseId, reason?)`
 - `rollbackLastPatchSet(sessionId)`
+- `rollbackLastMutation(sessionId)`
 - `resolveUndoSessionId(preferredSessionId?)`
 - `recordResult(input)`
 
@@ -104,6 +121,13 @@ Tool-governance note:
 - tools with governance descriptors participate in effect authorization
 - tools without governance metadata emit warnings and remain usable until they
   are classified, so custom tool integrations do not hard-break in strict mode
+- `rollbackLastMutation(...)` is the posture-aware rollback surface:
+  - workspace patchset mutations delegate to the file rollback path
+  - task-state journals restore the last pre-mutation checkpoint
+  - direct `rollbackLastPatchSet(...)` calls also retire the matching reversible
+    workspace receipt, so the mutation and patchset histories stay aligned
+  - unsupported reversible receipts return a structured failure instead of
+    silently doing nothing
 
 ### `runtime.task.*`
 

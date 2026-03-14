@@ -36,21 +36,27 @@ import {
 import { sanitizeContextText } from "./security/sanitize.js";
 import { ContextService } from "./services/context.js";
 import { CostService } from "./services/cost.js";
+import { EffectCommitmentDeskService } from "./services/effect-commitment-desk.js";
 import { EventPipelineService, type RuntimeRecordEventInput } from "./services/event-pipeline.js";
+import { ExplorationSupervisorService } from "./services/exploration-supervisor.js";
 import { FileChangeService } from "./services/file-change.js";
 import { LedgerService } from "./services/ledger.js";
+import { MutationRollbackService } from "./services/mutation-rollback.js";
 import { ParallelService } from "./services/parallel.js";
+import type { EffectCommitmentAuthorizationDecision } from "./services/proposal-admission-effect-commitment.js";
 import { ProposalAdmissionService } from "./services/proposal-admission.js";
 import { ResourceLeaseService } from "./services/resource-lease.js";
+import { ReversibleMutationService } from "./services/reversible-mutation.js";
 import { ScheduleIntentService } from "./services/schedule-intent.js";
 import { SessionLifecycleService } from "./services/session-lifecycle.js";
 import { RuntimeSessionStateStore } from "./services/session-state.js";
 import { SkillCascadeService } from "./services/skill-cascade.js";
 import { SkillLifecycleService } from "./services/skill-lifecycle.js";
-import { StallDetectorService } from "./services/stall-detector.js";
 import { TapeService } from "./services/tape.js";
+import { TaskWatchdogService } from "./services/task-watchdog-service.js";
 import { TaskService } from "./services/task.js";
 import { ToolGateService } from "./services/tool-gate.js";
+import { TrustMeterService } from "./services/trust-meter.js";
 import { TruthProjectorService } from "./services/truth-projector.js";
 import { TruthService } from "./services/truth.js";
 import { VerificationProjectorService } from "./services/verification-projector.js";
@@ -87,7 +93,14 @@ import type {
   BrewvaReplaySession,
   BrewvaConfig,
   BrewvaStructuredEvent,
+  DecideEffectCommitmentInput,
+  DecideEffectCommitmentResult,
   DecisionReceipt,
+  PendingEffectCommitmentRequest,
+  ToolInvocationPosture,
+  ToolMutationReceipt,
+  ToolMutationRollbackResult,
+  ToolGovernanceDescriptor,
   SkillDocument,
   SkillDispatchDecision,
   SkillChainIntent,
@@ -163,16 +176,76 @@ type RuntimeServiceDependencies = {
   costService: CostService;
   verificationService: VerificationService;
   contextService: ContextService;
-  stallDetectorService: StallDetectorService;
+  explorationSupervisorService: ExplorationSupervisorService;
+  taskWatchdogService: TaskWatchdogService;
   tapeService: TapeService;
   eventPipeline: EventPipelineService;
   truthProjectorService: TruthProjectorService;
   verificationProjectorService: VerificationProjectorService;
   scheduleIntentService: ScheduleIntentService;
   fileChangeService: FileChangeService;
+  mutationRollbackService: MutationRollbackService;
   sessionLifecycleService: SessionLifecycleService;
   toolGateService: ToolGateService;
+  effectCommitmentDeskService: EffectCommitmentDeskService;
 };
+
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "then" in value &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+function normalizeReasonList(
+  input: { reason?: string; reasons?: string[] } | undefined,
+  fallback: string,
+): string[] {
+  const values = [
+    ...(input?.reasons ?? []),
+    ...(typeof input?.reason === "string" ? [input.reason] : []),
+  ]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (values.length === 0) {
+    return [fallback];
+  }
+  return [...new Set(values)];
+}
+
+function normalizePolicyBasis(values: readonly string[] | undefined, fallback: string): string[] {
+  const normalized = (values ?? [])
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (normalized.length === 0) {
+    return [fallback];
+  }
+  return [...new Set(normalized)];
+}
+
+function buildKernelEffectCommitmentDecision(input: {
+  descriptor: ToolGovernanceDescriptor;
+  toolName: string;
+}): EffectCommitmentAuthorizationDecision {
+  const effectSet = new Set(input.descriptor.effects);
+  const toolName = input.toolName;
+  const policySuffix =
+    effectSet.has("external_network") || effectSet.has("external_side_effect")
+      ? "effect_commitment_external_requires_port"
+      : effectSet.has("schedule_mutation")
+        ? "effect_commitment_schedule_requires_port"
+        : effectSet.has("local_exec")
+          ? "effect_commitment_local_exec_requires_port"
+          : "effect_commitment_unknown_requires_port";
+
+  return {
+    decision: "defer",
+    policyBasis: ["effect_commitment_kernel_policy", policySuffix],
+    reasons: [`effect_commitment_requires_governance_port:${toolName}`],
+  };
+}
 
 export class BrewvaRuntime {
   readonly cwd: string;
@@ -233,6 +306,12 @@ export class BrewvaRuntime {
       proposal: ProposalEnvelope<K>,
     ): DecisionReceipt;
     list(sessionId: string, query?: ProposalListQuery): ProposalRecord[];
+    listPendingEffectCommitments(sessionId: string): PendingEffectCommitmentRequest[];
+    decideEffectCommitment(
+      sessionId: string,
+      requestId: string,
+      input: DecideEffectCommitmentInput,
+    ): DecideEffectCommitmentResult;
   };
   readonly context: {
     onTurnStart(sessionId: string, turnIndex: number): void;
@@ -313,7 +392,16 @@ export class BrewvaRuntime {
       args?: Record<string, unknown>;
       usage?: ContextBudgetUsage;
       recordLifecycleEvent?: boolean;
-    }): { allowed: boolean; reason?: string };
+      effectCommitmentRequestId?: string;
+    }): {
+      allowed: boolean;
+      reason?: string;
+      advisory?: string;
+      posture?: ToolInvocationPosture;
+      commitmentReceipt?: DecisionReceipt;
+      effectCommitmentRequestId?: string;
+      mutationReceipt?: ToolMutationReceipt;
+    };
     finish(input: {
       sessionId: string;
       toolCallId: string;
@@ -352,6 +440,7 @@ export class BrewvaRuntime {
       channelSuccess: boolean;
     }): void;
     rollbackLastPatchSet(sessionId: string): RollbackResult;
+    rollbackLastMutation(sessionId: string): ToolMutationRollbackResult;
     resolveUndoSessionId(preferredSessionId?: string): string | undefined;
     recordResult(input: {
       sessionId: string;
@@ -523,12 +612,15 @@ export class BrewvaRuntime {
   private readonly contextService: ContextService;
   private readonly costService: CostService;
   private readonly eventPipeline: EventPipelineService;
+  private readonly effectCommitmentDeskService: EffectCommitmentDeskService;
   private readonly fileChangeService: FileChangeService;
   private readonly resourceLeaseService: ResourceLeaseService;
   private readonly ledgerService: LedgerService;
+  private readonly mutationRollbackService: MutationRollbackService;
   private readonly parallelService: ParallelService;
   private readonly proposalAdmissionService: ProposalAdmissionService;
-  private readonly stallDetectorService: StallDetectorService;
+  private readonly explorationSupervisorService: ExplorationSupervisorService;
+  private readonly taskWatchdogService: TaskWatchdogService;
   private readonly scheduleIntentService: ScheduleIntentService;
   private readonly sessionLifecycleService: SessionLifecycleService;
   private readonly skillLifecycleService: SkillLifecycleService;
@@ -576,13 +668,16 @@ export class BrewvaRuntime {
     this.costService = serviceDependencies.costService;
     this.verificationService = serviceDependencies.verificationService;
     this.contextService = serviceDependencies.contextService;
-    this.stallDetectorService = serviceDependencies.stallDetectorService;
+    this.explorationSupervisorService = serviceDependencies.explorationSupervisorService;
+    this.taskWatchdogService = serviceDependencies.taskWatchdogService;
     this.tapeService = serviceDependencies.tapeService;
     this.eventPipeline = serviceDependencies.eventPipeline;
+    this.effectCommitmentDeskService = serviceDependencies.effectCommitmentDeskService;
     this.truthProjectorService = serviceDependencies.truthProjectorService;
     this.verificationProjectorService = serviceDependencies.verificationProjectorService;
     this.scheduleIntentService = serviceDependencies.scheduleIntentService;
     this.fileChangeService = serviceDependencies.fileChangeService;
+    this.mutationRollbackService = serviceDependencies.mutationRollbackService;
     this.sessionLifecycleService = serviceDependencies.sessionLifecycleService;
     this.toolGateService = serviceDependencies.toolGateService;
     this.eventPipeline.subscribeEvents((event) =>
@@ -781,6 +876,7 @@ export class BrewvaRuntime {
       skillLifecycleService,
       governancePort: options.governancePort,
     });
+    const trustMeterService = new TrustMeterService();
     const verificationService = new VerificationService({
       cwd: this.cwd,
       config: this.config,
@@ -790,6 +886,12 @@ export class BrewvaRuntime {
       governancePort: options.governancePort,
       skillLifecycleService,
       ledgerService,
+      trustMeterService,
+    });
+    const effectCommitmentDeskService = new EffectCommitmentDeskService({
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      listEvents: (sessionId) => this.eventStore.list(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
     });
     const proposalAdmissionService = new ProposalAdmissionService({
       listDecisionReceiptEvents: (sessionId) =>
@@ -798,6 +900,55 @@ export class BrewvaRuntime {
       getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
       skillRegistry: this.skillRegistry,
       skillLifecycleService,
+      effectCommitmentAuthorizer: ({ sessionId, proposal, descriptor, turn }) => {
+        const toolName = proposal.payload.toolName.trim() || proposal.subject.trim();
+        const governanceDecision = options.governancePort?.authorizeEffectCommitment?.({
+          sessionId,
+          proposal,
+          turn,
+        });
+        if (governanceDecision !== undefined) {
+          if (isPromiseLike(governanceDecision)) {
+            return {
+              decision: "defer",
+              policyBasis: [
+                "effect_commitment_governance_port",
+                "effect_commitment_async_unsupported",
+              ],
+              reasons: [`effect_commitment_async_authorization_not_supported:${toolName}`],
+            };
+          }
+          const decision =
+            governanceDecision.decision === "accept" ||
+            governanceDecision.decision === "reject" ||
+            governanceDecision.decision === "defer"
+              ? governanceDecision.decision
+              : "reject";
+          return {
+            decision,
+            policyBasis: normalizePolicyBasis(
+              governanceDecision.policyBasis,
+              "effect_commitment_governance_port",
+            ),
+            reasons: normalizeReasonList(
+              governanceDecision,
+              `effect_commitment_${decision}:${toolName}`,
+            ),
+          };
+        }
+        if (options.governancePort) {
+          return buildKernelEffectCommitmentDecision({
+            descriptor,
+            toolName,
+          });
+        }
+        return effectCommitmentDeskService.authorize({
+          sessionId,
+          proposal,
+          descriptor,
+          turn,
+        });
+      },
     });
     const contextSourceProviders = new ContextSourceProviderRegistry();
     registerBuiltInContextSourceProviders(contextSourceProviders, {
@@ -824,14 +975,25 @@ export class BrewvaRuntime {
       taskService,
       governancePort: options.governancePort,
     });
-    const stallDetectorService = new StallDetectorService({
+    const explorationSupervisorService = new ExplorationSupervisorService({
       sessionState: this.sessionState,
+      listEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
+      skillLifecycleService,
+      trustMeterService,
+    });
+    const taskWatchdogService = new TaskWatchdogService({
       listEvents: (sessionId, query) => this.eventStore.list(sessionId, query),
       getTaskState: (sessionId) => this.kernel.getTaskState(sessionId),
       getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
       recordEvent: (input) => this.kernel.recordEvent(input),
       taskService,
-      skillLifecycleService,
+    });
+    const reversibleMutationService = new ReversibleMutationService({
+      getTaskState: (sessionId) => this.kernel.getTaskState(sessionId),
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
     });
     const tapeService = new TapeService({
       tapeConfig: this.config.tape,
@@ -906,6 +1068,15 @@ export class BrewvaRuntime {
       recordEvent: (input) => this.kernel.recordEvent(input),
       ledgerService,
       skillLifecycleService,
+      trustMeterService,
+      reversibleMutationService,
+    });
+    const mutationRollbackService = new MutationRollbackService({
+      getCurrentTurn: (sessionId) => this.kernel.getCurrentTurn(sessionId),
+      recordEvent: (input) => this.kernel.recordEvent(input),
+      reversibleMutationService,
+      fileChangeService,
+      trustMeterService,
     });
     const sessionLifecycleService = new SessionLifecycleService({
       sessionState: this.sessionState,
@@ -935,7 +1106,16 @@ export class BrewvaRuntime {
       contextService,
       fileChangeService,
       ledgerService,
-      stallDetectorService,
+      proposalAdmissionService,
+      effectCommitmentDeskService,
+      reversibleMutationService,
+      explorationSupervisorService,
+    });
+    sessionLifecycleService.onClearState((sessionId) => {
+      trustMeterService.clear(sessionId);
+      taskWatchdogService.clear(sessionId);
+      reversibleMutationService.clear(sessionId);
+      effectCommitmentDeskService.clear(sessionId);
     });
 
     return {
@@ -950,13 +1130,16 @@ export class BrewvaRuntime {
       costService,
       verificationService,
       contextService,
-      stallDetectorService,
+      explorationSupervisorService,
+      taskWatchdogService,
       tapeService,
       eventPipeline,
+      effectCommitmentDeskService,
       truthProjectorService,
       verificationProjectorService,
       scheduleIntentService,
       fileChangeService,
+      mutationRollbackService,
       sessionLifecycleService,
       toolGateService,
     };
@@ -1016,14 +1199,18 @@ export class BrewvaRuntime {
           this.proposalAdmissionService.submitProposal(sessionId, proposal),
         list: (sessionId, query) =>
           this.proposalAdmissionService.listProposalRecords(sessionId, query),
+        listPendingEffectCommitments: (sessionId) =>
+          this.effectCommitmentDeskService.listPending(sessionId),
+        decideEffectCommitment: (sessionId, requestId, input) =>
+          this.effectCommitmentDeskService.decide(sessionId, requestId, input),
       },
       context: {
         onTurnStart: (sessionId, turnIndex) => {
           this.sessionLifecycleService.onTurnStart(sessionId, turnIndex);
-          this.stallDetectorService.onTurnStart(sessionId);
+          this.taskWatchdogService.onTurnStart(sessionId);
         },
-        onTurnEnd: (sessionId) => this.stallDetectorService.onTurnEnd(sessionId),
-        onUserInput: (sessionId) => this.stallDetectorService.onUserInput(sessionId),
+        onTurnEnd: (sessionId) => this.explorationSupervisorService.onTurnEnd(sessionId),
+        onUserInput: (sessionId) => this.explorationSupervisorService.onUserInput(sessionId),
         sanitizeInput: (text) => this.sanitizeInput(text),
         observeUsage: (sessionId, usage) =>
           this.contextService.observeContextUsage(sessionId, usage),
@@ -1112,6 +1299,7 @@ export class BrewvaRuntime {
         trackCallStart: (input) => this.fileChangeService.trackToolCallStart(input),
         trackCallEnd: (input) => this.fileChangeService.trackToolCallEnd(input),
         rollbackLastPatchSet: (sessionId) => this.fileChangeService.rollbackLastPatchSet(sessionId),
+        rollbackLastMutation: (sessionId) => this.mutationRollbackService.rollbackLast(sessionId),
         resolveUndoSessionId: (preferredSessionId) =>
           this.fileChangeService.resolveUndoSessionId(preferredSessionId),
         recordResult: (input) => this.ledgerService.recordToolResult(input),
@@ -1211,7 +1399,7 @@ export class BrewvaRuntime {
         mergeWorkerResults: (sessionId) => this.parallelService.mergeWorkerResults(sessionId),
         clearWorkerResults: (sessionId) => this.parallelService.clearWorkerResults(sessionId),
         pollStall: (sessionId, input) =>
-          this.stallDetectorService.pollTaskProgress({
+          this.taskWatchdogService.pollTaskProgress({
             sessionId,
             now: input?.now,
             thresholdsMs: input?.thresholdsMs,

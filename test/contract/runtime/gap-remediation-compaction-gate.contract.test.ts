@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BrewvaRuntime } from "@brewva/brewva-runtime";
+import { BrewvaRuntime, createTrustedLocalGovernancePort } from "@brewva/brewva-runtime";
 import {
   GAP_REMEDIATION_CONFIG_PATH,
   createGapRemediationConfig as createConfig,
@@ -23,7 +23,11 @@ describe("Gap remediation: runtime core compaction gate", () => {
       }),
     );
 
-    const runtime = new BrewvaRuntime({ cwd: workspace, configPath: GAP_REMEDIATION_CONFIG_PATH });
+    const runtime = new BrewvaRuntime({
+      cwd: workspace,
+      configPath: GAP_REMEDIATION_CONFIG_PATH,
+      governancePort: createTrustedLocalGovernancePort(),
+    });
     const sessionId = "core-compaction-gate-1";
     runtime.context.onTurnStart(sessionId, 3);
 

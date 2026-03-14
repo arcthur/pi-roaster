@@ -73,6 +73,7 @@ Current proposal kinds:
 
 - `skill_selection`
 - `context_packet`
+- `effect_commitment`
 
 ### `DecisionReceipt`
 
@@ -136,6 +137,26 @@ Accepted effect:
   deleting tape history
 - packet does not become truth/task/ledger state on its own
 
+### `effect_commitment`
+
+Producer intent:
+
+- commitment-posture tool calls that cross the effect authorization boundary
+- auditable submission of `local_exec`, `schedule_mutation`, and external side
+  effects before runtime execution
+
+Accepted effect:
+
+- kernel records a replayable pending request for the concrete commitment
+  proposal
+- after operator acceptance, execution may proceed only when the caller resumes
+  that exact pending request
+- rejected or deferred receipts remain on tape and keep the attempted effect
+  replayable without silently re-authorizing it
+- the operator desk reconstructs pending / accepted / consumed request state
+  from tape events after restart instead of relying on opaque in-memory
+  snapshots
+
 ## Kernel Decision Rules
 
 Current admission rules are intentionally conservative:
@@ -180,8 +201,8 @@ Current direct-commit paths include:
 - broker-owned cascade planning after accepted `skill_selection`
 
 Use the proposal boundary only when the action crosses a real admission/audit
-boundary: broker skill selection or external/non-authoritative context
-injection.
+boundary: broker skill selection, external/non-authoritative context
+injection, or commitment-posture effect execution.
 
 ## Tape And Event Mapping
 
@@ -198,6 +219,18 @@ the boundary remains auditable after restart or replay.
 first by receipt timestamp. Deliberation helpers may still sort defensively when
 they collapse latest-wins packet keys, but the runtime surface itself treats the
 latest receipt as index `0`.
+
+For commitment-posture effects, the same domain now exposes the operator desk
+surface:
+
+- `runtime.proposals.listPendingEffectCommitments(sessionId)`
+- `runtime.proposals.decideEffectCommitment(sessionId, requestId, input)`
+- `runtime.tools.start({ ..., effectCommitmentRequestId })`
+
+This keeps the approval queue and the receipt-bearing proposal history in one
+governance namespace instead of creating a second parallel authority path.
+The queue is replay-first: pending and approved request state is rebuilt from
+`effect_commitment_approval_*` events plus the recorded proposal/receipt pair.
 
 ## Producer Guidelines
 

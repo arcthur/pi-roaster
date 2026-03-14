@@ -18,11 +18,15 @@ import { registerTurnLifecycleAdapter } from "./turn-lifecycle-adapter.js";
 const CORE_CONTEXT_INJECTION_MESSAGE_TYPE = "brewva-context-injection";
 
 export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRuntime): void {
+  const hooks = pi as unknown as {
+    on(event: string, handler: (event: unknown, ctx: unknown) => unknown): void;
+  };
   const toolSurface = createToolSurfaceLifecycle(pi, runtime);
   const qualityGate = createQualityGateLifecycle(runtime);
   const completionGuard = createCompletionGuardLifecycle(pi, runtime);
+  hooks.on("input", qualityGate.input);
+  hooks.on("tool_call", qualityGate.toolCall);
   registerTurnLifecycleAdapter(pi, {
-    input: [qualityGate.input],
     beforeAgentStart: [
       toolSurface.beforeAgentStart,
       async (event, ctx) => {
@@ -94,7 +98,6 @@ export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRunti
         };
       },
     ],
-    toolCall: [qualityGate.toolCall],
     agentEnd: [completionGuard.agentEnd],
     sessionCompact: [
       (event, ctx) => {
@@ -140,6 +143,7 @@ export function registerRuntimeCoreBridge(pi: ExtensionAPI, runtime: BrewvaRunti
   });
   registerLedgerWriter(pi, runtime);
   registerToolResultDistiller(pi, runtime);
+  hooks.on("tool_result", qualityGate.toolResult);
 }
 
 export function createRuntimeCoreBridgeExtension(options: {

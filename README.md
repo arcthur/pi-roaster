@@ -6,15 +6,17 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache-blue.svg?style=for-the-badge" alt="Apache License"></a>
 </p>
 
-Brewva is an AI-native coding-agent runtime built with Bun and TypeScript. It keeps agent execution explicit, evented, and recoverable: intelligence can propose, but the runtime decides what becomes a durable system commitment.
+Brewva is an AI-native coding-agent runtime built with Bun and TypeScript. It keeps agent execution explicit, evented, and recoverable: intelligence can explore and propose, but the runtime authorizes effects and records durable system commitments.
 
-**Intelligence proposes. Kernel commits. Tape remembers.**
+**Intelligence explores. Kernel authorizes effects. Tape remembers commitments.**
 
 ## What Brewva Optimizes For
 
 - Deterministic runtime boundaries for context, tools, verification, cost, and state mutation
+- A shared invocation spine with explicit tool postures: `observe`, `reversible_mutate`, and `commitment`
 - Tape-first durability and replay, with working state rebuilt from event history
 - Explicit proposal and governance boundaries instead of implicit agent-side mutation
+- Replay-first approval and rollback flows instead of hidden in-memory authority
 - Bounded autonomy through policy-driven execution, context pressure controls, and failure handling
 - Extensible operator surfaces through CLI, gateway, extensions, channel adapters, and ingress packages
 
@@ -27,19 +29,30 @@ The runtime is optimized around one question:
 ```mermaid
 flowchart TD
   AGENT["Agent (LLM)"]
-  BOUNDARY["Boundary Layer<br/>Tool Gate + Cost Gate + Context Compaction"]
-  CONTRACT["Contract Layer<br/>Proposals + Task/Truth + Verification"]
+  SPINE["Invocation Spine<br/>usage + WAL/events + ledger + tracking"]
+  POSTURE["Posture Policy<br/>observe / reversible_mutate / commitment"]
+  BOUNDARY["Proposal Boundary<br/>receipts + operator/governance decisions"]
   DURABILITY["Durability Layer<br/>Event Tape + Replay + Turn WAL"]
   PROJECTION["Working Projection<br/>units.jsonl + working.md"]
   OPERATORS["Operator Surfaces<br/>CLI + Gateway + Extensions + Channels"]
 
-  AGENT --> BOUNDARY
-  BOUNDARY --> CONTRACT
-  CONTRACT --> DURABILITY
+  AGENT --> SPINE
+  SPINE --> POSTURE
+  POSTURE --> BOUNDARY
+  BOUNDARY --> DURABILITY
   DURABILITY --> PROJECTION
+  OPERATORS --> POSTURE
   OPERATORS --> BOUNDARY
   OPERATORS --> DURABILITY
 ```
+
+Current runtime shape:
+
+- `observe` posture keeps exploration on an advisory path instead of hard-blocking the model's thought process.
+- `reversible_mutate` issues mutation receipts and rollback anchors, then exposes rollback through `runtime.tools.rollbackLastMutation(...)`.
+- `commitment` routes effectful execution through `effect_commitment` proposals, receipts, and explicit approval decisions.
+- when no host `governancePort` authorizes a commitment effect, Brewva opens a replayable operator desk instead of silently permitting the action.
+- pending and approved commitment requests are rebuilt from tape after restart, so approval flow is replay-first rather than process-local.
 
 Implementation detail and system boundaries:
 
@@ -47,6 +60,8 @@ Implementation detail and system boundaries:
 - `docs/architecture/design-axioms.md`
 - `docs/architecture/control-and-data-flow.md`
 - `docs/reference/proposal-boundary.md`
+- `docs/reference/runtime.md`
+- `docs/reference/events.md`
 - `docs/journeys/working-projection.md`
 
 ## Package Surfaces

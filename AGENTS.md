@@ -35,8 +35,11 @@
 - Current runtime domain groups are `runtime.skills.*`, `runtime.proposals.*`, `runtime.context.*`, `runtime.tools.*`, `runtime.task.*`, `runtime.truth.*`, `runtime.ledger.*`, `runtime.schedule.*`, `runtime.turnWal.*`, `runtime.events.*`, `runtime.verification.*`, `runtime.cost.*`, and `runtime.session.*`.
 - Integration direction is async-first; do not add parallel sync facade APIs.
 - Preserve the current security, event-level, and fail-fast config semantics described in `packages/brewva-runtime/src/types.ts`, `packages/brewva-runtime/src/security/mode.ts`, and `docs/reference/configuration.md`.
+- Preserve the current runtime execution shape: shared invocation spine first, then posture policy (`observe`, `reversible_mutate`, `commitment`), then receipt-bearing effect authorization or rollback.
 - Preserve the current context model: deterministic single-path injection, explicit context source labels, working-only projection, deterministic `skill_routing_selection` telemetry, and WAL-based turn durability/recovery.
 - Keep `governancePort` governance-only and do not re-expose removed internal tuning knobs unless they represent a clear user-facing decision boundary.
+- Keep commitment flows replay-first: `effect_commitment` proposals, operator-desk approval events, and explicit resume via `effectCommitmentRequestId` are the source of truth, not process-local approval state.
+- Keep reversible mutation flows receipt-based: `reversible_mutate` must continue producing rollback/journal artifacts and remain recoverable through `runtime.tools.rollbackLastMutation(...)`.
 
 ### Build Baseline
 
@@ -77,9 +80,10 @@
 - Runtime API and contracts: `packages/brewva-runtime/src/runtime.ts`, `packages/brewva-runtime/src/types.ts`
 - Runtime config and semantics: `packages/brewva-runtime/src/config/defaults.ts`, `packages/brewva-runtime/src/config/normalize.ts`, `packages/brewva-runtime/src/security/mode.ts`, `packages/brewva-runtime/src/services/event-pipeline.ts`
 - Runtime context and durability: `packages/brewva-runtime/src/context/arena.ts`, `packages/brewva-runtime/src/context/injection-orchestrator.ts`, `packages/brewva-runtime/src/services/context*.ts`, `packages/brewva-runtime/src/channels/turn-wal*.ts`, `packages/brewva-runtime/src/governance/port.ts`
+- Runtime posture / authorization / rollback: `packages/brewva-runtime/src/services/tool-gate.ts`, `packages/brewva-runtime/src/services/effect-commitment-desk.ts`, `packages/brewva-runtime/src/services/reversible-mutation.ts`, `packages/brewva-runtime/src/services/mutation-rollback.ts`, `packages/brewva-runtime/src/services/exploration-supervisor.ts`, `packages/brewva-runtime/src/services/task-watchdog-service.ts`
 - Package entrypoints: `packages/brewva-deliberation/src/index.ts`, `packages/brewva-skill-broker/src/index.ts`, `packages/brewva-tools/src/index.ts`, `packages/brewva-gateway/src/runtime-plugins/index.ts`, `packages/brewva-gateway/src/runtime-plugins/debug-loop.ts`, `packages/brewva-gateway/src/channels/host.ts`, `packages/brewva-gateway/src/host/create-hosted-session.ts`, `packages/brewva-ingress/src/index.ts`, `packages/brewva-cli/src/index.ts`, `packages/brewva-gateway/src`
 - Verification and release tooling: `script/verify-dist.ts`, `script/build-binaries.ts`, `distribution/worker`, `.github/workflows/ci.yml`
-- Reference docs: `docs/index.md`, `docs/architecture/system-architecture.md`, `docs/reference/*.md`, `docs/research/README.md`
+- Reference docs: `docs/index.md`, `docs/architecture/system-architecture.md`, `docs/reference/runtime.md`, `docs/reference/proposal-boundary.md`, `docs/reference/events.md`, `docs/reference/*.md`, `docs/research/README.md`
 
 ## Anti-Patterns
 

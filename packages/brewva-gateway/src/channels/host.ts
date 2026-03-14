@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import { TelegramWebhookTransport } from "@brewva/brewva-channels-telegram";
 import { createTelegramIngressServer, type TelegramIngressAuth } from "@brewva/brewva-ingress";
-import { BrewvaRuntime } from "@brewva/brewva-runtime";
+import { BrewvaRuntime, createTrustedLocalGovernancePort } from "@brewva/brewva-runtime";
 import {
   type ChannelTurnBridge,
   TurnWALRecovery,
@@ -877,6 +877,7 @@ export async function runChannelMode(options: RunChannelModeOptions): Promise<vo
     cwd: options.cwd,
     configPath: options.configPath,
     agentId: options.agentId,
+    governancePort: createTrustedLocalGovernancePort(),
   });
   options.onRuntimeReady?.(runtime);
 

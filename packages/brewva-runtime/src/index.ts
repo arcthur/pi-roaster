@@ -32,6 +32,7 @@ export * from "./context/runtime-status.js";
 export * from "./context/tool-failures.js";
 export * from "./context/usage.js";
 export * from "./governance/port.js";
+export * from "./governance/trusted-local-port.js";
 export * from "./governance/tool-governance.js";
 export * from "./events/store.js";
 export * from "./events/event-types.js";

@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path";
 import {
   BrewvaRuntime,
+  createTrustedLocalGovernancePort,
   recordAssistantUsageFromMessage,
   resolveBrewvaAgentDir,
   type CreateBrewvaSessionOptions as RuntimeCreateBrewvaSessionOptions,
@@ -166,6 +167,7 @@ export async function createHostedSession(
       configPath: options.configPath,
       config: undefined,
       agentId: options.agentId,
+      governancePort: createTrustedLocalGovernancePort(),
     });
 
   const hasRoutingOverride = Boolean(options.routingScopes && options.routingScopes.length > 0);

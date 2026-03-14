@@ -19,7 +19,7 @@ function startAndFinishTool(input: {
   channelSuccess?: boolean;
   verdict?: "pass" | "fail" | "inconclusive";
   outputText?: string;
-}): { allowed: boolean; reason?: string } {
+}): { allowed: boolean; reason?: string; advisory?: string; posture?: string } {
   const started = input.runtime.tools.start({
     sessionId: input.sessionId,
     toolCallId: input.toolCallId,
@@ -43,7 +43,7 @@ function startAndFinishTool(input: {
 }
 
 describe("scan convergence service", () => {
-  test("arms after repeated scan-only turns and blocks subsequent low-signal tools", () => {
+  test("arms after repeated scan-only turns and advises subsequent observe tools instead of blocking", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-"));
     const runtime = createRuntime(workspace);
     const sessionId = "scan-runtime-1";
@@ -64,29 +64,31 @@ describe("scan convergence service", () => {
       runtime.context.onTurnEnd(sessionId);
     }
 
-    const blocker = runtime.task
-      .getState(sessionId)
-      .blockers.find((entry) => entry.id === "guard:scan-convergence");
-    expect(blocker?.source).toBe("runtime.scan_convergence");
+    expect(
+      runtime.task
+        .getState(sessionId)
+        .blockers.find((entry) => entry.id === "guard:scan-convergence"),
+    ).toBeUndefined();
 
     runtime.context.onTurnStart(sessionId, 4);
-    const blocked = runtime.tools.start({
+    const advised = runtime.tools.start({
       sessionId,
-      toolCallId: "tc-look-at-blocked",
+      toolCallId: "tc-look-at-advised",
       toolName: "look_at",
       args: { goal: "find the runtime facade" },
     });
-    expect(blocked.allowed).toBe(false);
-    expect(blocked.reason).toContain("Stop low-signal investigation");
+    expect(advised.allowed).toBe(true);
+    expect(advised.advisory).toContain("[ExplorationAdvisory]");
+    expect(advised.posture).toBe("observe");
 
-    const blockedEvent = runtime.events.query(sessionId, {
-      type: "scan_convergence_blocked_tool",
+    const advisoryEvent = runtime.events.query(sessionId, {
+      type: "scan_convergence_advisory",
       last: 1,
     })[0];
-    expect(blockedEvent?.payload?.toolStrategy).toBe("low_signal");
+    expect(advisoryEvent?.payload?.toolStrategy).toBe("low_signal");
   });
 
-  test("rehydrates armed state after restart and clears it on fresh user input", () => {
+  test("rehydrates armed advisory state after restart and clears it on fresh user input", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-restart-"));
     const sessionId = "scan-runtime-restart-1";
     const runtime = createRuntime(workspace);
@@ -107,13 +109,14 @@ describe("scan convergence service", () => {
     }
 
     const reloaded = createRuntime(workspace);
-    const blockedAfterRestart = reloaded.tools.start({
+    const advisedAfterRestart = reloaded.tools.start({
       sessionId,
       toolCallId: "tc-after-restart",
       toolName: "look_at",
       args: { goal: "inspect runtime" },
     });
-    expect(blockedAfterRestart.allowed).toBe(false);
+    expect(advisedAfterRestart.allowed).toBe(true);
+    expect(advisedAfterRestart.advisory).toContain("[ExplorationAdvisory]");
 
     reloaded.context.onUserInput(sessionId);
     reloaded.context.onTurnStart(sessionId, 4);
@@ -124,65 +127,16 @@ describe("scan convergence service", () => {
       args: { file_path: "src/fresh.ts" },
     });
     expect(allowedAfterInput.allowed).toBe(true);
+    expect(allowedAfterInput.advisory).toBeUndefined();
 
     const reset = reloaded.events.query(sessionId, {
       type: "scan_convergence_reset",
       last: 1,
     })[0];
     expect(reset?.payload?.reason).toBe("input_reset");
-    expect(
-      reloaded.task
-        .getState(sessionId)
-        .blockers.find((entry) => entry.id === "guard:scan-convergence"),
-    ).toBeUndefined();
   });
 
-  test("successful evidence reuse alone does not reset the guard inside the same request", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-reset-"));
-    const runtime = createRuntime(workspace);
-    const sessionId = "scan-runtime-reset-1";
-
-    runtime.context.onUserInput(sessionId);
-
-    for (let turn = 1; turn <= 3; turn += 1) {
-      runtime.context.onTurnStart(sessionId, turn);
-      startAndFinishTool({
-        runtime,
-        sessionId,
-        toolCallId: `tc-read-${turn}`,
-        toolName: "read",
-        args: { file_path: `src/reset-${turn}.ts` },
-      });
-      runtime.context.onTurnEnd(sessionId);
-    }
-
-    runtime.context.onTurnStart(sessionId, 4);
-    const evidenceReuse = startAndFinishTool({
-      runtime,
-      sessionId,
-      toolCallId: "tc-output-search",
-      toolName: "output_search",
-      args: { query: "runtime facade" },
-      outputText: "found prior evidence",
-    });
-    expect(evidenceReuse.allowed).toBe(true);
-
-    const rawScan = runtime.tools.start({
-      sessionId,
-      toolCallId: "tc-read-after-reset",
-      toolName: "read",
-      args: { file_path: "src/after-reset.ts" },
-    });
-    expect(rawScan.allowed).toBe(false);
-
-    const reset = runtime.events.query(sessionId, {
-      type: "scan_convergence_reset",
-      last: 1,
-    })[0];
-    expect(reset).toBeUndefined();
-  });
-
-  test("task mutations reset the guard after reviewing existing evidence", () => {
+  test("task mutations still clear an armed advisory as a strategy shift", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-progress-reset-"));
     const runtime = createRuntime(workspace);
     const sessionId = "scan-runtime-progress-reset-1";
@@ -202,16 +156,6 @@ describe("scan convergence service", () => {
     }
 
     runtime.context.onTurnStart(sessionId, 4);
-    const evidenceReuse = startAndFinishTool({
-      runtime,
-      sessionId,
-      toolCallId: "tc-output-search-progress",
-      toolName: "output_search",
-      args: { query: "runtime facade" },
-      outputText: "found prior evidence",
-    });
-    expect(evidenceReuse.allowed).toBe(true);
-
     const progress = startAndFinishTool({
       runtime,
       sessionId,
@@ -231,6 +175,7 @@ describe("scan convergence service", () => {
       args: { file_path: "src/after-progress.ts" },
     });
     expect(rawScan.allowed).toBe(true);
+    expect(rawScan.advisory).toBeUndefined();
 
     const reset = runtime.events.query(sessionId, {
       type: "scan_convergence_reset",
@@ -240,14 +185,14 @@ describe("scan convergence service", () => {
     expect(reset?.payload?.toolStrategy).toBe("progress");
   });
 
-  test("toc tools are classified as low-signal investigation and arm the guard", () => {
+  test("toc_document arms the advisory path after repeated low-signal investigation turns", () => {
     const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-toc-"));
     const runtime = createRuntime(workspace);
     const sessionId = "scan-runtime-toc-1";
 
     runtime.context.onUserInput(sessionId);
 
-    for (let turn = 1; turn <= 6; turn += 1) {
+    for (let turn = 1; turn <= 8; turn += 1) {
       runtime.context.onTurnStart(sessionId, turn);
       const started = startAndFinishTool({
         runtime,
@@ -261,252 +206,20 @@ describe("scan convergence service", () => {
       runtime.context.onTurnEnd(sessionId);
     }
 
-    runtime.context.onTurnStart(sessionId, 7);
-    const blocked = runtime.tools.start({
+    runtime.context.onTurnStart(sessionId, 9);
+    const advised = runtime.tools.start({
       sessionId,
-      toolCallId: "tc-toc-search-blocked",
+      toolCallId: "tc-toc-search-advised",
       toolName: "toc_search",
       args: { query: "runtime facade" },
     });
-    expect(blocked.allowed).toBe(false);
-    expect(blocked.reason).toContain("Stop low-signal investigation");
+    expect(advised.allowed).toBe(true);
+    expect(advised.advisory).toContain("[ExplorationAdvisory]");
 
-    const blockedEvent = runtime.events.query(sessionId, {
-      type: "scan_convergence_blocked_tool",
+    const armedEvent = runtime.events.query(sessionId, {
+      type: "scan_convergence_armed",
       last: 1,
     })[0];
-    expect(blockedEvent?.payload?.toolStrategy).toBe("low_signal");
-  });
-
-  test("obs_query is classified as evidence reuse and does not clear the guard by itself", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-obs-query-"));
-    const runtime = createRuntime(workspace);
-    const sessionId = "scan-runtime-obs-query-1";
-
-    runtime.context.onUserInput(sessionId);
-
-    for (let turn = 1; turn <= 3; turn += 1) {
-      runtime.context.onTurnStart(sessionId, turn);
-      startAndFinishTool({
-        runtime,
-        sessionId,
-        toolCallId: `tc-read-obs-${turn}`,
-        toolName: "read",
-        args: { file_path: `src/obs-${turn}.ts` },
-      });
-      runtime.context.onTurnEnd(sessionId);
-    }
-
-    runtime.context.onTurnStart(sessionId, 4);
-    const evidenceReuse = startAndFinishTool({
-      runtime,
-      sessionId,
-      toolCallId: "tc-obs-query",
-      toolName: "obs_query",
-      args: { types: ["tool_result_recorded"], metric: "rawTokens", aggregation: "p95" },
-      outputText: "[ObsQuery]\nmatch_count: 1",
-    });
-    expect(evidenceReuse.allowed).toBe(true);
-
-    const rawScan = runtime.tools.start({
-      sessionId,
-      toolCallId: "tc-read-after-obs-query",
-      toolName: "read",
-      args: { file_path: "src/after-obs-query.ts" },
-    });
-    expect(rawScan.allowed).toBe(false);
-
-    const reset = runtime.events.query(sessionId, {
-      type: "scan_convergence_reset",
-      last: 1,
-    })[0];
-    expect(reset).toBeUndefined();
-  });
-
-  test("session_compact does not clear an armed guard", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-compact-"));
-    const runtime = createRuntime(workspace);
-    const sessionId = "scan-runtime-compact-1";
-
-    runtime.context.onUserInput(sessionId);
-
-    for (let turn = 1; turn <= 3; turn += 1) {
-      runtime.context.onTurnStart(sessionId, turn);
-      startAndFinishTool({
-        runtime,
-        sessionId,
-        toolCallId: `tc-read-compact-${turn}`,
-        toolName: "read",
-        args: { file_path: `src/compact-${turn}.ts` },
-      });
-      runtime.context.onTurnEnd(sessionId);
-    }
-
-    runtime.context.onTurnStart(sessionId, 4);
-    const compact = startAndFinishTool({
-      runtime,
-      sessionId,
-      toolCallId: "tc-session-compact",
-      toolName: "session_compact",
-      args: { reason: "high pressure" },
-      outputText: "Session compaction requested.",
-    });
-    expect(compact.allowed).toBe(true);
-
-    const rawScan = runtime.tools.start({
-      sessionId,
-      toolCallId: "tc-read-after-compact",
-      toolName: "read",
-      args: { file_path: "src/still-blocked.ts" },
-    });
-    expect(rawScan.allowed).toBe(false);
-
-    const reset = runtime.events.query(sessionId, {
-      type: "scan_convergence_reset",
-      last: 1,
-    })[0];
-    expect(reset).toBeUndefined();
-  });
-
-  test("non-pass evidence reuse does not clear the guard", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-non-pass-reset-"));
-    const runtime = createRuntime(workspace);
-    const sessionId = "scan-runtime-non-pass-reset-1";
-
-    runtime.context.onUserInput(sessionId);
-
-    for (let turn = 1; turn <= 3; turn += 1) {
-      runtime.context.onTurnStart(sessionId, turn);
-      startAndFinishTool({
-        runtime,
-        sessionId,
-        toolCallId: `tc-read-non-pass-${turn}`,
-        toolName: "read",
-        args: { file_path: `src/non-pass-${turn}.ts` },
-      });
-      runtime.context.onTurnEnd(sessionId);
-    }
-
-    runtime.context.onTurnStart(sessionId, 4);
-    const evidenceReuse = startAndFinishTool({
-      runtime,
-      sessionId,
-      toolCallId: "tc-output-search-inconclusive",
-      toolName: "output_search",
-      args: { query: "runtime facade" },
-      outputText: "Search throttled; no stable answer yet.",
-      verdict: "inconclusive",
-    });
-    expect(evidenceReuse.allowed).toBe(true);
-
-    const stillBlocked = runtime.tools.start({
-      sessionId,
-      toolCallId: "tc-read-still-blocked",
-      toolName: "read",
-      args: { file_path: "src/still-blocked.ts" },
-    });
-    expect(stillBlocked.allowed).toBe(false);
-
-    const reset = runtime.events.query(sessionId, {
-      type: "scan_convergence_reset",
-      last: 1,
-    })[0];
-    expect(reset).toBeUndefined();
-  });
-
-  test("skill_chain_control status does not clear an armed guard", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-status-"));
-    const runtime = createRuntime(workspace);
-    const sessionId = "scan-runtime-status-1";
-
-    runtime.context.onUserInput(sessionId);
-
-    for (let turn = 1; turn <= 3; turn += 1) {
-      runtime.context.onTurnStart(sessionId, turn);
-      startAndFinishTool({
-        runtime,
-        sessionId,
-        toolCallId: `tc-read-status-${turn}`,
-        toolName: "read",
-        args: { file_path: `src/status-${turn}.ts` },
-        outputText: "content",
-      });
-      runtime.context.onTurnEnd(sessionId);
-    }
-
-    runtime.context.onTurnStart(sessionId, 4);
-    const status = startAndFinishTool({
-      runtime,
-      sessionId,
-      toolCallId: "tc-skill-chain-status",
-      toolName: "skill_chain_control",
-      args: { action: "status" },
-      outputText: "# Skill Cascade\n- status: pending",
-    });
-    expect(status.allowed).toBe(true);
-
-    const blocked = runtime.tools.start({
-      sessionId,
-      toolCallId: "tc-read-after-status",
-      toolName: "read",
-      args: { file_path: "src/still-blocked.ts" },
-    });
-    expect(blocked.allowed).toBe(false);
-
-    const reset = runtime.events.query(sessionId, {
-      type: "scan_convergence_reset",
-      last: 1,
-    })[0];
-    expect(reset).toBeUndefined();
-  });
-
-  test("skill_chain_control start clears the guard as a strategy shift", () => {
-    const workspace = mkdtempSync(join(tmpdir(), "brewva-scan-runtime-start-"));
-    const runtime = createRuntime(workspace);
-    const sessionId = "scan-runtime-start-1";
-
-    runtime.context.onUserInput(sessionId);
-
-    for (let turn = 1; turn <= 3; turn += 1) {
-      runtime.context.onTurnStart(sessionId, turn);
-      startAndFinishTool({
-        runtime,
-        sessionId,
-        toolCallId: `tc-read-start-${turn}`,
-        toolName: "read",
-        args: { file_path: `src/start-${turn}.ts` },
-        outputText: "content",
-      });
-      runtime.context.onTurnEnd(sessionId);
-    }
-
-    runtime.context.onTurnStart(sessionId, 4);
-    const started = startAndFinishTool({
-      runtime,
-      sessionId,
-      toolCallId: "tc-skill-chain-start",
-      toolName: "skill_chain_control",
-      args: {
-        action: "start",
-        steps: [{ skill: "repository-analysis", produces: ["repository_snapshot"] }],
-      },
-      outputText: "# Skill Cascade\n- status: pending",
-    });
-    expect(started.allowed).toBe(true);
-
-    const rawScan = runtime.tools.start({
-      sessionId,
-      toolCallId: "tc-read-after-start",
-      toolName: "read",
-      args: { file_path: "src/after-start.ts" },
-    });
-    expect(rawScan.allowed).toBe(true);
-
-    const reset = runtime.events.query(sessionId, {
-      type: "scan_convergence_reset",
-      last: 1,
-    })[0];
-    expect(reset?.payload?.reason).toBe("strategy_shift");
-    expect(reset?.payload?.toolStrategy).toBe("progress");
+    expect(armedEvent?.payload?.reason).toBe("investigation_only_turns");
   });
 });

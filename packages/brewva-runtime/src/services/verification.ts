@@ -6,6 +6,7 @@ import { runShellCommand } from "../utils/exec.js";
 import type { VerificationGate } from "../verification/gate.js";
 import type { LedgerService } from "./ledger.js";
 import type { SkillLifecycleService } from "./skill-lifecycle.js";
+import type { TrustMeterService } from "./trust-meter.js";
 
 function compactText(value: string, maxChars = 800): string {
   const compact = value.replace(/\s+/g, " ").trim();
@@ -44,6 +45,7 @@ export interface VerificationServiceOptions {
   governancePort?: GovernancePort;
   skillLifecycleService: Pick<SkillLifecycleService, "getActiveSkill">;
   ledgerService: Pick<LedgerService, "recordToolResult">;
+  trustMeterService: TrustMeterService;
 }
 
 export interface VerifyCompletionOptions {
@@ -75,6 +77,7 @@ export class VerificationService {
     verdict?: "pass" | "fail" | "inconclusive";
     metadata?: Record<string, unknown>;
   }) => string;
+  private readonly trustMeter: TrustMeterService;
 
   constructor(options: VerificationServiceOptions) {
     this.cwd = options.cwd;
@@ -86,6 +89,7 @@ export class VerificationService {
       options.skillLifecycleService.getActiveSkill(sessionId)?.name;
     this.recordEvent = (input) => options.recordEvent(input);
     this.recordToolResult = (input) => options.ledgerService.recordToolResult(input);
+    this.trustMeter = options.trustMeterService;
   }
 
   async verifyCompletion(
@@ -256,6 +260,11 @@ export class VerificationService {
         commandsMissing,
         checkProvenance,
       },
+    });
+    this.trustMeter.observeVerificationOutcome({
+      sessionId,
+      outcome,
+      evidenceFreshness,
     });
   }
 

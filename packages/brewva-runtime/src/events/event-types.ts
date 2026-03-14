@@ -22,6 +22,21 @@ export const VERIFICATION_OUTCOME_RECORDED_EVENT_TYPE = "verification_outcome_re
 export const VERIFICATION_STATE_RESET_EVENT_TYPE = "verification_state_reset" as const;
 export const TASK_STUCK_DETECTED_EVENT_TYPE = "task_stuck_detected" as const;
 export const TASK_STUCK_CLEARED_EVENT_TYPE = "task_stuck_cleared" as const;
+export const TOOL_POSTURE_SELECTED_EVENT_TYPE = "tool_posture_selected" as const;
+export const REVERSIBLE_MUTATION_PREPARED_EVENT_TYPE = "reversible_mutation_prepared" as const;
+export const REVERSIBLE_MUTATION_RECORDED_EVENT_TYPE = "reversible_mutation_recorded" as const;
+export const REVERSIBLE_MUTATION_ROLLED_BACK_EVENT_TYPE =
+  "reversible_mutation_rolled_back" as const;
+export const EFFECT_COMMITMENT_APPROVAL_REQUESTED_EVENT_TYPE =
+  "effect_commitment_approval_requested" as const;
+export const EFFECT_COMMITMENT_APPROVAL_DECIDED_EVENT_TYPE =
+  "effect_commitment_approval_decided" as const;
+export const EFFECT_COMMITMENT_APPROVAL_CONSUMED_EVENT_TYPE =
+  "effect_commitment_approval_consumed" as const;
+export const SCAN_CONVERGENCE_ARMED_EVENT_TYPE = "scan_convergence_armed" as const;
+export const SCAN_CONVERGENCE_ADVISORY_EVENT_TYPE = "scan_convergence_advisory" as const;
+export const SCAN_CONVERGENCE_BLOCKED_EVENT_TYPE = "scan_convergence_blocked_tool" as const;
+export const SCAN_CONVERGENCE_RESET_EVENT_TYPE = "scan_convergence_reset" as const;
 export const DEBUG_LOOP_TRANSITION_EVENT_TYPE = "debug_loop_transition" as const;
 export const DEBUG_LOOP_FAILURE_CASE_PERSISTED_EVENT_TYPE =
   "debug_loop_failure_case_persisted" as const;
